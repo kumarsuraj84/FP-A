@@ -9,9 +9,9 @@ def test_registry_status_prints_unverified(capsys):
     out = capsys.readouterr().out
     assert "UNVERIFIED" in out and "physical=-" in out and "CONFIRMED" not in out.split("NOTE")[0]
 
-def test_oracle_commands_blocked_without_credentials(monkeypatch, capsys):
+def test_oracle_commands_blocked_without_credentials(monkeypatch, capsys, tmp_path):
     for k in ("ORACLE_DSN", "ORACLE_USER", "ORACLE_PASSWORD"): monkeypatch.delenv(k, raising=False)
-    monkeypatch.chdir("/tmp")
+    monkeypatch.chdir(tmp_path)
     assert cli.main(["oracle-check"]) == 2 and "BLOCKED" in capsys.readouterr().out
 
 def test_profile_source_refuses_unconfirmed_mapping(capsys):
