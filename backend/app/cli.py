@@ -33,10 +33,9 @@ OVERLAY = OUT_DIR / "registry_overlay.json"
 
 def redact(text: str, settings: Settings | None = None) -> str:
     s = settings or Settings()
-    for secret in filter(None, [s.oracle_password.get_secret_value() if s.oracle_password else None,
-                                s.oracle_user, s.oracle_dsn]):
+    for secret in sorted(s.secret_values(), key=len, reverse=True):
         text = text.replace(secret, "***")
-    return re.sub(r"(?i)(password|pwd)\s*=\s*\S+", r"\1=***", text)
+    return re.sub(r"(?i)\b(password|pwd|uid)\s*=\s*[^;\s]+", r"\1=***", text)
 
 
 def _registry():
@@ -49,7 +48,7 @@ def _ora(settings: Settings, factory=None):
     if factory:
         return factory()
     if not settings.oracle_configured:
-        print("BLOCKED: ORACLE_DSN/ORACLE_USER/ORACLE_PASSWORD not set (use a SELECT-only Oracle account)")
+        print("BLOCKED: no Oracle connection configured (set ORACLE_ODBC_DSN, or ORACLE_DSN/ORACLE_USER/ORACLE_PASSWORD; use a SELECT-only account)")
         return None
     from app.oracle.client import OracleReadOnly
     return OracleReadOnly(settings)
@@ -108,7 +107,16 @@ def _run(args, settings, ora_factory) -> int:
     if ora is None:
         return 2
     if args.cmd == "oracle-check":
-        print(ora.query("SELECT 1 AS ok FROM dual")); return 0
+        print(f"driver={ora.driver if hasattr(ora, 'driver') else '?'}")
+        print(ora.query("SELECT 1 AS ok FROM dual"))
+        for label, q in (("user", "SELECT USER AS v FROM dual"),
+                         ("version", "SELECT banner AS v FROM v$version WHERE ROWNUM = 1"),
+                         ("utc_now", "SELECT TO_CHAR(SYS_EXTRACT_UTC(SYSTIMESTAMP), 'YYYY-MM-DD HH24:MI:SS') AS v FROM dual")):
+            try:
+                print(f"{label}: {ora.query(q)[0]['V']}")
+            except Exception as e:   # v$version may not be granted; not an error
+                print(f"{label}: unavailable ({type(e).__name__})")
+        return 0
     from app.discovery import cube_registry as cr, definitions, profiler
     if args.cmd == "discover-cube-registry":
         loc = cr.locate_list(ora)

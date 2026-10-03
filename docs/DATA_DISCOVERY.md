@@ -4,7 +4,10 @@
 ## Principles
 Low load, metadata first, no guessed names, labelled output (CONFIRMED / UNVERIFIED / BLOCKED), no secrets in output (`redact`), generated JSON goes to git-ignored `reports/generated/`.
 
-## Commands (run from `backend/` with `.env` or env vars: ORACLE_DSN, ORACLE_USER, ORACLE_PASSWORD — SELECT-only account)
+## Connectivity
+Two drivers, one guarded client (`app/oracle/client.py`). **ODBC** (matches the existing CityKart extraction app; `pip install -e ".[dev,odbc]"`): set `ORACLE_ODBC_DSN=<Windows DSN name>` in `backend/.env` (plus `ORACLE_USER`/`ORACLE_PASSWORD` only if the DSN doesn't store them; or `ORACLE_ODBC_CONNECTION_STRING`). The Python bitness (64-bit) must match the ODBC driver/DSN bitness. **oracledb thin**: `ORACLE_DSN` + user + password. Named binds are converted to positional `?` for ODBC (strict: missing/unused binds raise). Rows come back with upper-case keys on both drivers. `oracle-check` prints driver, `USER`, `v$version` banner (if granted) and UTC time.
+
+## Commands (run from `backend/`; SELECT-only account)
 ```
 python -m app.cli registry-status
 python -m app.cli oracle-check

@@ -11,3 +11,4 @@ D-1 Registry-driven source selection; three-layer double-count guard. D-2 Zero-t
 **D-16** Mapping evidence is structured (artifact path+sha256, row index+snapshot, physical identity, who/when) with an honest MACHINE_VERIFIED vs OPERATOR_CONFIRMED distinction.
 **D-17** Source identity = owner / object NAME / copy id / discriminator column / discriminator value / row key, `''` sentinel for none; `display_name` is a label only. Chosen over a combined string so staging, facts and tombstone scopes share one definition.
 **D-18** `btree_gist` is an admin bootstrap prerequisite (`bootstrap_admin.sql`); `schema.sql` fails fast if missing and never creates extensions. Overlap constraint retained.
+**D-19** Oracle connectivity supports ODBC (pyodbc, the existing CityKart extraction pattern) as well as oracledb thin, behind the same read-only guard; ODBC bind conversion is strict and tested without a database.
