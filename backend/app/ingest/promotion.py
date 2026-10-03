@@ -39,10 +39,15 @@ class FactStore:
     facts: dict = field(default_factory=dict)  # identity -> {hash,payload,batch_id,deleted}
 
     def promote(self, batch_id: str, items: list[tuple[SourceRowIdentity, dict]], *, full_refresh_scope: tuple | None = None) -> dict:
-        """full_refresh_scope = (source_system, owner, physical_object, copy_id) when this batch is a
-        complete extract of that physical source; rows of that scope not in the batch are tombstoned."""
+        """full_refresh_scope = SourceRowIdentity.scope / identity.scope_of(entry) when this batch is a
+        complete extract of that ONE physical source; rows of that scope not in the batch are tombstoned.
+        Every item in the batch must belong to that scope."""
         res = {"inserted": 0, "updated": 0, "unchanged": 0, "tombstoned": 0, "revived": 0}
         seen = set()
+        if full_refresh_scope:
+            stray = [i for i, _ in items if i.scope != tuple(full_refresh_scope)]
+            if stray:
+                raise ValueError(f"full-refresh batch contains rows outside its scope: {stray[0]}")
         for i, payload in items:
             if i in seen:
                 raise ValueError(f"duplicate source-row identity within one batch: {i}")
@@ -59,7 +64,7 @@ class FactStore:
                 cur.update(hash=h, payload=payload, batch_id=batch_id, deleted=False)
         if full_refresh_scope:
             for i, cur in self.facts.items():
-                if (i.source_system, i.source_owner, i.physical_object, i.copy_id) == full_refresh_scope \
+                if i.scope == tuple(full_refresh_scope) \
                         and i not in seen and not cur["deleted"]:
                     cur["deleted"] = True; res["tombstoned"] += 1
         return res

@@ -36,7 +36,7 @@ class PhysicalObject:
         if self.access_mode not in (SEPARATE_OBJECT, SHARED_DISCRIMINATOR):
             raise ValueError(f"bad access_mode {self.access_mode}")
         if self.access_mode == SHARED_DISCRIMINATOR:
-            if not (self.discriminator_column and self.discriminator_value is not None):
+            if not (self.discriminator_column and self.discriminator_value):
                 raise ValueError("SHARED_DISCRIMINATOR needs discriminator column+value")
             ident(self.discriminator_column)
         elif self.discriminator_column or self.discriminator_value:
@@ -47,8 +47,10 @@ class PhysicalObject:
         return f"{quote(self.owner)}.{quote(self.object_name)}"
 
     @property
-    def identity(self) -> str:
-        """Stable provenance string: owner.object[#discriminator=value]."""
+    def display_name(self) -> str:
+        """HUMAN-READABLE label only (owner.object[#column=value]). Never used as a lineage key:
+        provenance stores owner / object name / discriminator column / discriminator value as
+        separate fields (see app/ingest/identity.py)."""
         base = f"{self.owner}.{self.object_name}"
         if self.access_mode == SHARED_DISCRIMINATOR:
             base += f"#{self.discriminator_column}={self.discriminator_value}"

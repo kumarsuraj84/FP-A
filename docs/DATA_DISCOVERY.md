@@ -9,7 +9,8 @@ Low load, metadata first, no guessed names, labelled output (CONFIRMED / UNVERIF
 python -m app.cli registry-status
 python -m app.cli oracle-check
 python -m app.cli discover-cube-registry
-python -m app.cli registry-confirm SITE_REG --copy 844 --object OWNER.NAME --evidence "OLAP_DATACUBE_LIST row <ref>"
+python -m app.cli registry-confirm SITE_REG --copy 844 --object OWNER.NAME \
+   --evidence-file reports/generated/cube_registry_discovery.json --evidence-row <N> [--access-mode shared --discriminator-column <C> --discriminator-value <V>]
 python -m app.cli discover-object SITE_REG --copy 844 [--object OWNER.NAME]          # metadata only
 python -m app.cli profile-source SITE_REG --copy 844 --mode light \
    --date-col <C> --debit-col <C> --credit-col <C> --distinct-col <C> [--sample-order-by <C>]
@@ -20,6 +21,9 @@ Column-name flags are required because column names are UNVERIFIED; take them fr
 
 ## Oracle load pattern
 **oracle-check**: 1 trivial query. **discover-cube-registry**: ~3 metadata queries + 1 read of OLAP_DATACUBE_LIST (bounded to 5000 rows; one query, filtered across character columns if the list is large) + 1 `ALL_OBJECTS` lookup per hint. **discover-object**: 2 metadata queries, **0 table scans, 0 row reads**. **profile-source --mode light**: 2 metadata queries + *at most one* aggregate scan of the object (row count/min-max date/sums/distincts folded into one statement, only if requested) + one bounded sample (`FETCH FIRST n`; unordered unless `--sample-order-by`, since ordering forces a sort). With no aggregate flags light mode does no full scan. **deep**: light + `ceil(columns/100)` null-count scans (36 columns → 1 scan). **discover-definitions**: metadata only (`ALL_OBJECTS`, `ALL_VIEWS`, `ALL_TAB_COLUMNS`). Row counts default to optimizer stats (`ALL_TABLES.NUM_ROWS`, may be stale/absent for views).
+
+## Recommended first live pass (controlled, in this order)
+1. `oracle-check` 2. `discover-cube-registry` (locate/read `OLAP_DATACUBE_LIST`) 3. `discover-definitions` (finance P&L objects) 4. resolve SITE_REG FY26-27 (`registry-confirm` with evidence) 5. `discover-object` (metadata only) 6. `profile-source --mode light` 7. compare findings with prior documentation and record discrepancies. No deep profiles until this looks safe; then GL → FINOTSD/outstanding → creditor structure → advances → cash/bank → approved P&L logic.
 
 ## Discovery agenda (answer from the database before involving Finance)
 1. Cube→object resolution via `OLAP_DATACUBE_LIST`; separate-object vs shared-discriminator; refresh dates; current/auto-refresh flags.

@@ -12,11 +12,14 @@ Oracle/Ginesys (read-only, source of truth) → discovery + ingestion (registry-
 A *logical* dataset (SITE_REG, GL_REG, MOP, OUTSTANDING) maps to a Ginesys *logical cube* (e.g. `CUBE$FINREGSITE`) with a *copy id*. The *physical* Oracle object (owner, name, type) and its addressing mode — **SEPARATE_OBJECT** (own table/view per copy) or **SHARED_DISCRIMINATOR** (shared object + column=value) — are separate fields, `NULL` until live metadata confirms them. Code obtains a table only through `SourceEntry.require_physical()`, which raises unless status is CONFIRMED. No physical name is ever built from a pattern.
 
 ## Identity
-- **Source-row identity** = (source_system, source_owner, physical object [+discriminator], copy_id, row_key). Used for ingestion idempotency only.
+- **Source-row identity** (ONE convention in Python, staging DDL, fact DDL, tombstone scope and tests): `source_system, source_owner, source_object` (physical object **name only**, e.g. `T$FINREGSITE_844` / `CUBE$BILLCOLL`), `source_copy_id`, `source_discriminator_column`, `source_discriminator_value`, `source_row_key`. The discriminator pair is `''`/`''` for a separate-object source (never NULL: Postgres UNIQUE treats NULLs as distinct) and both set for a shared source. `PhysicalObject.display_name` (`owner.object#col=value`) is a human label only, never a lineage key. A tombstone *scope* = every identity field except the row key.
 - **Canonical finance transaction identity** = UNKNOWN (to be derived from live discovery). Reserved column `canonical_txn_key`; no cross-copy dedupe exists or is permitted before it is defined.
 - Double-count guards: registry overlap check (code), GiST exclusion constraint (Postgres), source-identity UNIQUE on facts.
 
 ## Ingestion semantics
 Staging = append-only snapshot history (one row per source-row identity × extract batch; same batch resubmitted is a no-op). Promotion = deterministic idempotent upsert by source-row identity (row-hash change → update; unchanged → no-op; full-refresh scopes tombstone missing rows via `source_deleted_at`, revive if they return). Reference implementation + tests: `app/ingest/`.
+
+## PostgreSQL deployment expectation
+`btree_gist` (needed by the registry's no-double-coverage exclusion constraint) is installed **once by a DB admin** via `app/mart/bootstrap_admin.sql`. `schema.sql` never creates extensions, so the migration role needs no CREATE EXTENSION privilege; it fails fast with a clear error if the extension is missing. Suggested roles: `fpa_migrator` (DDL on `fin`), `fpa_app` (DML on `fin.*` only). The overlap constraint is kept.
 
 Auth/RBAC and `fin.config_audit` are architected, not implemented. Python ≥3.11 (sandbox 3.11), deploy on 3.12.

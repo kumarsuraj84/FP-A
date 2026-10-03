@@ -47,11 +47,11 @@ def test_confirmed_status_without_physical_still_blocked():
     with pytest.raises(PhysicalUnresolvedError): replace(e("844", "2026-04-01", "2027-03-31"), status="CONFIRMED").require_physical()
 def test_separate_object_architecture():
     p = PhysicalObject("MISRETAIL", "T$FINREGSITE_844", "TABLE")
-    assert p.qualified == '"MISRETAIL"."T$FINREGSITE_844"' and p.identity == "MISRETAIL.T$FINREGSITE_844"
+    assert p.qualified == '"MISRETAIL"."T$FINREGSITE_844"' and p.display_name == "MISRETAIL.T$FINREGSITE_844"
 def test_shared_object_architecture_needs_discriminator():
     with pytest.raises(ValueError): PhysicalObject("M", "T_ALL", "TABLE", SHARED_DISCRIMINATOR)
     p = PhysicalObject("M", "T_ALL", "TABLE", SHARED_DISCRIMINATOR, "CUBE_ID", "844")
-    assert p.identity == "M.T_ALL#CUBE_ID=844"
+    assert p.display_name == "M.T_ALL#CUBE_ID=844"
 def test_separate_object_rejects_discriminator():
     with pytest.raises(ValueError): PhysicalObject("M", "T", "TABLE", SEPARATE_OBJECT, "C", "1")
 def test_physical_names_validated():

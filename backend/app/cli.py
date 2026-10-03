@@ -9,15 +9,20 @@ never contain credentials):
                                        metadata only (columns + stats estimate), no table scan
   profile-source SOURCE --copy ID --mode light|deep [--date-col C --debit-col C --credit-col C ...]
   discover-definitions [--pattern P ...]   P&L-related view/table definitions (metadata only)
-  registry-confirm SOURCE --copy ID --object OWNER.NAME --evidence TEXT
+  registry-confirm SOURCE --copy ID --object OWNER.NAME --evidence-file F --evidence-row N
+                   [--access-mode separate|shared  (shared needs --discriminator-column and --discriminator-value)]
+                   evidence-file = a cube_registry_discovery.json produced by discover-cube-registry;
+                   evidence-row  = 0-based index into its list.rows. Result is MACHINE_VERIFIED or OPERATOR_CONFIRMED.
 """
 import argparse
 import json
+from datetime import datetime, timezone
 import re
 import sys
 from pathlib import Path
 
 from app.config import Settings
+from app.registry.models import SEPARATE_OBJECT, SHARED_DISCRIMINATOR
 from app.registry.resolver import apply_overlay, find, load_seed, validate_no_double_coverage
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -54,7 +59,11 @@ def _emit(name: str, data) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     p = OUT_DIR / f"{name}.json"
     p.write_text(json.dumps(data, indent=2, default=str))
-    print(f"wrote {p.relative_to(ROOT)} (git-ignored; do not commit)")
+    try:
+        shown = p.relative_to(ROOT)
+    except ValueError:
+        shown = p
+    print(f"wrote {shown} (git-ignored; do not commit)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -69,7 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sample", type=int, default=5); p.add_argument("--sample-order-by")
     f = sub.add_parser("discover-definitions"); f.add_argument("--pattern", action="append")
     c = sub.add_parser("registry-confirm"); c.add_argument("source"); c.add_argument("--copy", required=True)
-    c.add_argument("--object", required=True); c.add_argument("--evidence", required=True)
+    c.add_argument("--object", required=True); c.add_argument("--evidence-file", required=True)
+    c.add_argument("--evidence-row", type=int, required=True)
+    c.add_argument("--access-mode", choices=["separate", "shared"], default="separate")
+    c.add_argument("--discriminator-column"); c.add_argument("--discriminator-value")
+    c.add_argument("--confirmed-by", default="operator")
     return ap
 
 
@@ -99,7 +112,7 @@ def _run(args, settings, ora_factory) -> int:
     from app.discovery import cube_registry as cr, definitions, profiler
     if args.cmd == "discover-cube-registry":
         loc = cr.locate_list(ora)
-        out = {"located": loc, "label": "UNVERIFIED"}
+        out = {"located": loc, "label": "UNVERIFIED", "discovered_at": datetime.now(timezone.utc).isoformat()}
         if not loc:
             print("BLOCKED: OLAP_DATACUBE_LIST not visible to this account"); _emit("cube_registry_discovery", out); return 2
         first = loc[0]
@@ -129,9 +142,17 @@ def _run(args, settings, ora_factory) -> int:
         _emit(f"profile_{args.mode}_{t.name}", {"registry_key": entry.registry_key, **prof}); return 0
     if args.cmd == "registry-confirm":
         owner, _, name = args.object.partition(".")
-        rec = cr.confirm_mapping(ora, entry, owner.upper(), name.upper(), args.evidence)
+        mode = SHARED_DISCRIMINATOR if args.access_mode == "shared" else SEPARATE_OBJECT
+        rec = cr.confirm_mapping(ora, entry, owner.upper(), name.upper(), access_mode=mode,
+                                 discriminator_column=args.discriminator_column.upper() if args.discriminator_column else None,
+                                 discriminator_value=args.discriminator_value,
+                                 evidence_file=args.evidence_file, evidence_row=args.evidence_row, confirmed_by=args.confirmed_by)
         ov = json.loads(OVERLAY.read_text()) if OVERLAY.exists() else {}
-        ov[entry.registry_key] = rec; _emit("registry_overlay", ov); print(f"CONFIRMED {entry.registry_key} -> {owner}.{name}")
+        cr.assert_not_already_mapped(ov, entry.registry_key, rec["physical"])
+        ov[entry.registry_key] = rec; _emit("registry_overlay", ov)
+        print(f"CONFIRMED ({rec['evidence']['verification']}) {entry.registry_key} -> {owner.upper()}.{name.upper()} [{mode}]")
+        for n in rec["evidence"]["notes"]:
+            print(f"  note: {n}")
         return 0
     return 1
 

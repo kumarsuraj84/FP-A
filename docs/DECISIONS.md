@@ -7,3 +7,7 @@ D-1 Registry-driven source selection; three-layer double-count guard. D-2 Zero-t
 **D-12** Staging is append-only snapshot history; promotion is idempotent upsert with tombstones for full-refresh scopes.
 **D-13** Oracle read-only: SELECT-only grants are primary; SQL regex guard is secondary.
 **D-14** Finance questions are deferred until database evidence is exhausted.
+**D-15 (patch 2)** `registry-confirm` supports both architectures end to end; shared mode verifies the discriminator column in `ALL_TAB_COLUMNS`, never scans the object; overlay round-trips the mode.
+**D-16** Mapping evidence is structured (artifact path+sha256, row index+snapshot, physical identity, who/when) with an honest MACHINE_VERIFIED vs OPERATOR_CONFIRMED distinction.
+**D-17** Source identity = owner / object NAME / copy id / discriminator column / discriminator value / row key, `''` sentinel for none; `display_name` is a label only. Chosen over a combined string so staging, facts and tombstone scopes share one definition.
+**D-18** `btree_gist` is an admin bootstrap prerequisite (`bootstrap_admin.sql`); `schema.sql` fails fast if missing and never creates extensions. Overlap constraint retained.

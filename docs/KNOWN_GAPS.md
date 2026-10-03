@@ -13,3 +13,6 @@ Populated only with residue the data cannot settle, e.g. policy choices (ageing 
 
 ## Technical gaps
 Canonical transaction key unknown; ingestion jobs themselves (extract→stage→promote against real schemas) not written; auth/RBAC and config-audit triggers not implemented; no reconciliation evidence exists.
+
+## Added in patch 2
+MACHINE_VERIFIED relies on a generic cell-value match until OLAP_DATACUBE_LIST's real columns are known; expect most early confirmations to be OPERATOR_CONFIRMED and tighten the matcher after the first live read. Which cubes are shared vs separate-object is unknown.

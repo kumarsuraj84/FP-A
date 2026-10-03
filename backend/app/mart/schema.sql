@@ -1,5 +1,13 @@
 -- PROPOSED finance mart (PostgreSQL). Column names for source fields are UNVERIFIED
 -- until DATA_DISCOVERY is run against live Oracle. Lineage columns are mandatory.
+-- PREREQUISITE (admin, once): bootstrap_admin.sql installs btree_gist. This file never creates extensions
+-- so it can run under an unprivileged migration role; it fails fast if the prerequisite is missing.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'btree_gist') THEN
+    RAISE EXCEPTION 'btree_gist extension missing: run bootstrap_admin.sql as a database admin first';
+  END IF;
+END $$;
+
 CREATE SCHEMA IF NOT EXISTS fin;
 
 CREATE TABLE fin.finance_source_registry (
@@ -15,8 +23,7 @@ CREATE TABLE fin.finance_source_registry (
   CHECK (status <> 'CONFIRMED' OR (physical_owner IS NOT NULL AND physical_object IS NOT NULL)),
   CHECK (date_from <= date_to)
 );
--- DB-level double-coverage safeguard: no two authoritative live sources of one type may overlap.
-CREATE EXTENSION IF NOT EXISTS btree_gist;
+-- DB-level double-coverage safeguard (needs btree_gist, see PREREQUISITE): no two authoritative live sources of one type may overlap.
 ALTER TABLE fin.finance_source_registry ADD CONSTRAINT no_double_coverage
   EXCLUDE USING gist (source_type WITH =, daterange(date_from, date_to, '[]') WITH &&)
   WHERE (authoritative AND status <> 'RETIRED');
@@ -29,15 +36,21 @@ CREATE TABLE fin.config_audit (
 
 -- STAGING = append-only snapshot history. Identity of a source row = (system, owner, physical object, copy, row key).
 -- Same batch re-submitted -> no-op (ON CONFLICT DO NOTHING). Different batches of the same row are all retained.
+-- Source-row identity columns are IDENTICAL in staging and fact (see app/ingest/identity.py):
+--   source_object = physical object NAME only; discriminator column/value are '' (not NULL) when not used, because
+--   Postgres UNIQUE treats NULLs as distinct. Column and value are both '' or both set.
 CREATE TABLE fin.stg_finance_entry (
   stg_id BIGSERIAL PRIMARY KEY,
   source_system TEXT NOT NULL DEFAULT 'ORACLE_GINESYS',
-  source_owner TEXT NOT NULL, source_object TEXT NOT NULL,     -- source_object = PhysicalObject.identity
-  source_copy_id TEXT NOT NULL, source_financial_year TEXT,
+  source_owner TEXT NOT NULL, source_object TEXT NOT NULL, source_copy_id TEXT NOT NULL,
+  source_discriminator_column TEXT NOT NULL DEFAULT '', source_discriminator_value TEXT NOT NULL DEFAULT '',
+  source_financial_year TEXT,
   source_row_key TEXT NOT NULL,
   extract_batch_id UUID NOT NULL, extracted_at TIMESTAMPTZ NOT NULL, loaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   row_hash TEXT NOT NULL, payload JSONB NOT NULL,
-  UNIQUE (source_system, source_owner, source_object, source_copy_id, source_row_key, extract_batch_id)
+  CHECK ((source_discriminator_column = '') = (source_discriminator_value = '')),
+  UNIQUE (source_system, source_owner, source_object, source_copy_id,
+          source_discriminator_column, source_discriminator_value, source_row_key, extract_batch_id)
 );
 
 -- FACT = typed, ONE row per source-row identity (idempotent promotion: INSERT .. ON CONFLICT (identity) DO UPDATE
@@ -50,12 +63,15 @@ CREATE TABLE fin.fact_finance_entry (
   entry_date DATE NOT NULL, entry_type TEXT, narration TEXT,
   debit NUMERIC(20,2) NOT NULL DEFAULT 0, credit NUMERIC(20,2) NOT NULL DEFAULT 0,
   release_status TEXT,
-  source_system TEXT NOT NULL, source_owner TEXT NOT NULL, source_object TEXT NOT NULL,
-  source_copy_id TEXT NOT NULL, source_financial_year TEXT, source_row_key TEXT NOT NULL,
+  source_system TEXT NOT NULL, source_owner TEXT NOT NULL, source_object TEXT NOT NULL, source_copy_id TEXT NOT NULL,
+  source_discriminator_column TEXT NOT NULL DEFAULT '', source_discriminator_value TEXT NOT NULL DEFAULT '',
+  source_financial_year TEXT, source_row_key TEXT NOT NULL,
   row_hash TEXT NOT NULL, canonical_txn_key TEXT,
   extract_batch_id UUID NOT NULL, extracted_at TIMESTAMPTZ NOT NULL, loaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   source_deleted_at TIMESTAMPTZ,
-  UNIQUE (source_system, source_owner, source_object, source_copy_id, source_row_key)
+  CHECK ((source_discriminator_column = '') = (source_discriminator_value = '')),
+  UNIQUE (source_system, source_owner, source_object, source_copy_id,
+          source_discriminator_column, source_discriminator_value, source_row_key)
 );
 CREATE INDEX ON fin.fact_finance_entry (entry_date, site_code) WHERE source_deleted_at IS NULL;
 CREATE INDEX ON fin.fact_finance_entry (entry_glcode, entry_slcode) WHERE source_deleted_at IS NULL;
