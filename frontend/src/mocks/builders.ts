@@ -52,7 +52,7 @@ export function profitBridge(ctx: QueryCtx): Bridge {
     id: "profit",
     title: `Why is operating profit ${actual >= start ? "ahead of" : "behind"} ${cmp.short.toLowerCase()}?`,
     subtitle: `${per.label} · Operating profit / contribution · ${cmp.label}`,
-    unitNote: "₹ Cr · scale truncated to show movement",
+    unitNote: "₹ Cr · axis truncated for variance visibility",
     items,
   };
 }
@@ -87,7 +87,7 @@ export function cashBridge(ctx: QueryCtx): Bridge {
     id: "cash",
     title: "Where did cash come from, and where did it go?",
     subtitle: `${per.label} · Opening to closing cash`,
-    unitNote: "₹ Cr · scale truncated to show movement",
+    unitNote: "₹ Cr · axis truncated for variance visibility",
     items: [
       { id: "opening_cash", label: "Opening Cash", kind: "total", value: opening, tone: "neutral", family: "cash" },
       mk("op_earnings", "Operating Earnings", f.opEarnings, true, "cash"),
@@ -122,7 +122,7 @@ export function workingCapitalBridge(ctx: QueryCtx): Bridge {
     id: "workingCapital",
     title: "What moved net working capital?",
     subtitle: `${per.label} · Net working capital, opening to closing`,
-    unitNote: "₹ Cr · NWC increase = cash absorbed · scale truncated",
+    unitNote: "₹ Cr · NWC increase = cash absorbed · axis truncated for variance visibility",
     items: [
       { id: "opening_nwc", label: "Opening NWC", kind: "total", value: opening, tone: "neutral", family: "cash" },
       mk("inventory", "Inventory", nwc.inventory, "volume"),
@@ -165,7 +165,7 @@ export function buildPulse(ctx: QueryCtx): PulseMetric[] {
       tone: S.cash < S.cashMin + 8 ? "bad" : tone(cashMove),
       family: "cash",
       heroTab: "cash",
-      origin: { source: "pulse", id: "cash", label: "Cash", family: "cash", amount: S.cash, variance: cashMove },
+      origin: { source: "pulse", scope: "pulse", id: "cash", label: "Cash", family: "cash", amount: S.cash, variance: cashMove },
     },
     {
       id: "revenue",
@@ -179,7 +179,7 @@ export function buildPulse(ctx: QueryCtx): PulseMetric[] {
       tone: tone(revMove),
       family: "volume",
       heroTab: "profit",
-      origin: { source: "pulse", id: "revenue", label: "Revenue", family: "volume", amount: revenue, variance: revMove },
+      origin: { source: "pulse", scope: "pulse", id: "revenue", label: "Revenue", family: "volume", amount: revenue, variance: revMove },
     },
     {
       id: "gm",
@@ -193,7 +193,7 @@ export function buildPulse(ctx: QueryCtx): PulseMetric[] {
       tone: gmMove < -200 ? "bad" : gmMove < 0 ? "warn" : "good",
       family: "margin",
       heroTab: "profit",
-      origin: { source: "pulse", id: "gm", label: "Gross Margin Variance", family: "margin", amount: r2(S.deltas.gm * k * c), variance: r2(S.deltas.gm * k * c) },
+      origin: { source: "pulse", scope: "pulse", id: "gm", label: "Gross Margin Variance", family: "margin", amount: r2(S.deltas.gm * k * c), variance: r2(S.deltas.gm * k * c) },
     },
     {
       id: "profit",
@@ -207,7 +207,7 @@ export function buildPulse(ctx: QueryCtx): PulseMetric[] {
       tone: tone(profitMove),
       family: "margin",
       heroTab: "profit",
-      origin: { source: "pulse", id: "profit", label: "Operating Profit", family: "margin", amount: profit, variance: profitMove },
+      origin: { source: "pulse", scope: "pulse", id: "profit", label: "Operating Profit", family: "margin", amount: profit, variance: profitMove },
     },
     {
       id: "creditors",
@@ -221,7 +221,7 @@ export function buildPulse(ctx: QueryCtx): PulseMetric[] {
       tone: S.creditors181 > 30 ? "bad" : S.creditors181 > 15 ? "warn" : "neutral",
       family: "payables",
       heroTab: "workingCapital",
-      origin: { source: "pulse", id: "creditors", label: "Creditors", family: "payables", amount: S.creditors, variance: credMove },
+      origin: { source: "pulse", scope: "pulse", id: "creditors", label: "Creditors", family: "payables", amount: S.creditors, variance: credMove },
     },
     {
       id: "advances",
@@ -235,7 +235,7 @@ export function buildPulse(ctx: QueryCtx): PulseMetric[] {
       tone: S.adv90 > 8 ? "bad" : S.adv90 > 2 ? "warn" : "neutral",
       family: "advances",
       heroTab: "workingCapital",
-      origin: { source: "pulse", id: "vendor_advances", label: "Vendor Advances", family: "advances", amount: S.advances, variance: advMove },
+      origin: { source: "pulse", scope: "pulse", id: "vendor_advances", label: "Vendor Advances", family: "advances", amount: S.advances, variance: advMove },
     },
     {
       id: "unreconciled",
@@ -249,7 +249,7 @@ export function buildPulse(ctx: QueryCtx): PulseMetric[] {
       tone: S.unrec > 7.5 ? "bad" : "warn",
       family: "recon",
       heroTab: "cash",
-      origin: { source: "pulse", id: "unreconciled", label: "Unreconciled", family: "recon", amount: S.unrec, variance: unrecMove },
+      origin: { source: "pulse", scope: "pulse", id: "unreconciled", label: "Unreconciled", family: "recon", amount: S.unrec, variance: unrecMove },
     },
   ];
 }
@@ -356,7 +356,7 @@ export function buildRisks(ctx: QueryCtx): RiskPillar[] {
       diagnosticLabel: minHeadroom < 0 ? "Shortfall vs minimum" : "30-day low headroom",
       diagnosticValue: minHeadroom < 0 ? `₹${r2(-minHeadroom)} Cr` : `₹${minHeadroom} Cr`,
       family: "cash",
-      origin: { source: "risk", id: "liquidity", label: "Liquidity", family: "cash", amount: minHeadroom < 0 ? -r2(-minHeadroom) : S.cash, variance: r2(S.cashPlanDelta * c) },
+      origin: { source: "risk", scope: "risk", id: "liquidity", label: "Liquidity", family: "cash", amount: minHeadroom < 0 ? -r2(-minHeadroom) : S.cash, variance: r2(S.cashPlanDelta * c) },
     },
     {
       id: "gm",
@@ -367,7 +367,7 @@ export function buildRisks(ctx: QueryCtx): RiskPillar[] {
       diagnosticLabel: "Share from top 2 departments",
       diagnosticValue: `${S.gmTop2}%`,
       family: "margin",
-      origin: { source: "risk", id: "gm", label: "GM Variance", family: "margin", amount: -S.gmImpactEst, variance: -S.gmImpactEst },
+      origin: { source: "risk", scope: "risk", id: "gm", label: "GM Variance", family: "margin", amount: -S.gmImpactEst, variance: -S.gmImpactEst },
     },
     {
       id: "payables",
@@ -378,7 +378,7 @@ export function buildRisks(ctx: QueryCtx): RiskPillar[] {
       diagnosticLabel: "Oldest open balance",
       diagnosticValue: `${S.creditorsOldest} days`,
       family: "payables",
-      origin: { source: "risk", id: "creditors_181", label: "Payables Ageing", family: "payables", amount: S.creditors181, variance: r2(f.creditors) },
+      origin: { source: "risk", scope: "risk", id: "creditors_181", label: "Payables Ageing", family: "payables", amount: S.creditors181, variance: r2(f.creditors) },
     },
     {
       id: "advances",
@@ -389,7 +389,7 @@ export function buildRisks(ctx: QueryCtx): RiskPillar[] {
       diagnosticLabel: "Vendors with advances >90d",
       diagnosticValue: `${S.advVendors}`,
       family: "advances",
-      origin: { source: "risk", id: "advances_90", label: "Vendor Advances", family: "advances", amount: S.adv90, variance: S.advMtd },
+      origin: { source: "risk", scope: "risk", id: "advances_90", label: "Vendor Advances", family: "advances", amount: S.adv90, variance: S.advMtd },
     },
     {
       id: "recon",
@@ -400,7 +400,7 @@ export function buildRisks(ctx: QueryCtx): RiskPillar[] {
       diagnosticLabel: "Oldest unreconciled item",
       diagnosticValue: `${S.unrecOldest} days`,
       family: "recon",
-      origin: { source: "risk", id: "recon", label: "Reconciliation", family: "recon", amount: S.unrec, variance: S.unrecMtd },
+      origin: { source: "risk", scope: "risk", id: "recon", label: "Reconciliation", family: "recon", amount: S.unrec, variance: S.unrecMtd },
     },
   ];
 }
@@ -424,7 +424,7 @@ export function buildActions(ctx: QueryCtx): CfoAction[] {
       cta: `Review ${S.advVendors} Vendors`,
       severity: S.sev.advances,
       family: "advances",
-      origin: { source: "action", id: "advances_90", label: "Vendor Advances >90d", family: "advances", amount: S.adv90, variance: S.advMtd },
+      origin: { source: "action", scope: "action", id: "advances_90", label: "Vendor Advances >90d", family: "advances", amount: S.adv90, variance: S.advMtd },
     },
     {
       id: "gm_gap",
@@ -436,7 +436,7 @@ export function buildActions(ctx: QueryCtx): CfoAction[] {
       cta: "Diagnose Margin Gap",
       severity: S.sev.gm,
       family: "margin",
-      origin: { source: "action", id: "gm_gap", label: "GM Variance", family: "margin", amount: -S.gmImpactEst, variance: -S.gmImpactEst },
+      origin: { source: "action", scope: "action", id: "gm_gap", label: "GM Variance", family: "margin", amount: -S.gmImpactEst, variance: -S.gmImpactEst },
     },
     {
       id: "creditors_181",
@@ -448,7 +448,7 @@ export function buildActions(ctx: QueryCtx): CfoAction[] {
       cta: `Review ${S.creditors181Vendors} Vendors`,
       severity: S.sev.payables,
       family: "payables",
-      origin: { source: "action", id: "creditors_181", label: "Creditors >180d", family: "payables", amount: S.creditors181, variance: S.creditors181 },
+      origin: { source: "action", scope: "action", id: "creditors_181", label: "Creditors >180d", family: "payables", amount: S.creditors181, variance: S.creditors181 },
     },
     {
       id: "liquidity",
@@ -460,7 +460,7 @@ export function buildActions(ctx: QueryCtx): CfoAction[] {
       cta: "Open Liquidity Plan",
       severity: S.sev.liquidity,
       family: "cash",
-      origin: { source: "action", id: "liquidity", label: "Liquidity Obligations", family: "cash", amount: -(nextRun?.amount ?? 0), variance: -(nextRun?.amount ?? 0) },
+      origin: { source: "action", scope: "action", id: "liquidity", label: "Liquidity Obligations", family: "cash", amount: -(nextRun?.amount ?? 0), variance: -(nextRun?.amount ?? 0) },
     },
     {
       id: "recon",
@@ -472,7 +472,7 @@ export function buildActions(ctx: QueryCtx): CfoAction[] {
       cta: "Review Reconciliation Items",
       severity: S.sev.recon,
       family: "recon",
-      origin: { source: "action", id: "recon", label: "Unreconciled Items", family: "recon", amount: S.unrec, variance: S.unrecMtd },
+      origin: { source: "action", scope: "action", id: "recon", label: "Unreconciled Items", family: "recon", amount: S.unrec, variance: S.unrecMtd },
     },
   ];
   return all.map((a, i) => ({ a, i })).sort((x, y) => SEV_W[y.a.severity] - SEV_W[x.a.severity] || x.i - y.i).map((x) => x.a).slice(0, 4);
@@ -515,7 +515,7 @@ export function buildForecast(ctx: QueryCtx): ForecastTrajectory {
       id: "forecast",
       title: "Where are we landing, and why?",
       subtitle: "FY 2026-27 · Budget to latest forecast · cumulative operating profit",
-      unitNote: "₹ Cr · scale truncated to show movement",
+      unitNote: "₹ Cr · axis truncated for variance visibility",
       items: [
         { id: "budget_fy", label: "Budget FY Profit", kind: "total", value: S.fcBudgetFy, tone: "neutral", family: "forecast" },
         { id: "sales_risk", label: "Sales Risk", kind: "delta", value: S.fcSales, tone: tone(S.fcSales), family: "volume" },

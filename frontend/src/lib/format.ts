@@ -2,12 +2,12 @@ import type { MetricValue } from "@/types/cfo";
 
 export const DASH = "—";
 
-/** ₹ Crore with Indian-style compaction; below 1 Cr shows lakhs. */
+/** ₹ Crore with Indian-style compaction; below ₹0.10 Cr shows lakhs (so −0.84 Cr reads as −₹0.84 Cr, not 84 L). */
 export function fmtCr(v: number | null | undefined, opts: { signed?: boolean; plain?: boolean } = {}): string {
   if (v === null || v === undefined || Number.isNaN(v)) return DASH;
   const a = Math.abs(v);
   const sign = v < 0 ? "−" : opts.signed && v > 0 ? "+" : "";
-  const big = a >= 1 || a === 0;
+  const big = a >= 0.1 || a === 0;
   const num = big
     ? a.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : (a * 100).toLocaleString("en-IN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });

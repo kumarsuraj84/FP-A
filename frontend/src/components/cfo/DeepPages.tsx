@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Navigate } from "@tanstack/react-router";
+import { Navigate, useRouterState } from "@tanstack/react-router";
 import { ArrowLeft, FileCheck2, Paperclip } from "lucide-react";
 import { useLedger, useProfile, useVoucher } from "@/api/hooks";
 import { useCfo } from "@/context/CfoContext";
@@ -28,10 +28,16 @@ function PageFrame({ eyebrow, title, subtitle, children, right }: { eyebrow: str
   );
 }
 
-function useDeepNode(level: DrillNode["level"]) {
-  const { state, ready } = useCfo();
+const PAGE_PATH = { ledger: "/ledger", voucher: "/voucher", profile: "/profile" } as const;
+
+function useDeepNode(level: "ledger" | "voucher" | "profile") {
+  const { state, ready, resolving } = useCfo();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const node = state.nodes.find((n) => n.level === level) ?? null;
-  return { state, ready, node, missing: ready && (!state.origin || !node) };
+  // Redirect home only when this page is the one actually being shown. During browser Back the previous page
+  // can stay mounted for a frame after the URL moved on; it must not bounce the user to "/".
+  // Also wait for a shared / refreshed link to finish replaying before deciding there is no context.
+  return { state, ready, node, missing: ready && !resolving && pathname === PAGE_PATH[level] && (!state.origin || !node) };
 }
 
 const RECON_STYLE: Record<LedgerEntry["recon"], string> = {

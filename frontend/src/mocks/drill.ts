@@ -114,6 +114,50 @@ function candidatePool(dim: string, nodes: DrillNode[]): { name: string; sub?: s
   return pool.map((name) => ({ name }));
 }
 
+/**
+ * Showcase weights for the margin investigation so the demo story is material:
+ * Menswear leads (−0.84 of −1.42 Cr), North leads regions, Rohini leads North's stores.
+ * Weights sum to 1, so every split still reconciles exactly to its parent.
+ */
+const MARGIN_DEPT_WEIGHTS: Record<string, number> = {
+  Menswear: 0.84 / 1.42,
+  Womenswear: 0.29 / 1.42,
+  Kidswear: 0.18 / 1.42,
+  Footwear: 0.06 / 1.42,
+  Accessories: 0.03 / 1.42,
+  "Home & Living": 0.02 / 1.42,
+};
+const MARGIN_REGION_WEIGHTS: Record<string, number> = { North: 0.38, West: 0.27, South: 0.22, East: 0.13 };
+const NORTH_STORE_WEIGHTS: Record<string, number> = {
+  Rohini: 0.34,
+  "Karol Bagh": 0.22,
+  "Sector 18 Noida": 0.17,
+  "Gurugram MG Road": 0.13,
+  "Ludhiana Model Town": 0.08,
+  "Jaipur C-Scheme": 0.06,
+};
+
+function fixedWeights(origin: DrillOrigin, dim: string, nodes: DrillNode[], names: string[]): number[] | null {
+  if (origin.family !== "margin") return null;
+  let table: Record<string, number> | null = null;
+  if (dim === "Department") table = MARGIN_DEPT_WEIGHTS;
+  else if (dim === "Region") table = MARGIN_REGION_WEIGHTS;
+  else if (dim === "Store" && nodes.find((n) => n.dim === "Region")?.label === "North") table = NORTH_STORE_WEIGHTS;
+  if (!table || !names.every((n) => n in table!)) return null;
+  const w = names.map((n) => table![n]);
+  const s = w.reduce((a, b) => a + b, 0);
+  return w.map((x) => x / s);
+}
+
+/** Splits `total` by weights; 4dp rounding with the drift put on the largest part so parts sum exactly. */
+function weightedSplit(total: number, weights: number[]): number[] {
+  const parts = weights.map((w) => Math.round(total * w * 1e4) / 1e4);
+  const drift = Math.round((total - parts.reduce((a, b) => a + b, 0)) * 1e4) / 1e4;
+  const big = weights.indexOf(Math.max(...weights));
+  parts[big] = Math.round((parts[big] + drift) * 1e4) / 1e4;
+  return parts;
+}
+
 function buildSplit(
   ctx: QueryCtx,
   origin: DrillOrigin,
@@ -124,8 +168,9 @@ function buildSplit(
 ): DrillSplit {
   const cand = candidatePool(dim, nodes);
   const seed = seedKey(ctx, origin, nodes, dim);
-  const amounts = splitAmount(amount, cand.length, seed);
-  const vWeights = splitAmount(variance, cand.length, seed + "|v", 1.6);
+  const fixed = fixedWeights(origin, dim, nodes, cand.map((c) => c.name));
+  const amounts = fixed ? weightedSplit(amount, fixed) : splitAmount(amount, cand.length, seed);
+  const vWeights = fixed ? weightedSplit(variance, fixed) : splitAmount(variance, cand.length, seed + "|v", 1.6);
   const isDeltaOrigin = origin.source === "bridge" && origin.variance !== null && origin.amount === origin.variance;
   const rows: DrillRow[] = cand.map((c, i) => {
     const delta = isDeltaOrigin ? amounts[i] : vWeights[i];
@@ -146,8 +191,14 @@ function buildSplit(
     };
   });
   rows.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
-  const limit = dim === "Store" ? 5 : dim === "Vendor" ? 8 : rows.length;
-  return { dim, rows: rows.slice(0, limit) };
+  const regionFiltered = nodes.some((n) => n.dim === "Region");
+  const limit = dim === "Store" ? (regionFiltered ? rows.length : 5) : dim === "Vendor" ? 8 : rows.length;
+  const shown = rows.slice(0, limit);
+  const rest = rows.slice(limit);
+  const other = rest.length
+    ? { count: rest.length, amount: r4(rest.reduce((a, r) => a + r.amount, 0)), delta: r4(rest.reduce((a, r) => a + r.delta, 0)) }
+    : undefined;
+  return { dim, rows: shown, other };
 }
 
 const DRIVER_TEMPLATES: Record<Family, string[]> = {
@@ -178,7 +229,7 @@ function buildDrivers(ctx: QueryCtx, origin: DrillOrigin, nodes: DrillNode[], am
 
 function money(n: number): string {
   const a = Math.abs(n);
-  return a >= 1 ? `₹${a.toFixed(2)} Cr` : `₹${(a * 100).toFixed(1)} L`;
+  return a >= 0.1 ? `₹${a.toFixed(2)} Cr` : `₹${(a * 100).toFixed(1)} L`;
 }
 
 function explain(origin: DrillOrigin, label: string, amount: number, variance: number, top: DrillRow[], family: Family): string {

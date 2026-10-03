@@ -7,7 +7,7 @@ Demo data only. The banner reads **"Demo data — financial source reconciliatio
 ```bash
 npm install
 npm run dev          # http://localhost:5180 (pass --port 5180)
-npm test             # 40 tests (state machine, data contracts, UI journey)
+npm test             # 64 tests (state machine, URL state, data contracts, UI journey)
 npm run typecheck
 npm run build
 node scripts/screenshots.mjs   # regenerates docs/screenshots at 1920x1080 and 1440x900
@@ -26,7 +26,23 @@ node scripts/screenshots.mjs   # regenerates docs/screenshots at 1920x1080 and 1
 | Ledger | Full page `/ledger` | drawer terminal → "Open ledger" |
 | Voucher / evidence | Full page `/voucher` | ledger row |
 
-Breadcrumbs are clickable at every level. Period, comparison, scenario, data state and hero tab live outside the drill path, so going back never resets them. State is mirrored to `sessionStorage`.
+## Shareable investigation links
+
+The analytical state lives in the URL. Refreshing, copying the link, or opening it elsewhere restores the same investigation.
+
+```
+/?period=ytdfy27&compare=budget&scenario=normal&drill=hero:profit.gm_impact/Department:Menswear/Region:North/Store:Rohini
+/ledger?...&drill=hero:profit.gm_impact/Department:Menswear/Region:North/Store:Rohini/ledger
+/voucher?...&drill=.../ledger/voucher:JV-26-007429
+```
+
+- `period`, `compare`, `scenario` are always explicit; `tab`, `horizon`, `data` appear only when not default.
+- `drill` is `<scope>.<originId>` then one segment per node (`Dim:Label`, `ledger`, `profile`, `voucher:<id>`).
+- Amounts are not in the URL. A link is resolved by replaying the path through the API, so it always shows current numbers. If a step no longer exists (stale or edited link) the app lands on the command center with the same filters.
+- Each drill step pushes a history entry (browser Back unwinds it); filter changes replace the entry. `src/context/drillUrl.ts` holds the encode/decode/resolve logic; `CfoContext.tsx` keeps URL and state in sync with a canonical key so they cannot loop.
+- Verify in a real browser: `node scripts/url-e2e.mjs` (dev server on :5180).
+
+Breadcrumbs are clickable at every level. Period, comparison, scenario, data state and hero tab live outside the drill path, so going back never resets them. 
 
 ## Architecture
 

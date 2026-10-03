@@ -89,6 +89,8 @@ export interface DrillRow {
 export interface DrillSplit {
   dim: string;
   rows: DrillRow[];
+  /** remainder not listed as rows (long lists); keeps the visible total reconciling to the parent */
+  other?: { count: number; amount: number; delta: number };
 }
 
 export interface DrillView {

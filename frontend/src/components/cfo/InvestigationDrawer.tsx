@@ -111,6 +111,14 @@ function Body({ view, onOpen, onLedger, onProfile, stale }: { view: DrillView; o
             {split.rows.map((r) => (
               <RowButton key={r.node.id} row={r} onOpen={onOpen} showVar={showVar} />
             ))}
+            {split.other && (
+              <li data-testid="drill-other" className="flex items-center justify-between border-b bg-muted/40 px-4 py-2 text-[12px] text-muted-foreground">
+                <span>
+                  + {split.other.count} other {split.dim.toLowerCase()}s
+                </span>
+                <span className="num font-semibold">{fmtCr(split.other.amount)}</span>
+              </li>
+            )}
           </ul>
         </div>
       )}

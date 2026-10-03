@@ -10,6 +10,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { CfoProvider, useCfo } from "@/context/CfoContext";
 import { routeFor } from "@/context/cfoState";
+import { validateCfoSearch } from "@/context/drillUrl";
 import { AppShell } from "@/components/cfo/Shell";
 import { InvestigationDrawer } from "@/components/cfo/InvestigationDrawer";
 
@@ -42,6 +43,7 @@ function NotFoundComponent() {
 }
 
 export const Route = createRootRouteWithContext<RouterContext>()({
+  validateSearch: validateCfoSearch,
   head: () => ({
     meta: [
       { charSet: "utf-8" },

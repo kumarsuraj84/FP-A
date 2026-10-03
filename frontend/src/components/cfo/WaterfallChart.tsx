@@ -156,6 +156,9 @@ export function WaterfallChart({ items, selectedId, onSelect, height = 340, aria
           );
         })}
       </svg>
+      <div data-testid="axis-truncated" className="pointer-events-none absolute left-14 top-1 rounded-sm bg-[oklch(0.96_0.05_85)] px-1.5 py-0.5 text-[10.5px] font-medium text-[oklch(0.42_0.1_75)]">
+        Axis truncated for variance visibility
+      </div>
       {hovered && (
         <div
           role="tooltip"
