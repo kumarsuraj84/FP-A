@@ -100,3 +100,29 @@ def profile_deep(ora, t: Target, *, chunk: int = DEEP_NULL_CHUNK, **light_kwargs
     prof["null_rate"] = {c: ((total - n) / total if total else None) for c, n in counts.items()}
     prof["null_passes"] = math.ceil(len(names) / chunk) if names else 0
     return prof
+
+
+MAX_GROUPS = 100
+
+
+def profile_group(ora, t: Target, group_col: str, *, debit_col: str | None = None, credit_col: str | None = None,
+                  max_groups: int = MAX_GROUPS) -> dict:
+    """ONE aggregate scan: count (+ optional debit/credit sums) per value of ONE column. Bounded to
+    max_groups rows (fetches max_groups+1 to detect truncation). Group values are returned verbatim, so
+    only use low-cardinality code columns (e.g. release status), never narration/party columns."""
+    if not isinstance(group_col, str):
+        raise ValueError("exactly one group column is supported at this stage")
+    try:
+        g = quote(group_col)
+    except ValueError:
+        raise ValueError("exactly one safe group column name is supported at this stage")
+    where, binds = t.where()
+    sels = [f"{g} AS grp", "COUNT(*) AS n"]
+    if debit_col: sels.append(f"SUM({quote(debit_col)}) AS debit")
+    if credit_col: sels.append(f"SUM({quote(credit_col)}) AS credit")
+    limit = int(max_groups) + 1
+    rows = ora.query(f"SELECT {', '.join(sels)} FROM {t.qualified}{where} GROUP BY {g} "
+                     f"ORDER BY COUNT(*) DESC FETCH FIRST {limit} ROWS ONLY", binds)
+    truncated = len(rows) > max_groups
+    return {"object": f"{t.owner}.{t.name}", "group_column": group_col.upper(), "groups": rows[:max_groups],
+            "truncated": truncated, "profiled_at": datetime.now(timezone.utc).isoformat()}

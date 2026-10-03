@@ -18,6 +18,8 @@ The earlier session was a cloud container: no Oracle credentials, no route to th
 - CLI (`python -m app.cli`): `registry-status`, `oracle-check`, `discover-cube-registry`, `discover-definitions`, `registry-confirm`, `discover-object`, `profile-source --mode light|deep`. Outputs go to git-ignored `reports/generated/`; `.env` lives in `backend\` (see `.env.example`: `ORACLE_ODBC_DSN`, optional user/password).
 - Docs: ARCHITECTURE, FINANCE_SOURCE_REGISTRY, DATA_DISCOVERY, FINANCE_MART, RECONCILIATION, CFO_PRODUCT_SCOPE, KNOWN_GAPS, DECISIONS (D-1…D-19), STAGE1_REPORT.
 
+> **Update (tooling patch):** use `python -m app.cli discovery-run-01 --gate N` (see docs/DATA_DISCOVERY.md, Windows runbook) instead of running phases by hand; it implements Gates 1-5 below, adds `discover-keys`, `profile-group`, `registry-add`, and writes the shareable `reports/generated/LIVE_DISCOVERY_01_SUMMARY.json`.
+
 ## Task for the new session: controlled first live pass (user-approved prompt, abridged)
 Hard rules: SELECT-only; no DEEP profiling; no ingestion; no creditor/advance/cash/P&L/BS business logic; no frontend; no merge; no credentials or raw finance data in Git; stop if anything looks unsafe or heavy.
 - **A** `registry-status`, `oracle-check` (record driver, user, version, UTC time; never test read-only by writing).

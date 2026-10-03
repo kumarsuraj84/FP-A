@@ -3,6 +3,8 @@
 from app.discovery.profiler import table_metadata, Target
 
 DEFAULT_PATTERNS = ("V_FINANCE_P_AND_L_%", "T_FINANCE_P_AND_L_%", "T_FINANCE_RAJEEV_%")
+# Objects named in prior documentation (exact names; LIKE without wildcard = equality)
+CONTEXT_OBJECTS = ("V_FINANCE_CASH_CUMLATIVE_BLNC", "V_FINANCE_MOP_OUTPUT", "T_FINANCE_CREDIT_SETTLEMENT")
 
 
 def discover_definitions(ora, patterns=DEFAULT_PATTERNS, with_columns: bool = True) -> list[dict]:
@@ -17,6 +19,9 @@ def discover_definitions(ora, patterns=DEFAULT_PATTERNS, with_columns: bool = Tr
                 v = ora.query("SELECT text FROM all_views WHERE owner = :o AND view_name = :n",
                               {"o": o["OWNER"], "n": o["OBJECT_NAME"]})
                 rec["view_sql"] = v[0]["TEXT"] if v else None
+                rec["depends_on"] = ora.query("SELECT referenced_owner, referenced_name, referenced_type FROM all_dependencies "
+                                              "WHERE owner = :o AND name = :n AND type = 'VIEW' ORDER BY referenced_owner, referenced_name",
+                                              {"o": o["OWNER"], "n": o["OBJECT_NAME"]})
             if with_columns:
                 rec["columns"] = table_metadata(ora, Target(o["OWNER"], o["OBJECT_NAME"]))["columns"]
             out.append(rec)

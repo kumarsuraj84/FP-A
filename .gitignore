@@ -12,3 +12,9 @@ data/raw/
 reports/generated/
 *.csv
 *.xlsx
+LOCAL_ONLY_*
+LIVE_DISCOVERY_01_SUMMARY.json
+discovery_run_01_state.json
+local_entries.json
+registry_overlay.json
+!config/source_registry_seed.csv

@@ -94,3 +94,17 @@ def assert_not_already_mapped(overlay: dict, registry_key: str, physical: dict) 
         p = rec.get("physical") or {}
         if k != registry_key and (p.get("owner"), p.get("object_name"), p.get("discriminator_column"), p.get("discriminator_value")) == sig:
             raise ValueError(f"{k} already maps to the same physical source; refusing a second claim")
+
+
+def discover_cube_registry(ora, entries: list[SourceEntry]) -> tuple[dict, bool]:
+    """Returns (artifact, ok). ok is False when OLAP_DATACUBE_LIST is not visible."""
+    from datetime import datetime, timezone
+    loc = locate_list(ora)
+    out = {"located": loc, "label": "UNVERIFIED", "discovered_at": datetime.now(timezone.utc).isoformat()}
+    if not loc:
+        return out, False
+    first = loc[0]
+    owner, name = (first["OWNER"], first["OBJECT_NAME"]) if first["kind"] == "object" else (first["TABLE_OWNER"], first["TABLE_NAME"])
+    out["list"] = inspect_list(ora, owner, name)
+    out["hint_checks"] = check_hints(ora, entries)
+    return out, True

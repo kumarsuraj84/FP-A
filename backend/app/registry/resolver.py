@@ -77,3 +77,22 @@ def fy_of(d: date) -> str:
     """Indian FY, Apr-Mar. CONFIRMED by citykart data-model docs."""
     y = d.year if d.month >= 4 else d.year - 1
     return f"FY{y % 100:02d}-{(y + 1) % 100:02d}"
+
+
+def load_local_entries(path: str | Path) -> list[SourceEntry]:
+    """Operator-added entries (registry-add), local and git-ignored: sources the seed does not list
+    yet (e.g. OUTSTANDING). Always UNVERIFIED until registry-confirm."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    return [SourceEntry(source_type=r["source_type"], logical_cube_name=r["logical_cube_name"], copy_id=r["copy_id"],
+                        financial_year=r.get("financial_year"), date_from=date.fromisoformat(r["date_from"]),
+                        date_to=date.fromisoformat(r["date_to"]), is_current=bool(r.get("is_current")),
+                        is_auto_refresh=bool(r.get("is_auto_refresh")), status="UNVERIFIED", authoritative=True)
+            for r in json.loads(p.read_text())]
+
+
+def format_status(entries: list[SourceEntry]) -> list[str]:
+    return [f"{e.status:10} {e.registry_key:34} {e.financial_year or '-':8} "
+            f"physical={e.physical.display_name if e.physical else '-'} hint={e.physical_hint or '-'} "
+            f"authoritative={e.authoritative}" for e in entries]

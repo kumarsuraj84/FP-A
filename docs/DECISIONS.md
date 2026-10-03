@@ -12,3 +12,7 @@ D-1 Registry-driven source selection; three-layer double-count guard. D-2 Zero-t
 **D-17** Source identity = owner / object NAME / copy id / discriminator column / discriminator value / row key, `''` sentinel for none; `display_name` is a label only. Chosen over a combined string so staging, facts and tombstone scopes share one definition.
 **D-18** `btree_gist` is an admin bootstrap prerequisite (`bootstrap_admin.sql`); `schema.sql` fails fast if missing and never creates extensions. Overlap constraint retained.
 **D-19** Oracle connectivity supports ODBC (pyodbc, the existing CityKart extraction pattern) as well as oracledb thin, behind the same read-only guard; ODBC bind conversion is strict and tested without a database.
+**D-20** Execution model: live Oracle discovery runs on a CityKart-network PC; cloud Claude does code + GitHub only.
+**D-21** `discovery-run-01` is a gated orchestrator: one gate per invocation, no auto-confirmation, no DEEP mode, no ingestion; it regenerates a whitelist-built sanitized summary after every gate, and logs every query (text, kind, seconds; never bind values).
+**D-22** Key discovery is metadata-only and advisory (STRONG/WEAK/NO_METADATA_KEY); the final source_row_key is a human decision after review.
+**D-23** `profile-group`: exactly one dimension, one aggregate scan, max 100 groups; intended for code-like columns because group labels are returned verbatim.
