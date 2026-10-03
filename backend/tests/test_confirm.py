@@ -153,3 +153,12 @@ def test_cli_rejects_discriminator_in_separate_mode(tmp_path, monkeypatch, artif
 
 def test_cli_requires_structured_evidence(capsys):
     with pytest.raises(SystemExit): cli.main(["registry-confirm", "SITE_REG", "--copy", "844", "--object", "A.B", "--evidence", "free text"])
+
+def test_registry_status_renders_confirmed_shared_entry(tmp_path, monkeypatch, artifact, capsys):
+    entry = find(load_seed(SEED), "SITE_REG", "902")
+    rec = cr.confirm_mapping(MetaOra(OBJS, COLS), entry, "MISRETAIL", "CUBE$BILLCOLL", access_mode=SHARED_DISCRIMINATOR,
+                             discriminator_column="CUBENAME", discriminator_value="SYN_MOP", evidence_file=artifact, evidence_row=1)
+    ov = tmp_path / "registry_overlay.json"; ov.write_text(json.dumps({entry.registry_key: rec}))
+    monkeypatch.setattr(cli, "OVERLAY", ov)
+    assert cli.main(["registry-status"]) == 0
+    assert "physical=MISRETAIL.CUBE$BILLCOLL#CUBENAME=SYN_MOP" in capsys.readouterr().out

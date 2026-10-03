@@ -99,7 +99,7 @@ def _run(args, settings, ora_factory) -> int:
     entries = _registry()
     if args.cmd == "registry-status":
         for e in entries:
-            phys = e.physical.identity if e.physical else "-"
+            phys = e.physical.display_name if e.physical else "-"
             print(f"{e.status:10} {e.registry_key:34} {e.financial_year or '-':8} physical={phys} "
                   f"hint={e.physical_hint or '-'} authoritative={e.authoritative}")
         print("NOTE: UNVERIFIED rows carry no physical object; nothing may query them until CONFIRMED.")
