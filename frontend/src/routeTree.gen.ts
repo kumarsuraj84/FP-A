@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as VoucherRouteImport } from './routes/voucher'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as LedgerRouteImport } from './routes/ledger'
+import { Route as CreditorsRouteImport } from './routes/creditors'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as CreditorsVendorRouteImport } from './routes/creditors_.vendor'
 
 const VoucherRoute = VoucherRouteImport.update({
   id: '/voucher',
@@ -29,44 +31,81 @@ const LedgerRoute = LedgerRouteImport.update({
   path: '/ledger',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CreditorsRoute = CreditorsRouteImport.update({
+  id: '/creditors',
+  path: '/creditors',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CreditorsVendorRoute = CreditorsVendorRouteImport.update({
+  id: '/creditors_/vendor',
+  path: '/creditors/vendor',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/creditors': typeof CreditorsRoute
   '/ledger': typeof LedgerRoute
   '/profile': typeof ProfileRoute
   '/voucher': typeof VoucherRoute
+  '/creditors/vendor': typeof CreditorsVendorRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/creditors': typeof CreditorsRoute
   '/ledger': typeof LedgerRoute
   '/profile': typeof ProfileRoute
   '/voucher': typeof VoucherRoute
+  '/creditors/vendor': typeof CreditorsVendorRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/creditors': typeof CreditorsRoute
   '/ledger': typeof LedgerRoute
   '/profile': typeof ProfileRoute
   '/voucher': typeof VoucherRoute
+  '/creditors_/vendor': typeof CreditorsVendorRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/ledger' | '/profile' | '/voucher'
+  fullPaths:
+    | '/'
+    | '/creditors'
+    | '/ledger'
+    | '/profile'
+    | '/voucher'
+    | '/creditors/vendor'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/ledger' | '/profile' | '/voucher'
-  id: '__root__' | '/' | '/ledger' | '/profile' | '/voucher'
+  to:
+    | '/'
+    | '/creditors'
+    | '/ledger'
+    | '/profile'
+    | '/voucher'
+    | '/creditors/vendor'
+  id:
+    | '__root__'
+    | '/'
+    | '/creditors'
+    | '/ledger'
+    | '/profile'
+    | '/voucher'
+    | '/creditors_/vendor'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CreditorsRoute: typeof CreditorsRoute
   LedgerRoute: typeof LedgerRoute
   ProfileRoute: typeof ProfileRoute
   VoucherRoute: typeof VoucherRoute
+  CreditorsVendorRoute: typeof CreditorsVendorRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -92,6 +131,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LedgerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/creditors': {
+      id: '/creditors'
+      path: '/creditors'
+      fullPath: '/creditors'
+      preLoaderRoute: typeof CreditorsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -99,14 +145,23 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/creditors_/vendor': {
+      id: '/creditors_/vendor'
+      path: '/creditors/vendor'
+      fullPath: '/creditors/vendor'
+      preLoaderRoute: typeof CreditorsVendorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CreditorsRoute: CreditorsRoute,
   LedgerRoute: LedgerRoute,
   ProfileRoute: ProfileRoute,
   VoucherRoute: VoucherRoute,
+  CreditorsVendorRoute: CreditorsVendorRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

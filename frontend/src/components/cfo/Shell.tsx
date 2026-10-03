@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { ChevronRight, CircleDot, Landmark, LayoutDashboard, Lock, PiggyBank, Scale, Store, Truck, Wallet } from "lucide-react";
 import { useCfo } from "@/context/CfoContext";
 import { useFreshness } from "@/api/hooks";
@@ -100,7 +100,6 @@ export function TopBar() {
 }
 
 const FUTURE = [
-  { label: "Creditors Control", icon: Truck },
   { label: "Vendor Advances", icon: Wallet },
   { label: "Store Profitability", icon: Store },
   { label: "Reconciliation", icon: Scale },
@@ -109,17 +108,29 @@ const FUTURE = [
 ];
 
 export function SideNav() {
-  const { dispatch } = useCfo();
+  const { dispatch, enterCreditors } = useCfo();
+  const path = useRouterState({ select: (x) => x.location.pathname });
+  const inCreditors = path.startsWith("/creditors");
   return (
     <nav aria-label="Primary" className="hidden w-14 shrink-0 flex-col border-r bg-card py-3 md:flex min-[1700px]:w-[204px]">
       <Link
         to="/"
         onClick={() => dispatch({ type: "home" })}
         data-testid="nav-command-center"
-        title="Command Center" className="press mx-2 flex items-center justify-center gap-2 rounded bg-[oklch(0.95_0.025_265)] px-2.5 py-2 text-[13px] font-semibold text-[oklch(0.28_0.09_265)] min-[1700px]:justify-start"
-        aria-current="page"
+        title="Command Center" className={`press mx-2 flex items-center justify-center gap-2 rounded px-2.5 py-2 text-[13px] font-semibold min-[1700px]:justify-start ${inCreditors ? "text-muted-foreground hover:bg-muted hover:text-foreground" : "bg-[oklch(0.95_0.025_265)] text-[oklch(0.28_0.09_265)]"}`}
+        aria-current={inCreditors ? undefined : "page"}
       >
         <LayoutDashboard className="h-4 w-4 shrink-0" /> <span className="hidden min-[1700px]:inline">Command Center</span>
+      </Link>
+      <Link
+        to="/creditors"
+        onClick={() => enterCreditors()}
+        data-testid="nav-creditors"
+        title="Creditors Control"
+        aria-current={inCreditors ? "page" : undefined}
+        className={`press mx-2 mt-1 flex items-center justify-center gap-2 rounded px-2.5 py-2 text-[13px] font-semibold min-[1700px]:justify-start ${inCreditors ? "bg-[oklch(0.95_0.025_265)] text-[oklch(0.28_0.09_265)]" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+      >
+        <Truck className="h-4 w-4 shrink-0" /> <span className="hidden min-[1700px]:inline">Creditors Control</span>
       </Link>
       <div className="eyebrow mt-5 hidden px-4 min-[1700px]:block">Coming next</div>
       <ul className="mt-3 space-y-0.5 px-2 min-[1700px]:mt-1.5">

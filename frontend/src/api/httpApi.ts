@@ -43,5 +43,10 @@ export function createHttpApi(baseUrl: string): CfoApi {
     getLedger: (ctx, origin, nodes) => query("cfo/ledger", ctx, { origin, nodes }),
     getVoucher: (ctx, voucherId, amount) => get("cfo/voucher", ctx, { voucherId, amount }),
     getEntityProfile: (ctx, origin, nodes) => query("cfo/profile", ctx, { origin, nodes }),
+    getCreditors: (ctx) => get("cfo/creditors", ctx),
+    getAgeingMigration: (ctx) => get("cfo/creditors/migration", ctx),
+    getVendorConcentration: (ctx, filter) => get("cfo/creditors/concentration", ctx, { age: filter }),
+    getAbnormalBalances: (ctx) => get("cfo/creditors/abnormal", ctx),
+    getVendorProfile: (ctx, vendorId) => get("cfo/creditors/vendor", ctx, { vendorId }),
   };
 }

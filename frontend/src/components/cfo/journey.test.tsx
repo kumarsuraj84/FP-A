@@ -92,9 +92,9 @@ describe("CFO Command Center journey", () => {
 
   it("pulse metric opens its investigation and syncs the hero tab", async () => {
     mount();
-    fireEvent.click(await screen.findByTestId("pulse-creditors", {}, T));
+    fireEvent.click(await screen.findByTestId("pulse-advances", {}, T));
     const drawer = await screen.findByTestId("investigation-drawer", {}, T);
-    expect(await within(drawer).findByTestId("drawer-title", {}, T)).toHaveTextContent("Creditors");
+    expect(await within(drawer).findByTestId("drawer-title", {}, T)).toHaveTextContent("Vendor Advances");
     expect(screen.getByTestId("hero-tab-workingCapital")).toHaveAttribute("aria-selected", "true");
   });
 
@@ -102,8 +102,8 @@ describe("CFO Command Center journey", () => {
     mount();
     fireEvent.click(await screen.findByTestId("wc-row-inventory", {}, T));
     expect(await screen.findByTestId("investigation-drawer", {}, T)).toBeInTheDocument();
-    fireEvent.click(await screen.findByTestId("risk-payables", {}, T));
-    await waitFor(() => expect(within(screen.getByTestId("investigation-drawer")).getByTestId("drawer-title")).toHaveTextContent("Payables Ageing"), T);
+    fireEvent.click(await screen.findByTestId("risk-gm", {}, T));
+    await waitFor(() => expect(within(screen.getByTestId("investigation-drawer")).getByTestId("drawer-title")).toHaveTextContent("GM Variance"), T);
     fireEvent.click(await screen.findByTestId("action-cta-advances_90", {}, T));
     await waitFor(() => expect(within(screen.getByTestId("investigation-drawer")).getByTestId("drawer-title")).toHaveTextContent("Vendor Advances"), T);
   });
@@ -133,7 +133,7 @@ describe("CFO Command Center journey", () => {
     mount();
     const nav = await screen.findByRole("navigation", { name: "Primary" }, T);
     const disabled = nav.querySelectorAll('[aria-disabled="true"]');
-    expect(disabled.length).toBe(6);
+    expect(disabled.length).toBe(5); // Creditors Control is now a live destination
   });
 });
 

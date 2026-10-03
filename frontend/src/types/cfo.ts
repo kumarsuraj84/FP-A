@@ -4,6 +4,8 @@
  * every number, tone and sign below is supplied by the (mock, later HTTP) service.
  */
 
+import type { AbnormalControl, AgeFilter, AgeingMigration, CreditorsOverview, CreditorsTarget, VendorConcentration, VendorProfile } from "./creditors";
+
 export type ScenarioId =
   | "normal"
   | "cash_pressure"
@@ -84,6 +86,8 @@ export interface DrillRow {
   delta: number;
   tone: Tone;
   sublabel?: string;
+  /** set when the amount is genuinely unavailable: render "—" with this reason, never zero */
+  unavailable?: string;
 }
 
 export interface DrillSplit {
@@ -133,6 +137,8 @@ export interface LedgerView {
   openingBalance: number;
   closingBalance: number;
   entries: LedgerEntry[];
+  /** how to read the running balance, e.g. credit-positive for a creditor account */
+  balanceNote?: string;
 }
 
 export interface VoucherLine {
@@ -191,6 +197,8 @@ export interface PulseMetric {
   family: Family;
   heroTab: HeroTab;
   origin: DrillOrigin;
+  /** when set, the click navigates to a dedicated workspace instead of opening the drawer */
+  target?: CreditorsTarget;
 }
 
 export type HeroTab = "profit" | "cash" | "workingCapital";
@@ -261,6 +269,7 @@ export interface RiskPillar {
   diagnosticValue: string;
   family: Family;
   origin: DrillOrigin;
+  target?: CreditorsTarget;
 }
 
 export interface CfoAction {
@@ -274,6 +283,7 @@ export interface CfoAction {
   severity: Severity;
   family: Family;
   origin: DrillOrigin;
+  target?: CreditorsTarget;
 }
 
 export interface ForecastMonth {
@@ -311,4 +321,10 @@ export interface CfoApi {
   getLedger(ctx: QueryCtx, origin: DrillOrigin, nodes: DrillNode[]): Promise<Envelope<LedgerView>>;
   getVoucher(ctx: QueryCtx, voucherId: string, amount: number | null): Promise<Envelope<VoucherEvidence>>;
   getEntityProfile(ctx: QueryCtx, origin: DrillOrigin, nodes: DrillNode[]): Promise<Envelope<EntityProfile>>;
+  /* Stage 2: Creditors / Payables Control Room */
+  getCreditors(ctx: QueryCtx): Promise<Envelope<CreditorsOverview>>;
+  getAgeingMigration(ctx: QueryCtx): Promise<Envelope<AgeingMigration>>;
+  getVendorConcentration(ctx: QueryCtx, filter: AgeFilter): Promise<Envelope<VendorConcentration>>;
+  getAbnormalBalances(ctx: QueryCtx): Promise<Envelope<AbnormalControl>>;
+  getVendorProfile(ctx: QueryCtx, vendorId: string): Promise<Envelope<VendorProfile>>;
 }

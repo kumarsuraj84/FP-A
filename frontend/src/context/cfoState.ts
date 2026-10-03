@@ -1,4 +1,6 @@
 import type { ComparisonId, DataStateId, DrillNode, DrillOrigin, Horizon, HeroTab, PeriodId, QueryCtx, ScenarioId } from "@/types/cfo";
+import type { AgeFilter, Lens } from "@/types/creditors";
+import { CREDITORS_ORIGIN, ageNode } from "@/lib/creditorNodes";
 
 /**
  * Pure state for the CFO Command Center. Filters (period, comparison, scenario, data state) are
@@ -11,6 +13,8 @@ export interface CfoState {
   dataState: DataStateId;
   heroTab: HeroTab;
   horizon: Horizon;
+  /** diagnostic lens on the Creditors page (a view mode, not a drill step) */
+  lens: Lens;
   origin: DrillOrigin | null;
   /** drill path after the origin: driver/entity nodes, then optionally ledger → voucher or profile */
   nodes: DrillNode[];
@@ -24,6 +28,7 @@ export const initialState: CfoState = {
   dataState: "live",
   heroTab: "profit",
   horizon: "30d",
+  lens: "age",
   origin: null,
   nodes: [],
   drawerOpen: false,
@@ -36,6 +41,10 @@ export type CfoAction =
   | { type: "setDataState"; value: DataStateId }
   | { type: "setHeroTab"; value: HeroTab }
   | { type: "setHorizon"; value: Horizon }
+  | { type: "setLens"; value: Lens }
+  | { type: "enterCreditors"; age?: AgeFilter; lens?: Lens }
+  | { type: "selectFilter"; node: DrillNode | null }
+  | { type: "pushNodes"; nodes: DrillNode[] }
   | { type: "openOrigin"; origin: DrillOrigin; heroTab?: HeroTab }
   | { type: "pushNode"; node: DrillNode }
   | { type: "truncate"; keep: number }
@@ -45,18 +54,34 @@ export type CfoAction =
   | { type: "syncRoute"; path: string }
   | { type: "hydrate"; state: Partial<CfoState> };
 
-export type AppRoute = "/" | "/ledger" | "/voucher" | "/profile";
+export type AppRoute = "/" | "/ledger" | "/voucher" | "/profile" | "/creditors" | "/creditors/vendor";
 
 const DEEP_LEVELS = new Set(["ledger", "voucher", "profile"]);
 
-/** Which full page (if any) the current drill path lands on. */
+/**
+ * Which page the current drill path lands on. Command Center drills end in the drawer ("/") or on a deep page;
+ * the Creditors room owns "/creditors" (the room) and "/creditors/vendor" (a vendor profile).
+ */
 export function routeFor(state: Pick<CfoState, "nodes" | "origin">): AppRoute {
-  const last = state.nodes[state.nodes.length - 1];
-  if (!state.origin || !last) return "/";
-  if (last.level === "voucher") return "/voucher";
-  if (last.level === "ledger") return "/ledger";
-  if (last.level === "profile") return "/profile";
+  const { origin, nodes } = state;
+  if (!origin) return "/";
+  const last = nodes[nodes.length - 1];
+  if (last?.level === "voucher") return "/voucher";
+  if (last?.level === "ledger") return "/ledger";
+  if (origin.scope === "creditors") {
+    return last && last.level === "entity" && last.dim === "Vendor" ? "/creditors/vendor" : "/creditors";
+  }
+  if (last?.level === "profile") return "/profile";
   return "/";
+}
+
+/** The investigation drawer is available on the Command Center and for flow / abnormal selections in the room. */
+export function drawerAllowed(state: Pick<CfoState, "nodes" | "origin">): boolean {
+  const page = routeFor(state);
+  if (page === "/") return true;
+  if (page !== "/creditors") return false;
+  const last = state.nodes[state.nodes.length - 1];
+  return last?.dim === "Migration" || last?.dim === "Abnormal";
 }
 
 /** Drill nodes that live in the drawer (filters), i.e. excluding deep-page nodes. */
@@ -80,6 +105,21 @@ export function reducer(state: CfoState, a: CfoAction): CfoState {
       return { ...state, horizon: a.value };
     case "openOrigin":
       return { ...state, origin: a.origin, nodes: [], drawerOpen: true, heroTab: a.heroTab ?? state.heroTab };
+    case "setLens":
+      return { ...state, lens: a.value };
+    case "enterCreditors":
+      return {
+        ...state,
+        origin: CREDITORS_ORIGIN,
+        nodes: a.age && a.age !== "all" ? [ageNode(a.age)] : [],
+        lens: a.lens ?? state.lens,
+        drawerOpen: false,
+      };
+    case "selectFilter":
+      if (state.origin?.scope !== "creditors") return state;
+      return { ...state, nodes: a.node ? [a.node] : [], drawerOpen: a.node ? a.node.dim !== "Ageing bucket" : false };
+    case "pushNodes":
+      return { ...state, nodes: [...state.nodes, ...a.nodes], drawerOpen: true };
     case "pushNode": {
       // a deep page replaces any earlier deep node of the same kind
       const base = DEEP_LEVELS.has(a.node.level) ? state.nodes.filter((n) => n.level !== a.node.level && n.level !== "voucher") : state.nodes;

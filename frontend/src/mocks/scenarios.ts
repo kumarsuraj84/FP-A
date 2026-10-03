@@ -37,6 +37,17 @@ export interface ScenarioParams {
   fcCost: number;
   fcRecovery: number;
   sev: { liquidity: Severity; gm: Severity; payables: Severity; advances: Severity; recon: Severity };
+  /** Creditors room: shape of the ageing book and its monthly cohort flows (₹ Cr per month) */
+  creditorsShape: {
+    youngShares: [number, number, number, number]; // shares of the <=180 day book in the first four buckets
+    over180Split: number; // share of >180 that is 181-365 (rest is >365)
+    monthlyAged: [number, number, number, number, number]; // moved bucket i -> i+1
+    monthlySettled: [number, number, number, number, number, number];
+    monthlyAdj: [number, number, number, number, number, number];
+    vendorsTotal: number;
+    docsPerCr: number;
+    abnormalScale: Record<string, number>;
+  };
 }
 
 const normal: ScenarioParams = {
@@ -81,6 +92,16 @@ const normal: ScenarioParams = {
   fcCost: -1.3,
   fcRecovery: 1.6,
   sev: { liquidity: "low", gm: "medium", payables: "medium", advances: "medium", recon: "medium" },
+  creditorsShape: {
+    youngShares: [0.4, 0.28, 0.18, 0.14],
+    over180Split: 0.8,
+    monthlyAged: [20.0, 9.0, 1.8, 0.9, 0.4],
+    monthlySettled: [38.0, 12.0, 5.5, 1.2, 0.4, 0.2],
+    monthlyAdj: [0.1, -0.05, 0, -0.1, 0.05, 0],
+    vendorsTotal: 148,
+    docsPerCr: 6,
+    abnormalScale: {},
+  },
 };
 
 export const SCENARIOS: Record<ScenarioId, ScenarioParams> = {
@@ -118,6 +139,14 @@ export const SCENARIOS: Record<ScenarioId, ScenarioParams> = {
     creditors181: 46.3,
     creditors181Vendors: 31,
     creditorsOldest: 412,
+    creditorsShape: {
+      ...normal.creditorsShape,
+      youngShares: [0.28, 0.22, 0.2, 0.3],
+      over180Split: 0.7,
+      monthlyAged: [20.0, 9.0, 3.6, 2.4, 1.2],
+      monthlySettled: [38.0, 12.0, 5.0, 0.6, 0.2, 0.1],
+      abnormalScale: { no_movement_90: 2.2, no_movement_180: 3.4, old_credit_notes: 1.8 },
+    },
     unrec: 8.1,
     sev: { liquidity: "medium", gm: "medium", payables: "critical", advances: "medium", recon: "medium" },
   },
@@ -133,6 +162,7 @@ export const SCENARIOS: Record<ScenarioId, ScenarioParams> = {
     advVendors: 19,
     advOldest: 412,
     advMtd: 4.8,
+    creditorsShape: { ...normal.creditorsShape, abnormalScale: { debit_balance: 3.2, unreconciled_items: 1.6 } },
     sev: { liquidity: "medium", gm: "medium", payables: "medium", advances: "critical", recon: "medium" },
   },
   margin_pressure: {

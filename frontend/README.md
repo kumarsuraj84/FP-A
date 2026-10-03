@@ -1,4 +1,4 @@
-# CityKart CFO Operating System — frontend (Stage 1: CFO Command Center)
+# CityKart CFO Operating System — frontend (Stage 1: CFO Command Center · Stage 2: Creditors Control Room)
 
 Demo data only. The banner reads **"Demo data — financial source reconciliation pending"**; nothing here is labelled live.
 
@@ -55,3 +55,40 @@ Breadcrumbs are clickable at every level. Period, comparison, scenario, data sta
 Scenarios: Normal, Cash Pressure, Aged Creditors, Vendor Advance Risk, Margin Pressure. Data states (demo control in the banner): normal, stale, unavailable, error, empty. Missing values render `—` with a reason such as "Awaiting finance mapping", never zero.
 
 Future destinations in the left nav are visibly disabled (Stage 2+).
+
+## Stage 2 — Creditors / Payables Control Room
+
+`EXPOSURE → AGE → MOVEMENT → DRIVER → VENDOR → LEDGER → VOUCHER / EVIDENCE`, built on the Stage 1 shell, drill state, push drawer, breadcrumbs and URL model. The room is a drill origin (`creditors.room`), so every Stage 1 mechanism (Back, breadcrumbs, refresh, replay) applies unchanged.
+
+| Route | What it is |
+|---|---|
+| `/creditors` | The room: exposure strip → ageing river → migration → diagnostic lenses |
+| `/creditors/vendor` | Vendor financial profile (vendor is the last node of the drill) |
+| `/ledger`, `/voucher` | Reused deep pages; creditor ledgers are credit-positive |
+
+Example links:
+
+```
+/creditors?period=ytdfy27&compare=budget&scenario=aged_creditors&lens=age&drill=creditors.room/Ageing bucket:gt180
+/creditors/vendor?...&drill=creditors.room/Ageing bucket:gt180/Vendor:V10003
+/creditors?...&lens=abnormal&drill=creditors.room/Abnormal:debit_balance
+```
+
+- Selecting an age bucket / cohort, a migration flow, or an abnormal category is a node in `drill`. `lens` is a view mode. Age selection and lens changes replace history; flows, vendors, ledger and voucher push.
+- Command Center hand-offs come from the service (`target` on the Creditors pulse, the Payables risk pillar and the creditors CFO-focus action), so the UI holds no routing knowledge.
+
+### Finance-definition rules (see `src/types/creditors.ts`)
+
+- **Ageing basis is unconfirmed.** `AgeingBasis { id: "unknown", confirmed: false }` appears on the overview, migration and vendor profile; the UI shows "Ageing basis awaiting finance validation" and marks Currently due / Overdue as basis-dependent. Every open item carries both document date and due date. The mock places documents by document date *provisionally* and says so; nothing treats either date as authoritative.
+- **A debit balance in a creditor account is not a vendor advance.** They are separate fields from separate sources (`debitBalance` vs `advancePosition`) and are displayed separately.
+- **Abnormal categories are diagnostic labels only** (`classification: "diagnostic"`), with no accounting conclusion.
+- **Missing is never zero.** Undated documents and unmapped amounts are `MetricValue { value: null, reason }` and render `—` with the reason.
+- Totals cover *dated documents*; undated documents are reported separately.
+
+### Verification
+
+```bash
+npm test                              # 143 tests incl. reconciliation contracts (src/mocks/creditors.test.ts)
+node scripts/creditors-e2e.mjs        # 40 real-browser checks at 1920x1080 and 1440x900
+node scripts/screenshots-creditors.mjs
+```

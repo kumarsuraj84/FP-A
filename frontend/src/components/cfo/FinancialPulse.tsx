@@ -58,7 +58,7 @@ function Placeholder({ reason }: { reason: string }) {
 
 export function FinancialPulse() {
   const q = usePulse();
-  const { state, openOrigin } = useCfo();
+  const { state, openOrigin, enterCreditors } = useCfo();
   const grid = "grid grid-cols-[repeat(7,minmax(0,1fr))] divide-x";
   let body;
   let stale = false;
@@ -94,7 +94,7 @@ export function FinancialPulse() {
     body = (
       <div className={grid}>
         {q.data.data.map((m) => (
-          <Cell key={m.id} m={m} active={state.origin?.source === "pulse" && state.origin.id === m.origin.id} onClick={() => openOrigin(m.origin, m.heroTab)} />
+          <Cell key={m.id} m={m} active={state.origin?.source === "pulse" && state.origin.id === m.origin.id} onClick={() => (m.target ? enterCreditors(m.target) : openOrigin(m.origin, m.heroTab))} />
         ))}
       </div>
     );

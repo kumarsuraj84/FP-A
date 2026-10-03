@@ -16,7 +16,7 @@ const EXPOSURE_LABEL: Record<RiskPillar["id"], string> = {
 
 export function RiskLandscape() {
   const q = useRisks();
-  const { state, openOrigin } = useCfo();
+  const { state, openOrigin, enterCreditors } = useCfo();
   return (
     <section aria-label="Risk landscape" data-testid="risk-landscape" className="@container rounded-md border bg-card shadow-elegant">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -37,7 +37,7 @@ export function RiskLandscape() {
                   key={p.id}
                   data-testid={`risk-${p.id}`}
                   aria-pressed={active}
-                  onClick={() => openOrigin(p.origin)}
+                  onClick={() => (p.target ? enterCreditors(p.target) : openOrigin(p.origin))}
                   className={cn("press relative flex min-w-0 flex-col items-start gap-1 px-4 pb-3.5 pt-4 text-left hover:bg-[oklch(0.975_0.01_265)]", active && "bg-[oklch(0.95_0.025_265)]")}
                 >
                   <span className={cn("absolute inset-x-0 top-0 h-1", sev.bar)} />
@@ -71,7 +71,7 @@ export function RiskLandscape() {
 
 export function AttentionQueue() {
   const q = useActions();
-  const { openOrigin } = useCfo();
+  const { openOrigin, enterCreditors } = useCfo();
   return (
     <section aria-label="Needs your attention" data-testid="attention" className="@container rounded-md border bg-card shadow-elegant">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -106,7 +106,7 @@ export function AttentionQueue() {
                   </div>
                   <button
                     data-testid={`action-cta-${a.id}`}
-                    onClick={() => openOrigin(a.origin)}
+                    onClick={() => (a.target ? enterCreditors(a.target) : openOrigin(a.origin))}
                     className="press inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-primary px-3 py-1.5 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary/90"
                   >
                     {a.cta} <ArrowRight className="h-3.5 w-3.5" />

@@ -1,5 +1,7 @@
 import type { CfoApi, ComparisonId, DataStateId, DrillNode, DrillOrigin, Horizon, HeroTab, PeriodId, QueryCtx, ScenarioId } from "@/types/cfo";
 import { originFromBridgeItem, originFromLiquidity, originFromWcRow } from "@/lib/origins";
+import { CREDITORS_ORIGIN, abnormalNode, ageNode, flowNode, isCreditors, vendorNode } from "@/lib/creditorNodes";
+import { AGE_FILTER_LABELS, type AgeFilter, type Lens } from "@/types/creditors";
 import { initialState, routeFor, type CfoState } from "./cfoState";
 
 /**
@@ -18,6 +20,7 @@ export interface CfoSearch {
   tab?: HeroTab;
   horizon?: Horizon;
   data?: DataStateId;
+  lens?: Lens;
   drill?: string;
 }
 
@@ -27,6 +30,7 @@ const SCENARIOS: ScenarioId[] = ["normal", "cash_pressure", "aged_creditors", "v
 const TABS: HeroTab[] = ["profit", "cash", "workingCapital"];
 const HORIZONS: Horizon[] = ["today", "7d", "15d", "30d"];
 const DATA: DataStateId[] = ["live", "stale", "unavailable", "error", "empty"];
+const LENSES: Lens[] = ["age", "concentration", "movement", "abnormal"];
 
 function oneOf<T extends string>(v: unknown, allowed: T[]): T | undefined {
   return typeof v === "string" && (allowed as string[]).includes(v) ? (v as T) : undefined;
@@ -42,11 +46,12 @@ export function validateCfoSearch(raw: Record<string, unknown>): CfoSearch {
     tab: oneOf(raw.tab, TABS),
     horizon: oneOf(raw.horizon, HORIZONS),
     data: oneOf(raw.data, DATA),
+    lens: oneOf(raw.lens, LENSES),
     drill,
   };
 }
 
-type Filters = Pick<CfoState, "period" | "comparison" | "scenario" | "heroTab" | "horizon" | "dataState">;
+type Filters = Pick<CfoState, "period" | "comparison" | "scenario" | "heroTab" | "horizon" | "dataState" | "lens">;
 
 /** Filters from the URL; anything absent keeps `fallback` (defaults on first load, current state in-app). */
 export function filtersFromSearch(s: CfoSearch, fallback: Filters = initialState): Filters {
@@ -57,6 +62,7 @@ export function filtersFromSearch(s: CfoSearch, fallback: Filters = initialState
     heroTab: s.tab ?? fallback.heroTab,
     horizon: s.horizon ?? fallback.horizon,
     dataState: s.data ?? fallback.dataState,
+    lens: s.lens ?? fallback.lens,
   };
 }
 
@@ -74,6 +80,8 @@ export function segmentsFor(state: Pick<CfoState, "origin" | "nodes">): string[]
 }
 
 export function encodeDrill(state: Pick<CfoState, "origin" | "nodes">): string | undefined {
+  // the bare Creditors room is implied by the /creditors path, so it needs no drill param
+  if (isCreditors(state.origin) && state.nodes.length === 0) return undefined;
   const segs = segmentsFor(state);
   return segs.length ? segs.join("/") : undefined;
 }
@@ -84,6 +92,7 @@ export function searchFromState(s: CfoState): CfoSearch {
   if (s.heroTab !== initialState.heroTab) out.tab = s.heroTab;
   if (s.horizon !== initialState.horizon) out.horizon = s.horizon;
   if (s.dataState !== initialState.dataState) out.data = s.dataState;
+  if (isCreditors(s.origin) || s.lens !== initialState.lens) out.lens = s.lens;
   const drill = encodeDrill(s);
   if (drill) out.drill = drill;
   return out;
@@ -91,12 +100,12 @@ export function searchFromState(s: CfoState): CfoSearch {
 
 /** Canonical comparison key shared by state and URL, so the two never fight (no history loops). */
 export function stateKey(s: CfoState): string {
-  return JSON.stringify([routeFor(s), s.period, s.comparison, s.scenario, s.heroTab, s.horizon, s.dataState, encodeDrill(s) ?? ""]);
+  return JSON.stringify([routeFor(s), s.period, s.comparison, s.scenario, s.heroTab, s.horizon, s.dataState, s.lens, encodeDrill(s) ?? ""]);
 }
 
 export function urlKey(path: string, search: CfoSearch, fallback: CfoState): string {
   const f = filtersFromSearch(search, fallback);
-  return JSON.stringify([path, f.period, f.comparison, f.scenario, f.heroTab, f.horizon, f.dataState, search.drill ?? ""]);
+  return JSON.stringify([path, f.period, f.comparison, f.scenario, f.heroTab, f.horizon, f.dataState, f.lens, search.drill ?? ""]);
 }
 
 export function searchIsComplete(s: CfoSearch): boolean {
@@ -119,6 +128,8 @@ async function resolveOrigin(api: CfoApi, ctx: QueryCtx, horizon: Horizon, scope
     return bridge && item ? { origin: originFromBridgeItem(bridge, item, scope), heroTab: tab } : null;
   }
   switch (scope) {
+    case "creditors":
+      return id === "room" ? { origin: CREDITORS_ORIGIN } : null;
     case "forecast": {
       const f = ok(await api.getForecast(ctx));
       const item = f?.bridge.items.find((i) => i.id === id);
@@ -152,6 +163,29 @@ async function resolveOrigin(api: CfoApi, ctx: QueryCtx, horizon: Horizon, scope
   return null;
 }
 
+/** Rebuilds one creditors-room node (age filter, migration flow, abnormal category, vendor) from its URL segment. */
+async function resolveCreditorNode(api: CfoApi, ctx: QueryCtx, seg: string): Promise<DrillNode | null> {
+  if (seg.startsWith("Ageing bucket:")) {
+    const age = seg.slice("Ageing bucket:".length) as AgeFilter;
+    return age in AGE_FILTER_LABELS ? ageNode(age) : null;
+  }
+  if (seg.startsWith("Migration:")) {
+    const m = ok(await api.getAgeingMigration(ctx));
+    const f = m?.flows.find((x) => x.id === seg.slice("Migration:".length));
+    return f ? flowNode(f) : null;
+  }
+  if (seg.startsWith("Abnormal:")) {
+    const a = ok(await api.getAbnormalBalances(ctx));
+    const c = a?.categories.find((x) => x.id === seg.slice("Abnormal:".length));
+    return c ? abnormalNode(c) : null;
+  }
+  if (seg.startsWith("Vendor:")) {
+    const p = ok(await api.getVendorProfile(ctx, seg.slice("Vendor:".length)));
+    return p ? vendorNode(p.vendorId, p.name, p.openBalance) : null;
+  }
+  return null;
+}
+
 /**
  * Rebuilds the origin and nodes for a `drill` value by replaying it through the API.
  * Returns null if any step no longer exists (e.g. scenario changed), so the caller can fall back safely.
@@ -179,8 +213,23 @@ export async function resolveDrill(api: CfoApi, ctx: QueryCtx, horizon: Horizon,
         const voucherId = seg.slice(8);
         const ledger = ok(await api.getLedger(ctx, origin, filters));
         const entry = ledger?.entries.find((e) => e.voucherId === voucherId);
-        if (!entry) return null;
-        nodes.push({ level: "voucher", dim: "Voucher", id: voucherId, label: voucherId, amount: (entry.debit || entry.credit) / 1e7, variance: null });
+        if (entry) {
+          nodes.push({ level: "voucher", dim: "Voucher", id: voucherId, label: voucherId, amount: (entry.debit || entry.credit) / 1e7, variance: null });
+        } else if (isCreditors(origin)) {
+          // an open item opened straight from the vendor profile is not necessarily a ledger row
+          const vid = filters.find((n) => n.dim === "Vendor")?.id.slice("Vendor:".length);
+          const prof = vid ? ok(await api.getVendorProfile(ctx, vid)) : null;
+          const item = prof?.openItems.find((i) => i.documentRef === voucherId);
+          if (!item) return null;
+          nodes.push({ level: "voucher", dim: "Voucher", id: voucherId, label: voucherId, amount: item.amount, variance: null });
+        } else {
+          return null;
+        }
+      } else if (isCreditors(origin)) {
+        const node = await resolveCreditorNode(api, ctx, seg);
+        if (!node) return null;
+        nodes.push(node);
+        filters.push(node);
       } else {
         const view = ok(await api.getDrillView(ctx, origin, filters));
         const rows = view ? [...view.splits.flatMap((s) => s.rows), ...view.supportingDrivers] : [];

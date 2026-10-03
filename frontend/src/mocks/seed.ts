@@ -70,4 +70,15 @@ export const VENDORS = [
   "Fabindia Sourcing Co",
 ];
 
-export const AGEING_BUCKETS = ["0–30 days", "31–90 days", "91–180 days", "181–365 days", ">365 days"];
+export const AGEING_BUCKETS = ["0–30 days", "31–60 days", "61–90 days", "91–180 days", "181–365 days", ">365 days"];
+
+/** Splits `total` by weights; 4dp rounding with the drift put on the largest part so parts sum exactly. */
+export function weightedSplit(total: number, weights: number[]): number[] {
+  const sum = weights.reduce((a, b) => a + b, 0) || 1;
+  const w = weights.map((x) => x / sum);
+  const parts = w.map((x) => Math.round(total * x * 1e4) / 1e4);
+  const drift = Math.round((total - parts.reduce((a, b) => a + b, 0)) * 1e4) / 1e4;
+  const big = w.indexOf(Math.max(...w));
+  parts[big] = Math.round((parts[big] + drift) * 1e4) / 1e4;
+  return parts;
+}

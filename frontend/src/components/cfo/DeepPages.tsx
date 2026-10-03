@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { DrillNode, EntityProfile, LedgerEntry } from "@/types/cfo";
 import { Boundary, Metric, Skeleton, StaleChip, toneClass } from "./common";
 
-function PageFrame({ eyebrow, title, subtitle, children, right }: { eyebrow: string; title: string; subtitle?: string; children: ReactNode; right?: ReactNode }) {
+export function PageFrame({ eyebrow, title, subtitle, children, right }: { eyebrow: string; title: string; subtitle?: string; children: ReactNode; right?: ReactNode }) {
   const { back } = useCfo();
   return (
     <div className="mx-auto w-full max-w-[1500px] px-6 py-5" data-testid="deep-page">
@@ -68,6 +68,11 @@ export function LedgerPage() {
                 </div>
               ))}
             </div>
+            {l.balanceNote && (
+              <div className="border-b px-4 py-1.5 text-[11.5px] text-muted-foreground" data-testid="ledger-balance-note">
+                {l.balanceNote}
+              </div>
+            )}
             <table className="w-full text-[12.5px]" data-testid="ledger-table">
               <thead>
                 <tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground">

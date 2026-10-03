@@ -12,8 +12,9 @@ import type {
   Tone,
   VoucherEvidence,
 } from "@/types/cfo";
+import { buildCreditorDrill, buildCreditorLedger } from "./creditors";
 import { COMPARISONS } from "./scenarios";
-import { AGEING_BUCKETS, ALL_STORES, DEPARTMENTS, REGIONS, STORES, VENDORS, rng, splitAmount } from "./seed";
+import { AGEING_BUCKETS, ALL_STORES, DEPARTMENTS, REGIONS, STORES, VENDORS, rng, splitAmount, weightedSplit } from "./seed";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r4 = (n: number) => Math.round(n * 1e4) / 1e4;
@@ -149,15 +150,6 @@ function fixedWeights(origin: DrillOrigin, dim: string, nodes: DrillNode[], name
   return w.map((x) => x / s);
 }
 
-/** Splits `total` by weights; 4dp rounding with the drift put on the largest part so parts sum exactly. */
-function weightedSplit(total: number, weights: number[]): number[] {
-  const parts = weights.map((w) => Math.round(total * w * 1e4) / 1e4);
-  const drift = Math.round((total - parts.reduce((a, b) => a + b, 0)) * 1e4) / 1e4;
-  const big = weights.indexOf(Math.max(...weights));
-  parts[big] = Math.round((parts[big] + drift) * 1e4) / 1e4;
-  return parts;
-}
-
 function buildSplit(
   ctx: QueryCtx,
   origin: DrillOrigin,
@@ -258,6 +250,7 @@ function explain(origin: DrillOrigin, label: string, amount: number, variance: n
 }
 
 export function buildDrill(ctx: QueryCtx, origin: DrillOrigin, allNodes: DrillNode[]): DrillView {
+  if (origin.scope === "creditors") return buildCreditorDrill(ctx, origin, filterNodes(allNodes));
   const nodes = filterNodes(allNodes);
   const last = nodes[nodes.length - 1];
   const amount = last?.amount ?? origin.amount ?? 0;
@@ -359,6 +352,10 @@ const VTYPES = [
 
 export function buildLedger(ctx: QueryCtx, origin: DrillOrigin, allNodes: DrillNode[]): LedgerView {
   const nodes = filterNodes(allNodes);
+  if (origin.scope === "creditors") {
+    const cl = buildCreditorLedger(ctx, nodes);
+    if (cl) return cl;
+  }
   const last = nodes[nodes.length - 1];
   const amountRs = Math.abs((last?.amount ?? origin.amount ?? 1) * 1e7);
   const acct = accountFor(origin);
@@ -410,14 +407,25 @@ export function buildLedger(ctx: QueryCtx, origin: DrillOrigin, allNodes: DrillN
 export function buildVoucher(ctx: QueryCtx, voucherId: string, amount: number | null): VoucherEvidence {
   const r = rng(`${ctx.scenario}|v|${voucherId}`);
   const prefix = voucherId.split("-")[0];
-  const vt = VTYPES.find((v) => v.p === prefix) ?? VTYPES[0];
+  const vt = prefix === "PI" ? { p: "PI", name: "Purchase Invoice", src: "Ginesys AP" } : (VTYPES.find((v) => v.p === prefix) ?? VTYPES[0]);
   const total = Math.round(amount !== null ? Math.abs(amount) : 50000 + r() * 3e6);
   const split1 = Math.round(total * (0.55 + r() * 0.2));
-  const lines = [
-    { account: "5100", accountName: "Cost of Goods Sold", costCenter: "Merchandise", debit: split1, credit: 0 },
-    { account: "2150", accountName: "GST Input Credit", costCenter: "Statutory", debit: total - split1, credit: 0 },
-    { account: "2100", accountName: "Trade Creditors", costCenter: "Accounts Payable", debit: 0, credit: total },
-  ];
+  const lines =
+    prefix === "PV"
+      ? [
+          { account: "2100", accountName: "Trade Creditors", costCenter: "Accounts Payable", debit: total, credit: 0 },
+          { account: "1010", accountName: "Bank – Operating", costCenter: "Treasury", debit: 0, credit: total },
+        ]
+      : prefix === "DN"
+        ? [
+            { account: "2100", accountName: "Trade Creditors", costCenter: "Accounts Payable", debit: total, credit: 0 },
+            { account: "5100", accountName: "Purchases / returns", costCenter: "Merchandise", debit: 0, credit: total },
+          ]
+        : [
+            { account: "5100", accountName: "Cost of Goods Sold", costCenter: "Merchandise", debit: split1, credit: 0 },
+            { account: "2150", accountName: "GST Input Credit", costCenter: "Statutory", debit: total - split1, credit: 0 },
+            { account: "2100", accountName: "Trade Creditors", costCenter: "Accounts Payable", debit: 0, credit: total },
+          ];
   const day = 1 + Math.floor(r() * 150);
   const date = new Date(Date.UTC(2026, 3, 1 + day));
   return {

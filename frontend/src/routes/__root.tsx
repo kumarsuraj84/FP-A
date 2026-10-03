@@ -9,7 +9,7 @@ import {
 
 import { Toaster } from "@/components/ui/sonner";
 import { CfoProvider, useCfo } from "@/context/CfoContext";
-import { routeFor } from "@/context/cfoState";
+import { drawerAllowed } from "@/context/cfoState";
 import { validateCfoSearch } from "@/context/drillUrl";
 import { AppShell } from "@/components/cfo/Shell";
 import { InvestigationDrawer } from "@/components/cfo/InvestigationDrawer";
@@ -95,8 +95,7 @@ function RootComponent() {
 
 function Frame() {
   const { state } = useCfo();
-  const onCommandCenter = routeFor(state) === "/";
-  const open = state.drawerOpen && state.origin !== null && onCommandCenter;
+  const open = state.drawerOpen && state.origin !== null && drawerAllowed(state);
   return (
     <AppShell drawerOpen={open} drawer={open ? <InvestigationDrawer /> : null}>
       <Outlet />

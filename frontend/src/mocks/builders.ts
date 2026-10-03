@@ -222,6 +222,7 @@ export function buildPulse(ctx: QueryCtx): PulseMetric[] {
       family: "payables",
       heroTab: "workingCapital",
       origin: { source: "pulse", scope: "pulse", id: "creditors", label: "Creditors", family: "payables", amount: S.creditors, variance: credMove },
+      target: { age: "all", lens: "age" },
     },
     {
       id: "advances",
@@ -379,6 +380,7 @@ export function buildRisks(ctx: QueryCtx): RiskPillar[] {
       diagnosticValue: `${S.creditorsOldest} days`,
       family: "payables",
       origin: { source: "risk", scope: "risk", id: "creditors_181", label: "Payables Ageing", family: "payables", amount: S.creditors181, variance: r2(f.creditors) },
+      target: { age: "gt180", lens: "age" },
     },
     {
       id: "advances",
@@ -449,6 +451,7 @@ export function buildActions(ctx: QueryCtx): CfoAction[] {
       severity: S.sev.payables,
       family: "payables",
       origin: { source: "action", scope: "action", id: "creditors_181", label: "Creditors >180d", family: "payables", amount: S.creditors181, variance: S.creditors181 },
+      target: { age: "gt180", lens: "age" },
     },
     {
       id: "liquidity",

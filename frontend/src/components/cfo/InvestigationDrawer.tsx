@@ -29,10 +29,16 @@ function RowButton({ row, onOpen, showVar = true }: { row: DrillRow; onOpen: (n:
             <span className="h-1 w-24 overflow-hidden rounded-full bg-muted">
               <span className={cn("block h-full rounded-full", TONE_FILL[row.tone])} style={{ width: `${Math.min(100, Math.round(row.share * 100))}%` }} />
             </span>
-            <span className="num text-[10.5px] text-muted-foreground">{Math.round(row.share * 100)}%{row.sublabel ? ` · ${row.sublabel}` : ""}</span>
+            <span className="num text-[10.5px] text-muted-foreground">{row.unavailable ? row.unavailable : `${Math.round(row.share * 100)}%`}{row.sublabel ? ` · ${row.sublabel}` : ""}</span>
           </span>
         </span>
-        <span className="num text-[13px] font-semibold text-foreground">{fmtCr(row.amount)}</span>
+        {row.unavailable ? (
+          <span className="num text-[13px] font-semibold text-muted-foreground" title={row.unavailable}>
+            {"—"}
+          </span>
+        ) : (
+          <span className="num text-[13px] font-semibold text-foreground">{fmtCr(row.amount)}</span>
+        )}
         {showVar && <span className={cn("num w-[76px] text-right text-[12px] font-semibold", toneClass(row.tone))}>{fmtCr(row.delta, { signed: true })}</span>}
         <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground" />
       </button>
@@ -56,14 +62,16 @@ function Body({ view, onOpen, onLedger, onProfile, stale }: { view: DrillView; o
           </span>
           {stale && <StaleChip />}
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
-          <span className="eyebrow">Variance</span>
-          <span data-testid="drawer-variance" className={cn("num font-semibold", toneClass(view.tone))}>
-            {fmtCr(view.variance, { signed: true })}
-          </span>
-          <span className={cn("num rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold", toneClass(view.tone))}>{fmtPct(view.variancePct, { signed: true, digits: Math.abs(view.variancePct ?? 0) < 1 ? 2 : 1 })}</span>
-          <span className="text-muted-foreground">{view.comparisonLabel}</span>
-        </div>
+        {view.variance !== null && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+            <span className="eyebrow">Variance</span>
+            <span data-testid="drawer-variance" className={cn("num font-semibold", toneClass(view.tone))}>
+              {fmtCr(view.variance, { signed: true })}
+            </span>
+            <span className={cn("num rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold", toneClass(view.tone))}>{fmtPct(view.variancePct, { signed: true, digits: Math.abs(view.variancePct ?? 0) < 1 ? 2 : 1 })}</span>
+            <span className="text-muted-foreground">{view.comparisonLabel}</span>
+          </div>
+        )}
         <p className="mt-2.5 text-[12.5px] leading-relaxed text-foreground/80" data-testid="drawer-explanation">
           {view.explanation}
         </p>
@@ -114,7 +122,7 @@ function Body({ view, onOpen, onLedger, onProfile, stale }: { view: DrillView; o
             {split.other && (
               <li data-testid="drill-other" className="flex items-center justify-between border-b bg-muted/40 px-4 py-2 text-[12px] text-muted-foreground">
                 <span>
-                  + {split.other.count} other {split.dim.toLowerCase()}s
+                  + {split.other.count} other {split.dim.toLowerCase()}{split.other.count === 1 ? "" : "s"}
                 </span>
                 <span className="num font-semibold">{fmtCr(split.other.amount)}</span>
               </li>

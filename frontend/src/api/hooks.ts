@@ -3,6 +3,7 @@ import { cfoApi } from "@/api";
 import { useCfo } from "@/context/CfoContext";
 import { drawerNodes } from "@/context/cfoState";
 import type { DrillNode, DrillOrigin, HeroTab, Horizon } from "@/types/cfo";
+import type { AgeFilter } from "@/types/creditors";
 
 /**
  * Query hooks. Every key includes the filters, so changing scenario / period / comparison / data
@@ -92,6 +93,38 @@ export const useProfile = (origin: DrillOrigin | null, nodes: DrillNode[]) => {
     queryKey: ["profile", origin?.id, filters.map((n) => n.id), ctx],
     queryFn: () => cfoApi.getEntityProfile(ctx, origin as DrillOrigin, filters),
     enabled: ready && origin !== null,
+    retry: false,
+  });
+};
+
+/* ───────────── Stage 2: Creditors / Payables Control Room ───────────── */
+
+export const useCreditors = () => {
+  const { ctx, ready } = useBase();
+  return useQuery({ queryKey: ["creditors", ctx], queryFn: () => cfoApi.getCreditors(ctx), enabled: ready, retry: false });
+};
+
+export const useMigration = () => {
+  const { ctx, ready } = useBase();
+  return useQuery({ queryKey: ["migration", ctx], queryFn: () => cfoApi.getAgeingMigration(ctx), enabled: ready, retry: false });
+};
+
+export const useConcentration = (filter: AgeFilter) => {
+  const { ctx, ready } = useBase();
+  return useQuery({ queryKey: ["concentration", filter, ctx], queryFn: () => cfoApi.getVendorConcentration(ctx, filter), enabled: ready, retry: false });
+};
+
+export const useAbnormal = () => {
+  const { ctx, ready } = useBase();
+  return useQuery({ queryKey: ["abnormal", ctx], queryFn: () => cfoApi.getAbnormalBalances(ctx), enabled: ready, retry: false });
+};
+
+export const useVendorProfile = (vendorId: string | null) => {
+  const { ctx, ready } = useBase();
+  return useQuery({
+    queryKey: ["vendor", vendorId, ctx],
+    queryFn: () => cfoApi.getVendorProfile(ctx, vendorId as string),
+    enabled: ready && vendorId !== null,
     retry: false,
   });
 };

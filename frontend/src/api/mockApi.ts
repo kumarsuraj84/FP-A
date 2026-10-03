@@ -11,6 +11,7 @@ import {
   workingCapitalBridge,
 } from "@/mocks/builders";
 import { buildDrill, buildLedger, buildProfile, buildVoucher } from "@/mocks/drill";
+import { buildAbnormal, buildConcentration, buildCreditorsOverview, buildMigration, buildVendorProfile } from "@/mocks/creditors";
 
 export class ApiError extends Error {
   status: number;
@@ -63,4 +64,14 @@ export const mockApi: CfoApi = {
   getLedger: (ctx, origin, nodes) => respond(ctx, () => buildLedger(ctx, origin, nodes)),
   getVoucher: (ctx, voucherId, amount) => respond(ctx, () => buildVoucher(ctx, voucherId, amount)),
   getEntityProfile: (ctx, origin, nodes) => respond(ctx, () => buildProfile(ctx, origin, nodes)),
+  getCreditors: (ctx) => respond(ctx, () => buildCreditorsOverview(ctx)),
+  getAgeingMigration: (ctx) => respond(ctx, () => buildMigration(ctx)),
+  getVendorConcentration: (ctx, filter) => respond(ctx, () => buildConcentration(ctx, filter)),
+  getAbnormalBalances: (ctx) => respond(ctx, () => buildAbnormal(ctx)),
+  getVendorProfile: (ctx, vendorId) =>
+    respond(ctx, () => {
+      const p = buildVendorProfile(ctx, vendorId);
+      if (!p) throw new ApiError(`Vendor ${vendorId} not found`, 404);
+      return p;
+    }),
 };
