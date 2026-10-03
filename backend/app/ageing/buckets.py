@@ -1,6 +1,7 @@
-"""Ageing bucket maths. Bucket edges are as specified by the CFO brief
-(0-30, 31-60, 61-90, 91-180, 181-365, >365). WHICH date feeds `days`
-(invoice vs due date) is UNVERIFIED pending discovery of CUBE$FINOTSD."""
+"""Ageing bucket maths ONLY. Edges per the CFO brief (0-30, 31-60, 61-90, 91-180, 181-365, >365).
+This module is deliberately basis-agnostic: WHICH date feeds it (invoice/document date, due date,
+credit terms, other ERP date) is UNDECIDED pending live discovery of CUBE$FINOTSD. It contains no
+creditor or advance classification logic and must not gain any until live evidence defines it."""
 from datetime import date
 from decimal import Decimal
 
@@ -16,8 +17,8 @@ def bucket_for(days: int) -> str:
     return BUCKETS[5]
 
 
-def age_days(doc_date: date, as_of: date) -> int:
-    return (as_of - doc_date).days
+def age_days(basis_date: date, as_of: date) -> int:
+    return (as_of - basis_date).days
 
 
 def summarise(items: list[tuple[date, Decimal]], as_of: date) -> dict[str, Decimal]:

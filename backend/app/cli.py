@@ -1,24 +1,139 @@
-"""python -m app.cli registry-check | oracle-check"""
+"""Controlled discovery CLI.  python -m app.cli <command> --help
+
+Commands (all Oracle access is SELECT-only; outputs labelled CONFIRMED / UNVERIFIED / BLOCKED,
+never contain credentials):
+  registry-status                      merged seed + local overlay, with physical resolution state
+  oracle-check                         connectivity test (SELECT 1 FROM dual)
+  discover-cube-registry               OLAP_DATACUBE_LIST -> columns, finance rows, hint existence checks
+  discover-object SOURCE [--copy ID] [--object OWNER.NAME]
+                                       metadata only (columns + stats estimate), no table scan
+  profile-source SOURCE --copy ID --mode light|deep [--date-col C --debit-col C --credit-col C ...]
+  discover-definitions [--pattern P ...]   P&L-related view/table definitions (metadata only)
+  registry-confirm SOURCE --copy ID --object OWNER.NAME --evidence TEXT
+"""
+import argparse
+import json
+import re
 import sys
 from pathlib import Path
 
 from app.config import Settings
-from app.registry.resolver import load_seed, validate_no_double_coverage
+from app.registry.resolver import apply_overlay, find, load_seed, validate_no_double_coverage
 
-SEED = Path(__file__).resolve().parents[2] / "config" / "source_registry_seed.csv"
+ROOT = Path(__file__).resolve().parents[2]
+SEED = ROOT / "config" / "source_registry_seed.csv"
+OUT_DIR = ROOT / "reports" / "generated"          # git-ignored
+OVERLAY = OUT_DIR / "registry_overlay.json"
 
 
-def main(argv: list[str]) -> int:
-    cmd = argv[0] if argv else ""
-    if cmd == "registry-check":
-        validate_no_double_coverage(load_seed(SEED)); print("registry OK: no double coverage"); return 0
-    if cmd == "oracle-check":
-        s = Settings()
-        if not s.oracle_configured:
-            print("BLOCKED: ORACLE_DSN/ORACLE_USER/ORACLE_PASSWORD not set"); return 2
-        from app.oracle.client import OracleReadOnly
-        print(OracleReadOnly(s).query("SELECT 1 AS ok FROM dual")); return 0
-    print(__doc__); return 1
+def redact(text: str, settings: Settings | None = None) -> str:
+    s = settings or Settings()
+    for secret in filter(None, [s.oracle_password.get_secret_value() if s.oracle_password else None,
+                                s.oracle_user, s.oracle_dsn]):
+        text = text.replace(secret, "***")
+    return re.sub(r"(?i)(password|pwd)\s*=\s*\S+", r"\1=***", text)
+
+
+def _registry():
+    entries = apply_overlay(load_seed(SEED), OVERLAY)
+    validate_no_double_coverage(entries)
+    return entries
+
+
+def _ora(settings: Settings, factory=None):
+    if factory:
+        return factory()
+    if not settings.oracle_configured:
+        print("BLOCKED: ORACLE_DSN/ORACLE_USER/ORACLE_PASSWORD not set (use a SELECT-only Oracle account)")
+        return None
+    from app.oracle.client import OracleReadOnly
+    return OracleReadOnly(settings)
+
+
+def _emit(name: str, data) -> None:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    p = OUT_DIR / f"{name}.json"
+    p.write_text(json.dumps(data, indent=2, default=str))
+    print(f"wrote {p.relative_to(ROOT)} (git-ignored; do not commit)")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(prog="fpa", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("registry-status"); sub.add_parser("oracle-check"); sub.add_parser("discover-cube-registry")
+    d = sub.add_parser("discover-object"); d.add_argument("source"); d.add_argument("--copy"); d.add_argument("--object")
+    p = sub.add_parser("profile-source"); p.add_argument("source"); p.add_argument("--copy", required=True)
+    p.add_argument("--mode", choices=["light", "deep"], default="light")
+    p.add_argument("--date-col"); p.add_argument("--debit-col"); p.add_argument("--credit-col")
+    p.add_argument("--distinct-col", action="append", default=[]); p.add_argument("--exact-count", action="store_true")
+    p.add_argument("--sample", type=int, default=5); p.add_argument("--sample-order-by")
+    f = sub.add_parser("discover-definitions"); f.add_argument("--pattern", action="append")
+    c = sub.add_parser("registry-confirm"); c.add_argument("source"); c.add_argument("--copy", required=True)
+    c.add_argument("--object", required=True); c.add_argument("--evidence", required=True)
+    return ap
+
+
+def main(argv: list[str], ora_factory=None) -> int:
+    args = build_parser().parse_args(argv)
+    settings = Settings()
+    try:
+        return _run(args, settings, ora_factory)
+    except Exception as e:   # never leak connection strings
+        print(f"ERROR: {type(e).__name__}: {redact(str(e), settings)}"); return 1
+
+
+def _run(args, settings, ora_factory) -> int:
+    entries = _registry()
+    if args.cmd == "registry-status":
+        for e in entries:
+            phys = e.physical.identity if e.physical else "-"
+            print(f"{e.status:10} {e.registry_key:34} {e.financial_year or '-':8} physical={phys} "
+                  f"hint={e.physical_hint or '-'} authoritative={e.authoritative}")
+        print("NOTE: UNVERIFIED rows carry no physical object; nothing may query them until CONFIRMED.")
+        return 0
+    ora = _ora(settings, ora_factory)
+    if ora is None:
+        return 2
+    if args.cmd == "oracle-check":
+        print(ora.query("SELECT 1 AS ok FROM dual")); return 0
+    from app.discovery import cube_registry as cr, definitions, profiler
+    if args.cmd == "discover-cube-registry":
+        loc = cr.locate_list(ora)
+        out = {"located": loc, "label": "UNVERIFIED"}
+        if not loc:
+            print("BLOCKED: OLAP_DATACUBE_LIST not visible to this account"); _emit("cube_registry_discovery", out); return 2
+        first = loc[0]
+        owner, name = (first["OWNER"], first["OBJECT_NAME"]) if first["kind"] == "object" else (first["TABLE_OWNER"], first["TABLE_NAME"])
+        out["list"] = cr.inspect_list(ora, owner, name)
+        out["hint_checks"] = cr.check_hints(ora, entries)
+        _emit("cube_registry_discovery", out)
+        print(f"UNVERIFIED: {len(out['list']['rows'])} list rows captured; review then run registry-confirm per copy")
+        return 0
+    if args.cmd == "discover-definitions":
+        _emit("pnl_definitions", definitions.discover_definitions(ora, tuple(args.pattern) if args.pattern else definitions.DEFAULT_PATTERNS))
+        return 0
+    entry = find(entries, args.source, getattr(args, "copy", None))
+    if args.cmd == "discover-object":
+        if args.object:
+            owner, _, name = args.object.partition(".")
+            t = profiler.Target(owner.upper(), name.upper()); lab = "UNVERIFIED (operator-supplied object)"
+        else:
+            t = profiler.Target.from_physical(entry.require_physical()); lab = "CONFIRMED mapping"
+        _emit(f"object_{t.name}", {"label": lab, **profiler.table_metadata(ora, t)}); return 0
+    if args.cmd == "profile-source":
+        t = profiler.Target.from_physical(entry.require_physical())   # BLOCKED via PhysicalUnresolvedError if unresolved
+        kw = dict(date_col=args.date_col, debit_col=args.debit_col, credit_col=args.credit_col,
+                  distinct_cols=tuple(args.distinct_col), exact_count=args.exact_count,
+                  sample=args.sample, sample_order_by=args.sample_order_by)
+        prof = (profiler.profile_deep if args.mode == "deep" else profiler.profile_light)(ora, t, **kw)
+        _emit(f"profile_{args.mode}_{t.name}", {"registry_key": entry.registry_key, **prof}); return 0
+    if args.cmd == "registry-confirm":
+        owner, _, name = args.object.partition(".")
+        rec = cr.confirm_mapping(ora, entry, owner.upper(), name.upper(), args.evidence)
+        ov = json.loads(OVERLAY.read_text()) if OVERLAY.exists() else {}
+        ov[entry.registry_key] = rec; _emit("registry_overlay", ov); print(f"CONFIRMED {entry.registry_key} -> {owner}.{name}")
+        return 0
+    return 1
 
 
 if __name__ == "__main__":

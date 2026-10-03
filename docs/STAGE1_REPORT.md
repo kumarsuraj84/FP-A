@@ -1,4 +1,7 @@
-# Stage 1 Review-Gate Report
-**A. Discovered:** nothing from live data. Sandbox has no Oracle credentials/route (`oracle-check` → BLOCKED). **B. Live sources:** none verified; brief's list kept as UNVERIFIED seed. **C. Coverage / D. Quality:** unknown. **E. Reconciliation:** none run; gate NOT PASSED.
-**F. Buildable now:** read-only Oracle client, registry+overlap guard, profiler, ageing buckets, recon framework, mart skeleton (done); once connected: ingestion of SITE_REG, debit/credit/month/site recon. **G. Needs finance mapping:** P&L, creditor/advance rules, cash GLs, BS grouping. **H. Cannot yet source:** everything beyond the brief's names — unproven. **I. V1 scope:** see CFO_PRODUCT_SCOPE.md.
-**K. Tests:** `pytest` 21 passed (guard, registry, ageing, recon logic; synthetic inputs only — not financial evidence). **L. Risks:** credentials/network; cube-code drift at FY rollover; duplicate coverage (877 vs yearly). **M. Next:** provide read-only Oracle access to this environment (or run the runbook locally and share the JSON profiles), then run discovery → confirm registry → implement SITE_REG ingestion → reconcile.
+# Stage 1 Report (after correction cycle 1)
+> **NO LIVE FINANCIAL DATA HAS YET BEEN VALIDATED.** Oracle discovery has not run (BLOCKED: no credentials/network yet). Reconciliation gate: NOT PASSED (no evidence exists).
+
+Foundation: read-only Oracle client + safe identifiers; registry with logical/physical split; OLAP_DATACUBE_LIST-driven discovery; low-impact LIGHT/DEEP profiler; definitions discovery for P&L objects; source-row identity + idempotent staging/promotion; zero-tolerance reconciliation framework; mart DDL; controlled CLI.
+Tests: 83 passing (synthetic fixtures only; they prove code behaviour, not financial correctness).
+Correction cycle 1 addressed: physical-vs-logical modelling, profiler load, fact uniqueness, batch semantics, read-only doc, CLI, premature Finance questions (removed), creditor/advance logic (none).
+Next: provide SELECT-only Oracle access → run `discover-cube-registry` → confirm mappings → light-profile SITE_REG → then creditor/outstanding, advances, cash/bank, P&L-definition discovery.
