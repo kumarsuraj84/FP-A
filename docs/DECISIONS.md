@@ -1,0 +1,2 @@
+# Decisions
+D-1 Registry-driven source selection, three-layer double-count guard. D-2 Zero-tolerance recon, explanations mandatory. D-3 Code targets Python ≥3.11 (sandbox 3.11), deploy on 3.12. D-4 Ageing buckets per brief; date basis deferred. D-5 No fabricated schemas/figures; unverified items labelled. D-6 Mart tables created only when discovery justifies them. D-7 Work stays on feature branch; no PR/merge to main.

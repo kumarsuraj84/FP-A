@@ -1,0 +1,2 @@
+# CFO Product Scope
+Target KPIs/landing layout/exception engine as in the brief (creditor-heavy, receivable-light). Proposed V1 (after gate): Cash & Bank, Revenue/GM/store P&L (using Finance's approved P&L views), Creditors + ageing, Vendor advances + ageing, 5–6 deterministic exceptions (aged creditor, debit-balance creditor, old advance, no-movement, unreleased voucher, store loss). Forecast, BS highlights, budget-vs-actual follow. Exception rule record: rule_id, name, severity, entity, amount, age_days, detected_at, status, explanation, supporting_transactions.
