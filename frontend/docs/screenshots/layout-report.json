@@ -1,0 +1,14 @@
+{
+  "1920x1080": {
+    "consoleErrors": [
+      "Failed to load resource: the server responded with a status of 404 ()"
+    ],
+    "horizontalOverflow": 0,
+    "clipped": []
+  },
+  "1440x900": {
+    "consoleErrors": [],
+    "horizontalOverflow": 0,
+    "clipped": []
+  }
+}
