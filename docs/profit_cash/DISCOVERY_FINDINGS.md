@@ -63,3 +63,40 @@ Package `profit_cash_probe_01`, MISRETAIL only, through the Inventory Automation
 | Inventory | Not found yet. The stock-movement view errored; the stock value cube returned no rows for September 2026 onward. Next: the stock ledgers in the GL register and the stock cube's actual report date. |
 | Creditors | Real (mart). |
 | Payroll, statutory, vendor advances, capex | No source probed. Stay explicitly unavailable. |
+
+---
+
+# Final Cash probe (run_20261004_009, cash_wc_probe_02)
+
+14 datasets, 12 loaded. Failed: `b1_debtors_foundation` (ODBC error, to be retried with a simpler shape) and `c6_stock_movement_retry` (`V_FINANCE_STOCK_MOVEMENT` is an invalid view: ORA-04063). Aggregates only.
+
+## A. Bank and cash ledgers (10 of 34 have any entries; 24 have none)
+
+Convention check: **passes.** The FY25-26 closing at 31 Mar 2026 (Opening + posted Dr − posted Cr) equals the FY26-27 Opening entry, ledger by ledger (total 3.44 Cr; e.g. AXIS 8218: 2.357 = 2.357). Opening is Dr − Cr, Dr positive for these asset ledgers. The two registers agree on every posted figure to the paisa (same posted Dr, Cr, last posted date). They differ only in unposted items, because their report dates differ by one day (GL register 3 Oct, site register 4 Oct). Contra vouchers net to zero. Future-dated entries (to 31 Dec 2026) net to zero and are excluded from every position.
+
+| As of | Opening 1 Apr | Posted Dr | Posted Cr | **Posted closing** | Unposted Dr | Unposted Cr | **Including unposted** |
+|---|---|---|---|---|---|---|---|
+| 4 Oct 2026 (site register) | 3.44 Cr | 755.87 Cr | 839.15 Cr | **−79.84 Cr** | 134.1 Cr | 50.2 Cr | **−5.07 Cr** |
+| 3 Oct 2026 (GL register) | 3.44 Cr | 755.87 Cr | 839.15 Cr | −79.84 Cr | 121.6 Cr | 49.1 Cr | −16.57 Cr |
+
+One ledger drives it: **AXIS BANK-8218 (CKSPL)**: opening +2.36 Cr, posted closing **−83.45 Cr**, including unposted −5.64 Cr (4 Oct). Last posted entry 30 Sep, last entry date 31 Dec (future-dated). AXIS BANK-7647: +0.70 Cr posted, +0.43 Cr including unposted. Omni card pool: +2.91 Cr posted, +0.11 Cr including unposted. The rest are nil or negligible. Store cash in hand (ledger): 0.02 Cr.
+
+**Verdict: not defensible as "Bank balance as of 4 Oct 2026".** Posted-only is minus 79.84 Cr, because about 134 Cr of receipts are still unposted; adding them gives minus 5.07 Cr, still negative, and no bank statement or reconciliation (BRS) is available to say whether that is a real overdraft or a posting lag. The two figures differ by 75 Cr, so neither can be headlined. What can be stated: a ledger book position with the posted and unposted figures side by side, labelled provisional.
+
+Finance questions: is AXIS 8218 an overdraft or collection account that is expected to run negative; what is the usual posting lag for bank receipts; are Omni and Haeywa pool accounts cash or receivables; is a bank reconciliation available and from where.
+
+## B. Receivables (Sundry Debtors, ledger 1000000014; the subsidiary debtor ledger has no open items)
+
+- Customers only in practice: **643 open Dr items, 35 sub-ledgers, 101.32 Cr**; 2,351 open Cr items, 27 sub-ledgers, 65.23 Cr. Small amounts under party class "SIS" (about 1.8 Cr each side) and "Supplier-Non Trading" (0.14 Cr each side). These are not retail customers.
+- Dr is almost all **Sale Service Invoice (SS): 623 items, 102.25 Cr.**
+- Cr is **AR/AP Voucher (VP): 2,309 items, 26.91 Cr; AR/AP Journal (IJ): 47 items, 37.42 Cr; Credit Journal (CN): 48 items, 2.82 Cr.** Receipts on account and journals, not classified as advances or credits. Not netted against Dr.
+- Due dates: Dr 488 items (100.82 Cr) have a due date that has been reached; 199 items (2.40 Cr) have none. **Every Cr item has no due date.**
+- Not established (b1 failed): documents and sub-ledger identity counts, date-field population for document/entry/ref dates, and whether PENDING = AMOUNT − ADJUSTED. Needs a retried, simpler probe before a contract.
+
+## C. Inventory: no credible current valuation source. Stop.
+
+- GL: "Closing Stock - FG (B/S)" holds an Opening entry of **265.96 Cr on 1 Apr 2026** (the year-end closing) and no movement since. The other stock ledgers have no entries. This is a year-end accounting figure, not current stock.
+- Stock cubes (`CUBE$STKAGE`, `CUBE$STKVAL`, `CUBE$SITESTOCK`): no rows since 2026-01 (stale or not refreshed).
+- `V_FINANCE_STOCK_MOVEMENT`: invalid view.
+- `T_STK_REPORT_FINAL_OUTPUT_NEW`: store x article stock rows by month, but the totals are not a point-in-time position (Mar 2026: 15.7 Cr at stock value; Sep 2026: 152.8 Cr summed over the month's rows) and bear no relation to the 265.96 Cr in the books. Its valuation basis cannot be established; value at MRP is about 2x the stock value. Not usable.
+- Retail price or MRP is not used to reconstruct inventory value, per your rule. Inventory stays **unavailable**.
