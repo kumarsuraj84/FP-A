@@ -202,4 +202,143 @@ DISCOVERY_01: tuple[Dataset, ...] = (
     ),
 )
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01}
+
+# ───────────── ageing_probe_01: let the data answer the creditor ageing-basis question ─────────────
+# Everything reads MISRETAIL."T$FINOTSD_533" (the OUTSTANDING cube, refreshed daily, ~211K rows) or the two small
+# masters. Aggregates and one tiny sample only: no wide SELECT *, no personal / contact columns. Nothing here decides
+# the ageing rule; it collects evidence.
+_T = f'{OWNER}."T$FINOTSD_533"'
+_B = "report_date >= DATE '2026-01-01'"  # the current snapshot: bounds every probe to a date range
+_DAYS = "no_of_days_base_on_{}"
+
+
+def _sums(day_col: str, as_on: str) -> str:
+    """16 counts over {2 day-count columns} x {2 as-on dates} x {4 candidate dates}. Aliases stay <= 30 chars (Oracle 12.1)."""
+    short = {"no_of_days_base_on_entry_date": "ent", "no_of_days_base_on_ref_date": "ref", "report_date": "rep", "end_date": "end",
+             "entry_date": "ent", "ref_date": "ref", "document_date": "doc", "due_date": "due"}
+    return ", ".join(
+        f"SUM(CASE WHEN {day_col} = TRUNC({as_on}) - TRUNC({d}) THEN 1 ELSE 0 END) AS d_{short[day_col]}_{short[as_on]}_{short[d]}"
+        for d in ("entry_date", "ref_date", "document_date", "due_date")
+    )
+
+
+AGEING_PROBE_01: tuple[Dataset, ...] = (
+    Dataset(
+        "p01_report_date_distribution",
+        "extract",
+        "How many rows per REPORT_DATE snapshot, with the document / due date ranges. Shows whether 533 is one snapshot.",
+        sql=(
+            "SELECT report_date, COUNT(*) AS row_count, MIN(document_date) AS min_document_date, MAX(document_date) AS max_document_date, "
+            f"MIN(due_date) AS min_due_date, MAX(due_date) AS max_due_date FROM {_T} WHERE {_B} "
+            "GROUP BY report_date ORDER BY report_date DESC FETCH FIRST 400 ROWS ONLY"
+        ),
+        date_columns=("REPORT_DATE",),
+    ),
+    Dataset(
+        "p02_due_date_basis",
+        "extract",
+        "What DUE_DATE_BASIS contains: values and counts, with how often each value has a due date and a document date.",
+        sql=(
+            "SELECT due_date_basis, COUNT(*) AS row_count, COUNT(due_date) AS due_date_filled, COUNT(document_date) AS document_date_filled "
+            f"FROM {_T} WHERE {_B} GROUP BY due_date_basis ORDER BY COUNT(*) DESC FETCH FIRST 200 ROWS ONLY"
+        ),
+    ),
+    Dataset(
+        "p03_null_counts_and_ranges",
+        "extract",
+        "Which date and day-count columns are populated, their ranges, and basic sanity counts (single row).",
+        sql=(
+            "SELECT COUNT(*) AS total_rows, COUNT(document_date) AS document_date_filled, COUNT(due_date) AS due_date_filled, "
+            "COUNT(ref_date) AS ref_date_filled, COUNT(entry_date) AS entry_date_filled, "
+            "COUNT(no_of_days_base_on_entry_date) AS days_entry_filled, COUNT(no_of_days_base_on_ref_date) AS days_ref_filled, "
+            "SUM(CASE WHEN document_date IS NULL AND due_date IS NULL THEN 1 ELSE 0 END) AS neither_document_nor_due_date, "
+            "SUM(CASE WHEN document_date IS NULL AND due_date IS NULL AND ref_date IS NULL AND entry_date IS NULL THEN 1 ELSE 0 END) AS no_date_at_all, "
+            "SUM(CASE WHEN due_date < document_date THEN 1 ELSE 0 END) AS due_before_document, "
+            "MIN(document_date) AS min_document_date, MAX(document_date) AS max_document_date, MIN(due_date) AS min_due_date, MAX(due_date) AS max_due_date, "
+            "MIN(ref_date) AS min_ref_date, MAX(ref_date) AS max_ref_date, MIN(entry_date) AS min_entry_date, MAX(entry_date) AS max_entry_date, "
+            "MIN(no_of_days_base_on_entry_date) AS min_days_entry, MAX(no_of_days_base_on_entry_date) AS max_days_entry, "
+            "MIN(no_of_days_base_on_ref_date) AS min_days_ref, MAX(no_of_days_base_on_ref_date) AS max_days_ref, "
+            "COUNT(pending) AS pending_filled, SUM(CASE WHEN pending = 0 THEN 1 ELSE 0 END) AS pending_zero, "
+            "SUM(CASE WHEN pending < 0 THEN 1 ELSE 0 END) AS pending_negative, MIN(pending) AS min_pending, MAX(pending) AS max_pending "
+            f"FROM {_T} WHERE {_B} FETCH FIRST 2 ROWS ONLY"
+        ),
+    ),
+    Dataset(
+        "p04_drcr_distribution",
+        "extract",
+        "Distinct DRCR values with counts and amount / pending / adjusted ranges, to read what Dr/Cr means in this cube.",
+        sql=(
+            "SELECT drcr, COUNT(*) AS row_count, MIN(amount) AS min_amount, MAX(amount) AS max_amount, MIN(pending) AS min_pending, "
+            "MAX(pending) AS max_pending, MIN(adjusted) AS min_adjusted, MAX(adjusted) AS max_adjusted "
+            f"FROM {_T} WHERE {_B} GROUP BY drcr ORDER BY COUNT(*) DESC FETCH FIRST 50 ROWS ONLY"
+        ),
+    ),
+    Dataset(
+        "p05_day_count_consistency",
+        "extract",
+        "For each stored day-count column: on how many rows does it equal (as-on date minus date X)? Shows which date and "
+        "which as-on date each day-count is really computed from (single row).",
+        sql=(
+            "SELECT COUNT(*) AS total_rows, "
+            + ", ".join(
+                _sums(f"no_of_days_base_on_{b}_date", a) for b in ("entry", "ref") for a in ("report_date", "end_date")
+            )
+            + f" FROM {_T} WHERE {_B} FETCH FIRST 2 ROWS ONLY"
+        ),
+    ),
+    Dataset(
+        "p06_due_minus_date_days",
+        "extract",
+        "Distribution of (due date minus document / reference / entry date) in days: does due date encode a credit period?",
+        sql=(
+            "SELECT basis, days, row_count FROM ("
+            f"SELECT 'due_minus_document' AS basis, TRUNC(due_date) - TRUNC(document_date) AS days, COUNT(*) AS row_count FROM {_T} "
+            f"WHERE {_B} AND due_date IS NOT NULL AND document_date IS NOT NULL GROUP BY TRUNC(due_date) - TRUNC(document_date) "
+            "UNION ALL "
+            f"SELECT 'due_minus_ref', TRUNC(due_date) - TRUNC(ref_date), COUNT(*) FROM {_T} "
+            f"WHERE {_B} AND due_date IS NOT NULL AND ref_date IS NOT NULL GROUP BY TRUNC(due_date) - TRUNC(ref_date) "
+            "UNION ALL "
+            f"SELECT 'due_minus_entry', TRUNC(due_date) - TRUNC(entry_date), COUNT(*) FROM {_T} "
+            f"WHERE {_B} AND due_date IS NOT NULL AND entry_date IS NOT NULL GROUP BY TRUNC(due_date) - TRUNC(entry_date)"
+            ") ORDER BY basis, row_count DESC FETCH FIRST 600 ROWS ONLY"
+        ),
+    ),
+    Dataset(
+        "p07_vendor_due_terms",
+        "extract",
+        "Per sub-ledger (vendor) code and DUE_DATE_BASIS: the due-minus-document days and how many rows. Compared with "
+        "SUB_LEDGER_MV.CREDIT_DAYS to see whether due date follows the vendor's credit terms.",
+        sql=(
+            "SELECT sub_ledger_code, due_date_basis, TRUNC(due_date) - TRUNC(document_date) AS due_minus_document_days, COUNT(*) AS row_count "
+            f"FROM {_T} WHERE {_B} AND due_date IS NOT NULL AND document_date IS NOT NULL "
+            "GROUP BY sub_ledger_code, due_date_basis, TRUNC(due_date) - TRUNC(document_date) FETCH FIRST 50000 ROWS ONLY"
+        ),
+    ),
+    Dataset(
+        "p08_sample_50",
+        "sample",
+        "A very small row sample (at most 50) with only the ageing-relevant columns, to eyeball the fields side by side.",
+        sql=(
+            "SELECT document_date, due_date, ref_date, entry_date, due_date_basis, no_of_days_base_on_entry_date, "
+            "no_of_days_base_on_ref_date, amount, adjusted, pending, drcr, ledger_code, sub_ledger_code "
+            f"FROM {_T} SAMPLE (0.1) FETCH FIRST 50 ROWS ONLY"
+        ),
+    ),
+    Dataset(
+        "m01_ledger_mv",
+        "master",
+        "GL master (code, name, group, type, nature). Contact columns are deliberately not selected.",
+        sql=f"SELECT glcode, glname, grpcode, type, nature, extinct FROM {OWNER}.LEDGER_MV FETCH FIRST 100000 ROWS ONLY",
+    ),
+    Dataset(
+        "m02_sub_ledger_mv",
+        "master",
+        "Sub-ledger (vendor / party) master: SLCODE, SLID, name, class, credit terms. Address, phone, e-mail, PAN, contacts are not selected.",
+        sql=(
+            "SELECT glcode, slcode, slid, sl_name, sl_alias, sl_class, sl_class_type, credit_days, credit_limit, "
+            f"cash_disc_app, cash_disc_percent, cash_disc_period, is_extinct FROM {OWNER}.SUB_LEDGER_MV FETCH FIRST 100000 ROWS ONLY"
+        ),
+    ),
+)
+
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01}

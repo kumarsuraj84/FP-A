@@ -286,7 +286,7 @@ def cmd_run(package: str, only: set[str] | None) -> int:
             entry.update(
                 extracted_at=now_iso(), row_count=info["row_count"], min_date=info["min_date"], max_date=info["max_date"],
                 file_size=dst.stat().st_size, sha256=mf.sha256_file(dst),
-                status="capped" if info["row_count"] >= checked.row_cap else "ok",
+                status=("sampled" if d.kind == "sample" else "capped") if info["row_count"] >= checked.row_cap else "ok",
             )
             results[d.name] = read_rows(dst) if (d.name in {x for dd in datasets for x in dd.depends_on}) else []
             print(f"  {d.name:<28} {entry['status']:<7} {info['row_count']:>9,} rows  {time.monotonic() - t0:5.1f}s")

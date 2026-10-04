@@ -30,7 +30,7 @@ REQUIRED_KEYS = (
     "sha256",
     "status",
 )
-OK_STATUSES = {"ok", "capped"}  # capped = the hard row cap was hit, so the file may be incomplete
+OK_STATUSES = {"ok", "capped", "sampled"}  # capped = hard row cap hit (may be incomplete); sampled = an intentional small sample
 ALL_STATUSES = OK_STATUSES | {"failed", "skipped", "pending"}
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -125,6 +125,9 @@ def validate_manifest(run_dir: Path) -> Verdict:
             continue
         if d["status"] == "ok" and d["row_count"] >= d["row_cap"]:
             v.errors.append(f"{name}: status 'ok' but the row cap was reached (should be 'capped')")
+            continue
+        if d["status"] == "sampled" and d["kind"] != "sample":
+            v.errors.append(f"{name}: only a 'sample' dataset may have status 'sampled'")
             continue
         if d["status"] == "capped":
             v.warnings.append(f"{name}: row cap reached; the file may be incomplete")

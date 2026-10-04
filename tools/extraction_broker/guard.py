@@ -29,6 +29,11 @@ _FORBIDDEN = re.compile(
 )
 _FOR_UPDATE = re.compile(r"\bfor\s+update\b", re.I)
 _DB_LINK = re.compile(r"@\s*\w")
+# Personal / contact data is never extracted: this pipeline needs codes, names, terms and amounts, not people's details.
+_PII = re.compile(
+    r"\b(\w*addr\w*|\w*phone\w*|ph\d|\w*email\w*|\w*mobile\w*|pan_no|\w*contact\w*|\w*fax\w*|\w*billing_\w+|pin|\w*gstin\w*|\w*customername\w*)\b",
+    re.I,
+)
 _STARTS = re.compile(r"(?is)^\s*(select|with)\b")
 _TRAILING_CAP = re.compile(r"\bfetch\s+first\s+(\d+)\s+rows?\s+only\s*$", re.I)
 ALLOWED_OWNER = "MISRETAIL"
@@ -43,7 +48,8 @@ _FROM_OBJECTS = re.compile(r"\b(?:from|join)\s+([\w$#\".]+)", re.I)
 _DATE_BOUND = re.compile(r"(>=|<=|>|<|between)\s*(date\s*'|to_date\s*\(|:\w+|sysdate)", re.I)
 
 # Hard ceilings per kind: the broker refuses anything above these, whatever the package asks for.
-MAX_ROWS = {"metadata": 300_000, "sample": 1_000, "extract": 5_000_000}
+# master = small reference tables (ledger / sub-ledger masters): named columns only, no date bound needed
+MAX_ROWS = {"metadata": 300_000, "sample": 1_000, "master": 100_000, "extract": 5_000_000}
 
 
 class GuardError(ValueError):
@@ -115,8 +121,12 @@ def check(sql: str, kind: str) -> Checked:
             raise GuardError(f"data objects must be {ALLOWED_OWNER}-qualified (found {unscoped[0]})")
     if kind != "metadata" and dictionary_only:
         raise GuardError("a data query must read data objects, not only dictionary views")
+    if kind != "metadata":
+        pii = _PII.search(no_lit)
+        if pii:
+            raise GuardError(f"personal / contact data is not extracted (column '{pii.group(0)}')")
     if kind == "extract" and not _DATE_BOUND.search(no_lit):
         raise GuardError("an extract must be bounded by a date predicate (>=, <=, BETWEEN) so it cannot scan all history")
-    if kind in ("sample", "extract") and re.search(r"(?i)select\s+(distinct\s+)?\*", no_lit) and kind == "extract":
-        raise GuardError("an extract must name its columns (no SELECT *)")
+    if kind in ("extract", "master") and re.search(r"(?i)select\s+(distinct\s+)?\*", no_lit):
+        raise GuardError(f"a{'n' if kind == 'extract' else ''} {kind} must name its columns (no SELECT *)")
     return Checked(sql=sql.strip().rstrip(";").strip(), kind=kind, row_cap=cap, query_hash=query_hash(sql))
