@@ -60,7 +60,7 @@ function ConcentrationView() {
   const [text, setText] = useState("");
   const q = useDebounced(text.trim());
   const vq = useLiveVendors(age, { limit, q: q || undefined });
-  const whole = age === "all";
+  const whole = age === "all" || age.startsWith("ledger_"); // a ledger narrows the list but ranks by full credit
   const cols = "grid-cols-[minmax(0,1.6fr)_minmax(0,3fr)_96px_80px_80px_70px_72px_88px] @max-[1100px]:grid-cols-[minmax(0,1.6fr)_minmax(0,2fr)_96px_88px]";
   const cell = (label: string, value: string, sub?: string, testId?: string) => (
     <div className="px-4 py-2.5" data-testid={testId}>
@@ -91,7 +91,7 @@ function ConcentrationView() {
               <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-[11.5px] text-muted-foreground">
                 <span data-testid="vendor-total">
                   {page.total.vendors.toLocaleString("en-IN")} vendor{page.total.vendors === 1 ? "" : "s"}
-                  {whole ? "" : ` with credit in ${AGE_FILTER_LABELS[age]}`} · {fmtCr(toCr(whole ? page.total.credit_outstanding : page.total.cohort_credit))}
+                  {age === "all" ? "" : age.startsWith("ledger_") ? ` in ${AGE_FILTER_LABELS[age]}` : ` with credit in ${AGE_FILTER_LABELS[age]}`} · {fmtCr(toCr(whole ? page.total.credit_outstanding : page.total.cohort_credit))}
                 </span>
                 {page.named ? (
                   <label className="flex items-center gap-1.5 rounded border bg-background px-2 py-1">
@@ -171,7 +171,7 @@ function AgeView() {
   const { age } = useRoomSelection();
   const vq = useLiveVendors(age, { limit: 9 });
   const open = useOpenVendor();
-  const whole = age === "all";
+  const whole = age === "all" || age.startsWith("ledger_"); // a ledger narrows the list but ranks by full credit
   return (
     <LiveBoundary query={vq} skeleton={<Skeleton className="m-4 h-[320px]" />}>
       {(page) => {

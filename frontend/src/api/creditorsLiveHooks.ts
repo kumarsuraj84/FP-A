@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { AgeFilter } from "@/types/creditors";
-import { cohortFor, liveCreditors } from "./creditorsLive";
+import { cohortFor, ledgerFor, liveCreditors } from "./creditorsLive";
 
 /** One run drives the whole page: the API says which (the live run, else the newest verified candidate). */
 export const useLiveRun = () => useQuery({ queryKey: ["cred", "run"], queryFn: liveCreditors.current, retry: false, staleTime: 60_000 });
@@ -22,7 +22,7 @@ export const useLiveLedgers = () => useRunQuery("ledgers", liveCreditors.ledgers
 export const useLiveControls = () => useRunQuery("controls", liveCreditors.controls);
 
 export const useLiveVendors = (filter: AgeFilter, o: { limit: number; q?: string; sort?: string }) =>
-  useRunQuery("vendors", (run) => liveCreditors.vendors(run, { cohort: cohortFor(filter), limit: o.limit, q: o.q, sort: o.sort }), [filter, o.limit, o.q ?? "", o.sort ?? ""]);
+  useRunQuery("vendors", (run) => liveCreditors.vendors(run, { cohort: cohortFor(filter), ledger_code: ledgerFor(filter), limit: o.limit, q: o.q, sort: o.sort }), [filter, o.limit, o.q ?? "", o.sort ?? ""]);
 
 export const useLiveVendor = (ref: string | null) => {
   const run = useLiveRun();

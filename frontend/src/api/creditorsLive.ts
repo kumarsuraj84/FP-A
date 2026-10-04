@@ -79,9 +79,12 @@ export const API_TO_BUCKET: Record<string, BucketId> = Object.fromEntries(Object
 
 /** The `cohort` the vendor list is ranked by for a room filter; undefined = the whole credit book. */
 export function cohortFor(f: AgeFilter): string | undefined {
-  if (f === "all") return undefined;
+  if (f === "all" || f.startsWith("ledger_")) return undefined;
   if (f in BUCKET_TO_API) return BUCKET_TO_API[f as BucketId];
   if (f === "overdue") return "past_due"; // legacy link ids from the demo Command Center
   if (f === "current") return "not_yet_due";
   return f; // gt90, gt180, past_due, not_yet_due, due_unavailable, due_invalid
 }
+
+/** The ledger_code a room filter narrows the vendor list to, if it is a ledger filter. */
+export const ledgerFor = (f: AgeFilter): string | undefined => (f.startsWith("ledger_") ? f.slice("ledger_".length) : undefined);

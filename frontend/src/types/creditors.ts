@@ -13,7 +13,10 @@ import type { MetricValue } from "./cfo";
 export type BucketId = "b0_30" | "b31_60" | "b61_90" | "b91_180" | "b181_365" | "b365p";
 
 /** A selectable slice of the creditor book: one bucket, a cumulative cohort, or everything. */
-export type AgeFilter = BucketId | "all" | "current" | "overdue" | "gt90" | "gt180" | DueFilter;
+export type AgeFilter = BucketId | "all" | "current" | "overdue" | "gt90" | "gt180" | DueFilter | LedgerFilter;
+
+/** The four creditor ledgers in scope; narrows the vendor sections only. */
+export type LedgerFilter = "ledger_1000000024" | "ledger_1000000025" | "ledger_1000000026" | "ledger_1000000092";
 
 /** Due Status cohorts of the real creditors room (a separate dimension from Document Age). "current" / "overdue" belong to the demo service only. */
 export type DueFilter = "past_due" | "not_yet_due" | "due_unavailable" | "due_invalid";
@@ -39,6 +42,10 @@ export const AGE_FILTER_LABELS: Record<AgeFilter, string> = {
   not_yet_due: "Not yet due",
   due_unavailable: "Due date unavailable",
   due_invalid: "Invalid due date",
+  ledger_1000000024: "Creditors for Expenses ledger",
+  ledger_1000000025: "Creditors-Non Trading ledger",
+  ledger_1000000026: "Creditors-Apparels ledger",
+  ledger_1000000092: "Creditors-GM ledger",
   ...BUCKET_LABELS,
 };
 export const LENSES: { id: Lens; label: string; hint: string }[] = [
