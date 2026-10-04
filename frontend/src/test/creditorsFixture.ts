@@ -111,6 +111,9 @@ export interface ApiOpts {
   named?: boolean;
   /** fail every request with this status */
   fail?: number;
+  /** cash: no verified cash run exists / no creditors run to compose */
+  noCash?: boolean;
+  noCreditors?: boolean;
   state?: string;
 }
 
@@ -125,6 +128,7 @@ export function installCreditorsApi(opts: ApiOpts = {}) {
     vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), "http://localhost");
       calls.push(url.pathname + url.search);
+      if (url.pathname.startsWith("/cash-api/")) return cashResponse(url, opts, json);
       if (!url.pathname.startsWith("/creditors-api/")) return json({}, 404);
       if (opts.fail) return json({ detail: "boom" }, opts.fail);
       const path = url.pathname.slice("/creditors-api/".length);
@@ -210,4 +214,46 @@ export function installCreditorsApi(opts: ApiOpts = {}) {
     }),
   );
   return calls;
+}
+
+/* ───────────── a synthetic Cash API (invented stores and ledgers, round numbers) ───────────── */
+export const CASH_RUN = "run_test_cash_001";
+const STORES = Array.from({ length: 24 }, (_, i) => ({ site_code: String(100 + i), store_name: `Test Store ${String(i + 1).padStart(2, "0")}`, cumulative_balance: `${(24 - i) * 10000}.0000`, mtd_debit: "5000.0000", mtd_credit: "4500.0000", fytd_debit: "30000.0000", fytd_credit: "29000.0000", last_activity_date: "2026-10-03" }));
+const TILL_TOTAL = STORES.reduce((a, s) => a + Number(s.cumulative_balance), 0);
+const LEDGER = (code: string, name: string, opening: number, posted: number, unposted: number, nature = "Bank") => ({
+  ledger_code: code, ledger_name: name, gl_type: "Asset", nature, extinct: "No", has_movement: true, opening_balance: `${opening}.0000`, posted_dr: "0.0000", posted_cr: "0.0000", posted_closing: `${posted}.0000`,
+  unposted_dr: "0.0000", unposted_cr: "0.0000", unposted_movement: `${unposted}.0000`, including_unposted: `${posted + unposted}.0000`, future_net: "0.0000", last_posted_date: "2026-09-30", last_entry_date: "2026-10-02",
+  register_report_date: "2026-10-04", sites: 3,
+});
+const BANK = [LEDGER("1", "TEST BANK ALPHA", 20000000, -830000000, 780000000), LEDGER("2", "TEST BANK BETA", 9900000, 7000000, -2800000), LEDGER("3", "TEST CASH IN HAND", 100000, 190000, -20000, "Cash")];
+const BSUM = (k: "opening_balance" | "posted_closing" | "unposted_movement" | "including_unposted") => BANK.reduce((a, l) => a + Number(l[k]), 0);
+
+function cashResponse(url: URL, opts: ApiOpts, json: (b: unknown, s?: number) => Response): Response {
+  if (opts.fail) return json({ detail: "boom" }, opts.fail);
+  const path = url.pathname.slice("/cash-api/".length);
+  const state = opts.state ?? "verified_candidate";
+  const header = { run_id: CASH_RUN, as_of_date: "2026-10-04", till_balance_date: "2026-10-03", recon_state: "api_verified", publication_state: state === "live" ? "live" : "unpublished", data_state: state, data_state_label: state, contract_version: "cash-wc-1.0", source_updated_at: "2026-10-04T10:00:00Z" };
+  if (path === "current") return opts.noCash ? json({ detail: "none" }, 404) : json(header);
+  if (path === `runs/${CASH_RUN}/summary`)
+    return json({
+      ...header,
+      till: { label: "Store Till Cash", note: "excludes bank balances", stores: STORES.length, store_till_cash: `${TILL_TOTAL}.0000`, mtd_debit: "120000.0000", mtd_credit: "108000.0000", fytd_debit: "720000.0000", fytd_credit: "696000.0000", stores_negative: 0, stores_with_cash: STORES.length, last_activity_date: "2026-10-03", largest_store: { store_name: STORES[0].store_name, site_code: STORES[0].site_code, cumulative_balance: STORES[0].cumulative_balance } },
+      bank_review: {
+        status: "PROVISIONAL · NOT BANK-RECONCILED", source: "site_register", register_report_date: "2026-10-04", last_posted_date: "2026-09-30",
+        totals: { opening_balance: `${BSUM("opening_balance")}.0000`, posted_closing: `${BSUM("posted_closing")}.0000`, unposted_movement: `${BSUM("unposted_movement")}.0000`, including_unposted: `${BSUM("including_unposted")}.0000` },
+        ledgers_total: 5, ledgers_with_movement: 3, ledgers_without_movement: 2,
+        driver: { ledger_code: "1", ledger_name: "TEST BANK ALPHA", posted_closing: BANK[0].posted_closing, including_unposted: BANK[0].including_unposted },
+        ledgers: [...BANK].sort((a, b) => Number(a.posted_closing) - Number(b.posted_closing)),
+        cross_check: { gl_register_posted_closing: `${BSUM("posted_closing")}.0000`, gl_register_including_unposted: "-100000.0000", gl_register_report_date: "2026-10-03", posted_agrees_with_gl_register: true },
+        opening_ties_to_prior_year_closing: { ledgers_checked: 5, ledgers_not_tying: 0 },
+      },
+      creditors: opts.noCreditors ? { available: false, reason: "No verified creditors run is available." } : { available: true, creditors_run_id: RUN, as_of_date: "2026-10-04", data_state: "verified_candidate", credit_outstanding: FIXTURE.credit, creditor_debit_balance: FIXTURE.debit, signed_net: FIXTURE.net, past_due_credit: FIXTURE.pastDue, not_yet_due_credit: "500000000.0000", due_unavailable_credit: FIXTURE.dueUnavailable, credit_items: 40, credit_vendors: 3 },
+      unavailable: ["bank_reconciled_cash", "consolidated_cash", "cash_forecast", "inventory", "receivables", "vendor_advances", "payroll", "statutory", "capex"].map((id) => ({ id, label: id.replaceAll("_", " "), reason: id === "cash_forecast" ? "No forecast source exists. A projection is not shown, and none is estimated." : `no source for ${id}` })),
+    });
+  if (path === `runs/${CASH_RUN}/store-till`) {
+    const limit = Number(url.searchParams.get("limit") ?? 100);
+    const stores = STORES.slice(0, limit);
+    return json({ ...header, returned: stores.length, limit, offset: 0, stores });
+  }
+  return json({ detail: "not found" }, 404);
 }

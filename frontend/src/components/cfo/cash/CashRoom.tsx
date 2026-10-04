@@ -1,325 +1,270 @@
-import { Area, CartesianGrid, ComposedChart, Line, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ArrowRight, TrendingDown } from "lucide-react";
-import { useCashRoom } from "@/api/hooks";
+import { useState } from "react";
+import { ArrowRight, Landmark } from "lucide-react";
+import { useCashRun, useCashSummary, useTillStores } from "@/api/cashLiveHooks";
+import { fmtRupees, num, toCr } from "@/api/creditorsLive";
 import { useCfo } from "@/context/CfoContext";
-import { cashKeyOf, cashNode, isCashKey } from "@/lib/cashNodes";
-import { DASH, fmtCr } from "@/lib/format";
+import { DASH, fmtCr, fmtDate, fmtPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { BridgeItem, Horizon } from "@/types/cfo";
-import type { CashObligation, CashRoom as CashRoomData, WcDriver } from "@/types/cash";
-import { Boundary, Metric, Skeleton, StaleChip, toneClass } from "../common";
-import { Chip, Panel, StripCell, WorkspaceHeader, deltaCr } from "../panels";
-import { WaterfallChart } from "../WaterfallChart";
+import type { BankLedger, BankReview, CashSummary, CashTill, CreditorObligations } from "@/types/cashLive";
+import { Skeleton } from "../common";
+import { DataStateBadge, LiveBoundary, NotAvailable } from "../creditors/parts";
+import { Panel, WorkspaceHeader } from "../panels";
 
-const HORIZONS: { id: Horizon; label: string }[] = [
-  { id: "today", label: "Today" },
-  { id: "7d", label: "7 Days" },
-  { id: "15d", label: "15 Days" },
-  { id: "30d", label: "30 Days" },
-];
-const AXIS = { fontSize: 10.5, fill: "oklch(0.5 0.02 260)" };
+/**
+ * Liquidity & Working Capital Control, on REAL data (the verified cash mart and the creditors mart).
+ *
+ * Three kinds of figure, never blended:
+ *   - Store Till Cash: cash held in stores. It EXCLUDES bank balances and is never called a cash position.
+ *   - Creditor obligations: read from the creditors mart (the same figures as /creditors).
+ *   - Bank ledger-book position: a Finance review card, PROVISIONAL and NOT BANK-RECONCILED, kept apart and never added to anything.
+ * What the sources cannot support is listed as unavailable with its reason. There is no forecast and no projection.
+ */
 
-function Strip({ room, horizon, onHorizon }: { room: CashRoomData; horizon: Horizon; onHorizon: (h: Horizon) => void }) {
+const cr = (m: string | null | undefined) => fmtCr(toCr(m));
+const signedClass = (m: string) => (num(m) < 0 ? "tone-bad" : "");
+
+function Cell({ label, value, exact, sub, testId, tone }: { label: string; value: string; exact?: string; sub?: string; testId: string; tone?: string }) {
   return (
-    <div className="grid grid-cols-5 divide-x border-b bg-card @max-[1100px]:grid-cols-3 @max-[1100px]:divide-y" data-testid="cash-strip">
-      {room.steps.map((s) => (
-        <StripCell
-          key={s.horizon}
-          testId={`step-${s.horizon}`}
-          label={s.horizon === "today" ? "Cash today" : `Cash in ${s.label}`}
-          value={fmtCr(s.closing)}
-          variance={s.headroom < 0 ? `${fmtCr(-s.headroom)} below minimum` : `${fmtCr(s.headroom)} above minimum`}
-          tone={s.headroom < 0 ? "bad" : s.headroom < 8 ? "warn" : "good"}
-          sub={s.dayLabel}
-          pressed={horizon === s.horizon}
-          onClick={() => onHorizon(s.horizon)}
-        />
-      ))}
-      <StripCell testId="cash-minimum" label="Operating minimum" value={fmtCr(room.operatingMinimum)} sub="policy floor" />
+    <div className="flex min-w-0 flex-col items-start gap-0.5 px-4 py-3" data-testid={testId}>
+      <span className="eyebrow">{label}</span>
+      <span data-testid={`${testId}-value`} data-exact={exact} className={cn("num-mono whitespace-nowrap text-[22px] font-semibold leading-tight", tone)}>
+        {value}
+      </span>
+      {sub && <span className="num max-w-full truncate text-[11.5px] text-muted-foreground">{sub}</span>}
     </div>
   );
 }
 
-function DecisionStrip({ room, onOpen }: { room: CashRoomData; onOpen: (key: string, label: string, amount: number | null) => void }) {
-  const d = room.decision;
-  const bridgeItem = (key: string) => room.bridge.items.find((i) => i.id === key);
-  const driver = (key: string) => room.drivers.find((x) => x.id === key);
-  const openKey = (key: string) => {
-    const b = bridgeItem(key);
-    const w = driver(key);
-    if (b) onOpen(key, b.label, b.value);
-    else if (w) onOpen(key, w.label, w.cashImpact);
-  };
+function Strip({ s }: { s: CashSummary }) {
+  const c = s.creditors;
+  const credAvail = c.available;
   return (
-    <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto] divide-x rounded-md border bg-card shadow-elegant @max-[1100px]:grid-cols-2 @max-[1100px]:divide-y" data-testid="cash-decision">
-      <div className="px-4 py-2.5" data-testid="decision-horizon">
-        <div className="eyebrow">{d.horizonLabel}</div>
-        <div className={cn("num-mono text-[14px] font-semibold", toneClass(d.tone))}>{d.horizonLine}</div>
+    <section aria-label="Verified figures" data-testid="cash-strip" className="border-b bg-card">
+      <div className="grid grid-cols-4 divide-x @max-[900px]:grid-cols-2 @max-[900px]:divide-y">
+        <Cell testId="strip-till" label="Store Till Cash" value={cr(s.till.store_till_cash)} exact={s.till.store_till_cash} sub={`excludes bank balances · ${s.till.stores} stores · ${fmtDate(s.till_balance_date)}`} />
+        <Cell testId="strip-credit" label="Credit Outstanding" value={credAvail ? cr(c.credit_outstanding) : DASH} exact={credAvail ? c.credit_outstanding : undefined} sub={credAvail ? `creditors · ${c.credit_items.toLocaleString("en-IN")} items · ${c.credit_vendors.toLocaleString("en-IN")} vendors` : c.reason} />
+        <Cell testId="strip-pastdue" label="Past Due Creditors" value={credAvail ? cr(c.past_due_credit) : DASH} exact={credAvail ? c.past_due_credit : undefined} sub={credAvail ? `${fmtPct((num(c.past_due_credit) / (num(c.credit_outstanding) || 1)) * 100)} of credit outstanding` : undefined} />
+        <Cell testId="strip-debit" label="Creditor Debit Balances" value={credAvail ? cr(c.creditor_debit_balance) : DASH} exact={credAvail ? c.creditor_debit_balance : undefined} sub={credAvail ? "Dr in creditor ledgers · not netted" : undefined} />
       </div>
-      <button data-testid="decision-absorption" disabled={!d.absorption} onClick={() => d.absorption && openKey(d.absorption.key)} className="press px-4 py-2.5 text-left hover:bg-[oklch(0.97_0.012_265)] disabled:cursor-default">
-        <div className="eyebrow">Largest cash absorption</div>
-        <div className="text-[14px] font-semibold">{d.absorption ? <>{d.absorption.label} <span className="num-mono tone-bad">{deltaCr(d.absorption.amount)}</span></> : "None in the period"}</div>
-      </button>
-      <button data-testid="decision-obligation" disabled={!d.obligation} onClick={() => d.obligation && openKey(d.obligation.key)} className="press px-4 py-2.5 text-left hover:bg-[oklch(0.97_0.012_265)] disabled:cursor-default">
-        <div className="eyebrow">Largest upcoming obligation</div>
-        <div className="text-[14px] font-semibold">{d.obligation ? <>{d.obligation.label} <span className="num-mono tone-bad">{fmtCr(-d.obligation.amount)}</span> <span className="font-normal text-muted-foreground">· {d.obligation.dayLabel}</span></> : "None in this horizon"}</div>
-      </button>
-      {d.action ? (
-        <button data-testid="decision-action" onClick={() => openKey(d.action!.key)} className="press flex items-center gap-1.5 bg-primary px-4 py-2.5 text-[13px] font-semibold text-primary-foreground hover:bg-primary/90">
-          {d.action.text} <ArrowRight className="h-3.5 w-3.5" />
+      <div data-testid="strip-note" className="border-t bg-[oklch(0.985_0.006_265)] px-4 py-1.5 text-[11.5px] text-muted-foreground">
+        <span className="font-semibold text-foreground">Bank position not yet included.</span> These four figures are not a cash position and are not added together: Store Till Cash is cash in store tills only.
+        {credAvail && <> Creditors run {c.creditors_run_id} as of {fmtDate(c.as_of_date)}.</>}
+      </div>
+    </section>
+  );
+}
+
+function TillPanel({ till }: { till: CashTill }) {
+  const [limit, setLimit] = useState(15);
+  const q = useTillStores(limit, "balance");
+  const stat = (label: string, value: string, exact?: string) => (
+    <div className="px-4 py-2.5">
+      <div className="eyebrow">{label}</div>
+      <div data-exact={exact} className="num-mono text-[16px] font-semibold">{value}</div>
+    </div>
+  );
+  return (
+    <Panel testId="till-panel" eyebrow="Real · verified" title="Store Till Cash: cash held in store tills (excludes bank balances)">
+      <div className="grid grid-cols-5 divide-x border-b @max-[900px]:grid-cols-3 @max-[900px]:divide-y">
+        {stat("Month to date in", cr(till.mtd_debit), till.mtd_debit)}
+        {stat("Month to date out", cr(till.mtd_credit), till.mtd_credit)}
+        {stat("Year to date in", cr(till.fytd_debit), till.fytd_debit)}
+        {stat("Stores holding cash", `${till.stores_with_cash} of ${till.stores}`)}
+        {stat("Stores below zero", String(till.stores_negative))}
+      </div>
+      <LiveBoundary query={q} skeleton={<Skeleton className="m-4 h-[220px]" />}>
+        {(p) => (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12.5px]" data-testid="till-table">
+              <thead>
+                <tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground">
+                  <th className="px-4 py-2 font-semibold">Store</th>
+                  <th className="px-2 py-2 text-right font-semibold">Till cash</th>
+                  <th className="px-2 py-2 text-right font-semibold">Month to date in / out</th>
+                  <th className="px-4 py-2 text-right font-semibold">Last activity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {p.stores.map((r) => (
+                  <tr key={r.site_code} className="border-b last:border-b-0">
+                    <td className="px-4 py-1.5"><span className="font-medium text-foreground">{r.store_name ?? `Site ${r.site_code}`}</span> <span className="text-muted-foreground">· {r.site_code}</span></td>
+                    <td data-exact={r.cumulative_balance} className={cn("num px-2 py-1.5 text-right font-semibold", signedClass(r.cumulative_balance))} title={fmtRupees(r.cumulative_balance)}>{cr(r.cumulative_balance)}</td>
+                    <td className="num px-2 py-1.5 text-right text-muted-foreground">{cr(r.mtd_debit)} / {cr(r.mtd_credit)}</td>
+                    <td className="num px-4 py-1.5 text-right text-muted-foreground">{r.last_activity_date ? fmtDate(r.last_activity_date) : DASH}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="flex items-center justify-between border-t px-4 py-2 text-[11px] text-muted-foreground">
+              <span>{p.stores.length} of {till.stores} stores, highest till cash first</span>
+              {p.stores.length < till.stores && limit < 500 && (
+                <button data-testid="till-more" onClick={() => setLimit((l) => Math.min(500, l + 50))} className="press rounded px-2 py-0.5 font-semibold text-primary hover:bg-muted">Show more</button>
+              )}
+            </div>
+          </div>
+        )}
+      </LiveBoundary>
+    </Panel>
+  );
+}
+
+function CreditorsPanel({ c }: { c: CreditorObligations }) {
+  const { enterCreditors } = useCfo();
+  if (!c.available) {
+    return (
+      <Panel testId="creditors-panel" eyebrow="Real · verified" title="Creditor obligations">
+        <NotAvailable title="Creditor figures are not available" reason={c.reason} />
+      </Panel>
+    );
+  }
+  const total = num(c.credit_outstanding) || 1;
+  const row = (id: string, label: string, v: string, color: string, note: string) => (
+    <li key={id} className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,3fr)_110px_70px] items-center gap-x-3 border-b px-4 py-2.5 last:border-b-0" data-testid={`obligation-${id}`}>
+      <span className="min-w-0">
+        <span className="flex items-center gap-1.5 text-[13px] font-semibold"><i className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: color }} />{label}</span>
+        <span className="block truncate text-[11px] text-muted-foreground">{note}</span>
+      </span>
+      <span className="h-3 overflow-hidden rounded-sm bg-muted/60" aria-hidden><span className="block h-full rounded-sm" style={{ width: `${(num(v) / total) * 100}%`, background: color }} /></span>
+      <span data-exact={v} className="num text-right text-[14px] font-semibold">{cr(v)}</span>
+      <span className="num text-right text-[12px] text-muted-foreground">{fmtPct((num(v) / total) * 100)}</span>
+    </li>
+  );
+  return (
+    <Panel
+      testId="creditors-panel"
+      eyebrow="Real · verified (from the creditors mart)"
+      title="Creditor obligations by Due Status"
+      right={
+        <button data-testid="open-creditors" onClick={() => enterCreditors()} className="press inline-flex items-center gap-1 rounded bg-primary px-2.5 py-1 text-[12px] font-semibold text-primary-foreground hover:bg-primary/90">
+          Open Creditors Control <ArrowRight className="h-3.5 w-3.5" />
         </button>
-      ) : (
-        <div className="flex items-center px-4 text-[12px] text-muted-foreground">No action needed</div>
-      )}
+      }
+    >
+      <ul>
+        {row("past_due", "Past due / due today", c.past_due_credit, "oklch(0.55 0.19 25)", "stored due date reached")}
+        {row("not_yet_due", "Not yet due", c.not_yet_due_credit, "oklch(0.62 0.1 190)", "stored due date after the as-of date")}
+        {row("due_unavailable", "Due date unavailable", c.due_unavailable_credit, "oklch(0.72 0.03 260)", "no due date in the source; never estimated")}
+      </ul>
+      <div className="border-t px-4 py-2 text-[11px] text-muted-foreground">
+        Credit Outstanding {cr(c.credit_outstanding)}. Creditor debit balances {cr(c.creditor_debit_balance)} are separate and not netted. Creditors run {c.creditors_run_id}, as of {fmtDate(c.as_of_date)} ({c.data_state === "live" ? "live" : "verified candidate, not live"}). Same figures as the Creditors page.
+      </div>
+    </Panel>
+  );
+}
+
+function BankCard({ b }: { b: BankReview }) {
+  const t = b.totals;
+  const cell = (id: string, label: string, v: string, hint: string) => (
+    <div className="px-4 py-3" data-testid={id}>
+      <div className="eyebrow">{label}</div>
+      <div data-testid={`${id}-value`} data-exact={v} className={cn("num-mono text-[20px] font-semibold", signedClass(v))}>{cr(v)}</div>
+      <div className="text-[11px] text-muted-foreground">{hint}</div>
     </div>
   );
-}
-
-function Trajectory({ room, onOpen }: { room: CashRoomData; onOpen: () => void }) {
-  let todayIdx = 0;
-  room.series.forEach((p, i) => {
-    if (p.actual) todayIdx = i;
-  });
-  const data = room.series.map((p, i) => ({ label: p.label, actual: p.actual ? p.cash : null, projected: !p.actual || i === todayIdx ? p.cash : null }));
-  const all = room.series.map((p) => p.cash).concat(room.operatingMinimum);
-  const lo = Math.floor(Math.min(...all) - 4);
-  const hi = Math.ceil(Math.max(...all) + 4);
-  const selected = room.steps.find((s) => s.horizon === room.horizon);
   return (
-    <Panel
-      testId="cash-trajectory"
-      eyebrow="Cash trajectory"
-      title="Today → 7 → 15 → 30 days"
-      right={<span className={cn("max-w-[420px] truncate text-[12px] font-semibold", toneClass(room.tone))} data-testid="cash-headline">{room.headline}</span>}
-    >
-      <div className="h-[330px] w-full cursor-pointer px-2 pb-2 pt-3" onClick={onOpen} title="Click to investigate projected cash" data-testid="cash-chart">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 18, right: 76, bottom: 0, left: 0 }}>
-            <defs>
-              <linearGradient id="cashRoomFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="oklch(0.42 0.14 255)" stopOpacity={0.22} />
-                <stop offset="100%" stopColor="oklch(0.42 0.14 255)" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid stroke="oklch(0.92 0.01 260)" strokeDasharray="2 4" vertical={false} />
-            <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={{ stroke: "oklch(0.9 0.01 260)" }} interval="preserveStartEnd" minTickGap={24} />
-            <YAxis domain={[lo, hi]} ticks={Array.from({ length: 5 }, (_, i) => Math.round(lo + ((hi - lo) * i) / 4))} tick={AXIS} tickLine={false} axisLine={false} width={40} />
-            <Tooltip formatter={(v: number, name: string) => [fmtCr(v), name === "actual" ? "Actual cash" : "Projected cash"]} contentStyle={{ fontSize: 12, borderRadius: 6 }} />
-            <ReferenceLine y={room.operatingMinimum} stroke="oklch(0.58 0.2 25)" strokeDasharray="5 4" label={{ value: `Operating minimum ₹${room.operatingMinimum} Cr`, position: "insideBottomRight", fontSize: 10.5, fill: "oklch(0.5 0.2 25)" }} />
-            <ReferenceLine x={room.series[todayIdx]?.label} stroke="oklch(0.55 0.02 260)" strokeDasharray="2 3" label={{ value: "Today", position: "top", fontSize: 10.5, fill: "oklch(0.4 0.03 260)" }} />
-            {selected && selected.horizon !== "today" && <ReferenceLine x={selected.dayLabel} stroke="oklch(0.3 0.08 255)" strokeDasharray="4 3" />}
-            <Area type="monotone" dataKey="actual" stroke="oklch(0.3 0.08 255)" strokeWidth={2.4} fill="url(#cashRoomFill)" dot={false} connectNulls isAnimationActive={false} />
-            <Line type="monotone" dataKey="projected" stroke={room.tone === "bad" ? "oklch(0.58 0.2 25)" : "oklch(0.5 0.15 255)"} strokeWidth={2.4} strokeDasharray="6 4" dot={false} connectNulls isAnimationActive={false} />
-            {room.steps
-              .filter((s) => s.horizon !== "today")
-              .map((s) => (
-                <ReferenceDot key={s.horizon} x={s.dayLabel} y={s.closing} r={5} fill={s.headroom < 0 ? "oklch(0.58 0.2 25)" : "oklch(0.3 0.08 255)"} stroke="white" strokeWidth={2} label={{ value: `${s.label} · ${s.closing.toFixed(1)}`, position: "top", fontSize: 10.5, fill: "oklch(0.3 0.05 265)" }} />
-              ))}
-          </ComposedChart>
-        </ResponsiveContainer>
+    <section data-testid="bank-card" className="rounded-md border-2 border-dashed border-[oklch(0.78_0.1_80)] bg-[oklch(0.995_0.012_90)] shadow-elegant">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-dashed border-[oklch(0.78_0.1_80)] px-4 py-2.5">
+        <div>
+          <div className="eyebrow flex items-center gap-1.5"><Landmark className="h-3.5 w-3.5" /> Finance review</div>
+          <h2 className="text-[14px] font-semibold tracking-tight">Bank ledger-book position</h2>
+        </div>
+        <span data-testid="bank-status" className="rounded-sm bg-[oklch(0.45_0.12_70)] px-2 py-0.5 text-[11px] font-bold tracking-wide text-white">{b.status}</span>
       </div>
-    </Panel>
+      <div className="grid grid-cols-4 divide-x divide-dashed border-b border-dashed border-[oklch(0.78_0.1_80)] @max-[900px]:grid-cols-2 @max-[900px]:divide-y">
+        {cell("bank-opening", "Opening balance", t.opening_balance, "1 Apr 2026, ties to the prior-year closing")}
+        {cell("bank-posted", "Posted closing", t.posted_closing, b.last_posted_date ? `posted entries to ${fmtDate(b.last_posted_date)}` : "posted entries")}
+        {cell("bank-unposted", "Unposted movement", t.unposted_movement, "entries not yet posted, to the register date")}
+        {cell("bank-indicative", "Indicative incl. unposted", t.including_unposted, "indicative only; not a bank balance")}
+      </div>
+      {b.driver && (
+        <div data-testid="bank-driver" className="border-b border-dashed border-[oklch(0.78_0.1_80)] px-4 py-2 text-[12.5px]">
+          <span className="font-semibold">{b.driver.ledger_name}</span> drives the negative posted balance: <span className="num font-semibold tone-bad">{cr(b.driver.posted_closing)}</span> posted, <span className="num font-semibold">{cr(b.driver.including_unposted)}</span> including unposted.
+          Whether this account is expected to run negative (an overdraft) or posting is lagging cannot be told from the books alone.
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12.5px]" data-testid="bank-table">
+          <thead>
+            <tr className="border-b border-dashed text-left text-[10.5px] uppercase tracking-wider text-muted-foreground">
+              <th className="px-4 py-2 font-semibold">Ledger</th>
+              <th className="px-2 py-2 text-right font-semibold">Opening</th>
+              <th className="px-2 py-2 text-right font-semibold">Posted closing</th>
+              <th className="px-2 py-2 text-right font-semibold">Unposted</th>
+              <th className="px-2 py-2 text-right font-semibold">Incl. unposted</th>
+              <th className="px-4 py-2 text-right font-semibold">Last posted</th>
+            </tr>
+          </thead>
+          <tbody>
+            {b.ledgers.map((l: BankLedger) => (
+              <tr key={l.ledger_code} data-testid={`bank-ledger-${l.ledger_code}`} className="border-b border-dashed last:border-b-0">
+                <td className="px-4 py-1.5"><span className="font-medium">{l.ledger_name}</span> <span className="text-muted-foreground">· {l.nature}</span></td>
+                <td className="num px-2 py-1.5 text-right">{cr(l.opening_balance)}</td>
+                <td data-exact={l.posted_closing} className={cn("num px-2 py-1.5 text-right font-semibold", signedClass(l.posted_closing))}>{cr(l.posted_closing)}</td>
+                <td className="num px-2 py-1.5 text-right text-muted-foreground">{cr(l.unposted_movement)}</td>
+                <td data-exact={l.including_unposted} className={cn("num px-2 py-1.5 text-right", signedClass(l.including_unposted))}>{cr(l.including_unposted)}</td>
+                <td className="num px-4 py-1.5 text-right text-muted-foreground">{l.last_posted_date ? fmtDate(l.last_posted_date) : DASH}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div data-testid="bank-note" className="space-y-1 border-t border-dashed border-[oklch(0.78_0.1_80)] px-4 py-2 text-[11px] text-muted-foreground">
+        <div><span className="font-semibold text-foreground">Not bank-reconciled.</span> Book figures from the ledgers; no bank statement is available. Not added to Store Till Cash, and no liquidity, headroom or coverage is derived from them.</div>
+        <div>
+          {b.ledgers_with_movement} of {b.ledgers_total} bank and cash ledgers have entries; {b.ledgers_without_movement} have none. Source: site register as of {b.register_report_date ? fmtDate(b.register_report_date) : DASH}.
+          The GL register {b.cross_check.posted_agrees_with_gl_register ? "agrees on every posted figure" : "does NOT agree on the posted figures"}
+          {b.cross_check.gl_register_report_date ? ` (as of ${fmtDate(b.cross_check.gl_register_report_date)}, including unposted ${cr(b.cross_check.gl_register_including_unposted)})` : ""}. Every ledger's opening ties to its prior-year closing
+          {b.opening_ties_to_prior_year_closing.ledgers_not_tying === 0 ? ` (${b.opening_ties_to_prior_year_closing.ledgers_checked} checked)` : ` EXCEPT ${b.opening_ties_to_prior_year_closing.ledgers_not_tying}`}.
+        </div>
+      </div>
+    </section>
   );
 }
 
-function HorizonBridge({ room, selected, onOpen }: { room: CashRoomData; selected: string | null; onOpen: (it: BridgeItem) => void }) {
+function Unavailable({ items }: { items: CashSummary["unavailable"] }) {
   return (
-    <Panel
-      testId="cash-bridge"
-      eyebrow="What moves cash"
-      title={room.bridge.title}
-      right={<span className="text-[11px] text-muted-foreground">₹ Cr</span>}
-    >
-      <div className="px-2 pb-1 pt-1">
-        <WaterfallChart items={room.bridge.items} selectedId={selected} onSelect={onOpen} height={300} ariaLabel="Cash bridge for the selected horizon" />
-      </div>
-      <div className="flex items-center gap-2 border-t px-4 py-2 text-[12px]" data-testid="cash-capex">
-        <span className="eyebrow">Capex &amp; other commitments</span>
-        <Metric m={room.capex} fmt={(n) => fmtCr(n)} className="num-mono text-[13px] font-semibold" />
-        {room.capex.value === null && <span className="text-muted-foreground">{room.capex.reason}</span>}
-      </div>
-    </Panel>
-  );
-}
-
-const KIND_LABEL: Record<CashObligation["kind"], string> = { vendor: "Vendor", payroll: "Payroll", statutory: "Statutory", occupancy: "Rent & other" };
-const KIND_KEY: Record<CashObligation["kind"], string> = { vendor: "obl_vendor", payroll: "obl_payroll", statutory: "obl_statutory", occupancy: "obl_other" };
-
-function Obligations({ room, onOpen }: { room: CashRoomData; onOpen: (o: CashObligation) => void }) {
-  return (
-    <Panel testId="cash-obligations" eyebrow="Approaching" title="Obligations in the next 30 days" right={<span className="text-[11px] text-muted-foreground">Inside the selected horizon are highlighted</span>}>
+    <Panel testId="unavailable-panel" eyebrow="Not available / not yet verified" title="What this page does not show yet, and why">
       <ul>
-        {room.obligations.map((o) => (
-          <li key={o.id}>
-            <button
-              data-testid={`obligation-${o.id.replace(/\s+/g, "-")}`}
-              disabled={!o.inHorizon}
-              onClick={() => onOpen(o)}
-              className={cn("press grid w-full grid-cols-[64px_minmax(0,1fr)_auto_84px] items-center gap-3 border-b px-4 py-2.5 text-left", o.inHorizon ? "hover:bg-[oklch(0.97_0.012_265)]" : "cursor-default opacity-55")}
-            >
-              <span className="num text-[12px] font-semibold text-foreground">{o.dayLabel}</span>
-              <span className="min-w-0 truncate text-[13px] font-medium text-foreground">{o.label}</span>
-              <Chip>{KIND_LABEL[o.kind]}</Chip>
-              <span className="num-mono text-right text-[13px] font-semibold tone-bad">{fmtCr(-o.amount)}</span>
-            </button>
+        {items.map((u) => (
+          <li key={u.id} data-testid={`unavailable-${u.id}`} className="border-b px-4 py-2 last:border-b-0">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[13px] font-semibold">{u.label}</span>
+              <span className="num-mono text-[13px] text-muted-foreground">{DASH}</span>
+            </div>
+            <div className="text-[11.5px] text-muted-foreground">{u.reason}</div>
           </li>
         ))}
       </ul>
-      <div className="mt-auto flex items-center justify-between border-t bg-[oklch(0.975_0.008_265)] px-4 py-2.5 text-[12px]" data-testid="obligation-totals">
-        <span className="text-muted-foreground">Inside the selected horizon <b className="num-mono ml-1 text-foreground">{fmtCr(room.obligationTotals.inHorizon)}</b></span>
-        <span className="text-muted-foreground">Next 30 days <b className="num-mono ml-1 text-foreground">{fmtCr(room.obligationTotals.all)}</b></span>
-      </div>
     </Panel>
   );
 }
 
-function Spark({ values }: { values: number[] }) {
-  const max = Math.max(...values.map((v) => Math.abs(v)), 1e-9);
-  return (
-    <span className="flex h-6 items-center gap-[2px]" aria-hidden>
-      {values.map((v, i) => (
-        <i key={i} className={cn("w-1.5 rounded-sm", v < 0 ? "bg-[oklch(0.58_0.2_25)]" : "bg-[oklch(0.58_0.15_155)]")} style={{ height: `${Math.max(12, (Math.abs(v) / max) * 100)}%` }} />
-      ))}
-    </span>
-  );
-}
-
-function measureText(d: WcDriver): string {
-  const m = d.measure;
-  const sign = m.change > 0 ? "+" : m.change < 0 ? "−" : "";
-  return m.unit === "days" ? `${m.value.toFixed(0)} days (${sign}${Math.abs(m.change).toFixed(1)})` : `${fmtCr(m.value)} (${sign}${Math.abs(m.change).toFixed(1)} Cr)`;
-}
-
-function Drivers({ room, selected, onOpen, onCreditors }: { room: CashRoomData; selected: string | null; onOpen: (d: WcDriver) => void; onCreditors: () => void }) {
-  const max = Math.max(...room.drivers.map((r) => Math.abs(r.cashImpact)), 1);
-  const bad = room.drivers.filter((d) => d.deteriorating);
-  return (
-    <Panel
-      testId="cash-drivers"
-      eyebrow="Working capital drivers"
-      title="Cash absorbed and released"
-      right={<span className={cn("num-mono text-[15px] font-semibold", room.netCashImpact < 0 ? "tone-bad" : "tone-good")} data-testid="wc-net-impact">{deltaCr(room.netCashImpact)}</span>}
-    >
-      <div className={cn("flex items-center gap-2 px-4 pt-3 text-[13px] font-semibold", room.netCashImpact < 0 ? "tone-bad" : "tone-good")} data-testid="wc-headline">
-        {room.wcHeadline}
-      </div>
-      {bad.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 px-4 pb-1 pt-1.5 text-[12px] text-muted-foreground" data-testid="wc-deteriorating">
-          <TrendingDown className="h-3.5 w-3.5 text-[oklch(0.55_0.2_25)]" /> Deteriorating:
-          {bad.map((d) => (
-            <Chip key={d.id}>{d.label}</Chip>
-          ))}
-        </div>
-      )}
-      <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_96px_minmax(0,1.1fr)_56px] gap-x-3 border-b px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        <span>Driver</span>
-        <span>Absorbed ← → Released</span>
-        <span className="text-right">Cash impact</span>
-        <span>Measure</span>
-        <span>6 mo</span>
-      </div>
-      <ul>
-        {room.drivers.map((d) => {
-          const pct = (Math.abs(d.cashImpact) / max) * 50;
-          return (
-            <li key={d.id} className="flex items-stretch border-b">
-              <button
-                data-testid={`driver-${d.id}`}
-                aria-pressed={selected === d.id}
-                onClick={() => onOpen(d)}
-                className={cn("press grid min-w-0 flex-1 grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_96px_minmax(0,1.1fr)_56px] items-center gap-x-3 px-4 py-2.5 text-left hover:bg-[oklch(0.97_0.012_265)]", selected === d.id && "bg-[oklch(0.95_0.025_265)]")}
-              >
-                <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-medium text-foreground">{d.label}</span>
-                  <span className="block truncate text-[10.5px] text-muted-foreground">{d.direction === "absorbed" ? "Absorbed" : "Released"} · {d.note}</span>
-                </span>
-                <span className="relative h-3.5">
-                  <span className="absolute inset-y-0 left-1/2 w-px bg-border" />
-                  <span className={cn("absolute inset-y-0.5 rounded-sm", d.cashImpact < 0 ? "bg-[oklch(0.58_0.2_25)]" : "bg-[oklch(0.58_0.15_155)]")} style={d.cashImpact < 0 ? { right: "50%", width: `${pct}%` } : { left: "50%", width: `${pct}%` }} />
-                </span>
-                <span className={cn("num text-right text-[13px] font-semibold", toneClass(d.tone))}>{deltaCr(d.cashImpact)}</span>
-                <span className="min-w-0">
-                  <span className="block truncate text-[10.5px] text-muted-foreground">{d.measure.label}</span>
-                  <span className={cn("num block truncate text-[12px] font-medium", d.deteriorating ? "tone-bad" : "text-foreground")}>{measureText(d)}</span>
-                </span>
-                <Spark values={d.monthly} />
-              </button>
-              {d.id === "creditors" && (
-                <button data-testid="driver-open-creditors" onClick={onCreditors} title="Open Creditors Control" className="press flex items-center gap-1 border-l px-3 text-[11.5px] font-semibold text-primary hover:bg-[oklch(0.97_0.012_265)]">
-                  Creditors <ArrowRight className="h-3 w-3" />
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </Panel>
-  );
-}
-
-/**
- * Cash & Working Capital Control.
- * Cash trajectory → what moves cash → obligations → working-capital drivers → investigate → GL → voucher.
- */
 export function CashRoom() {
-  const { state, dispatch, openCashDriver, enterCreditors } = useCfo();
-  const q = useCashRoom(state.horizon);
-  const first = state.nodes[0];
-  const selected = state.drawerOpen ? cashKeyOf(first) : null;
-  const open = (key: string, label: string, amount: number | null) => {
-    if (isCashKey(key)) openCashDriver(cashNode(key, label, amount));
-  };
+  const run = useCashRun();
+  const q = useCashSummary();
   return (
     <div data-testid="cash-room" className="@container">
       <WorkspaceHeader
         eyebrow="Liquidity"
-        title="Cash & Working Capital Control"
-        subtitle="What cash we have, what it will look like, what is consuming it, what is releasing it, and what is approaching."
-        right={
-          <>
-            {q.data?.status === "stale" && <StaleChip reason={q.data.reason} />}
-            <div role="tablist" aria-label="Horizon" className="flex rounded bg-muted p-0.5">
-              {HORIZONS.map((h) => (
-                <button
-                  key={h.id}
-                  role="tab"
-                  data-testid={`horizon-${h.id}`}
-                  aria-selected={state.horizon === h.id}
-                  onClick={() => dispatch({ type: "setHorizon", value: h.id })}
-                  className={cn("press whitespace-nowrap rounded px-2.5 py-1 text-[12px] font-semibold", state.horizon === h.id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
-                >
-                  {h.label}
-                </button>
-              ))}
-            </div>
-          </>
-        }
+        title="Liquidity & Working Capital Control"
+        subtitle="What is in the tills, what is owed to creditors, and what is not yet known. Bank-reconciled cash and a forecast are not available from the current sources."
+        right={run.data ? <DataStateBadge state={run.data.data_state} run={run.data.run_id} asOf={run.data.as_of_date} /> : undefined}
       />
-      <Boundary query={q} skeleton={<div className="space-y-4 p-4"><Skeleton className="h-16 w-full" /><Skeleton className="h-[330px] w-full" /></div>} emptyTitle="No cash projection for this selection">
-        {(room) => (
+      <LiveBoundary query={q} skeleton={<Skeleton className="m-4 h-[420px]" />}>
+        {(s) => (
           <>
-            <Strip room={room} horizon={state.horizon} onHorizon={(h) => dispatch({ type: "setHorizon", value: h })} />
+            <Strip s={s} />
             <div className="space-y-4 p-4">
-              <DecisionStrip room={room} onOpen={open} />
-              <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4 @max-[1500px]:grid-cols-1">
-                <Trajectory room={room} onOpen={() => open("projected", "Forecast Closing Cash", room.forecastClosing)} />
-                <HorizonBridge room={room} selected={selected} onOpen={(it) => open(it.id, it.label, it.value)} />
+              <div className="grid grid-cols-2 gap-4 @max-[1100px]:grid-cols-1">
+                <TillPanel till={s.till} />
+                <CreditorsPanel c={s.creditors} />
               </div>
-              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] gap-4 @max-[1250px]:grid-cols-1">
-                <Obligations
-                  room={room}
-                  onOpen={(o) => {
-                    const item = room.bridge.items.find((i) => i.id === KIND_KEY[o.kind]);
-                    if (item) open(item.id, item.label, item.value);
-                  }}
-                />
-                <Drivers room={room} selected={selected} onOpen={(d) => open(d.id, d.label, d.cashImpact)} onCreditors={() => enterCreditors()} />
-              </div>
-              <div className="text-[11px] text-muted-foreground">{DASH} marks figures with no source yet. Capex and other commitments are not estimated.</div>
+              <BankCard b={s.bank_review} />
+              <Unavailable items={s.unavailable} />
             </div>
           </>
         )}
-      </Boundary>
+      </LiveBoundary>
     </div>
   );
 }

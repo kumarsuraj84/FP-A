@@ -45,13 +45,14 @@ function Select<T extends string>({ label, value, options, onChange, testId, wid
 export function DemoBanner() {
   const { state, dispatch } = useCfo();
   const path = useRouterState({ select: (r) => r.location.pathname });
-  if (path.startsWith("/creditors")) {
-    // this page runs on the verified mart; every other module is still demo data and the banner says so
+  const realPage = path.startsWith("/creditors") ? "Creditors" : path.startsWith("/cash") ? "Liquidity" : null;
+  if (realPage) {
+    // this page runs on a verified mart; every module not yet connected is still demo data and the banner says so
     return (
       <div data-testid="demo-banner" data-real="true" className="flex h-6 items-center bg-[oklch(0.94_0.06_155)] px-4 text-[11px] font-medium text-[oklch(0.32_0.1_155)]">
         <span className="flex items-center gap-1.5">
           <CircleDot className="h-3 w-3" />
-          Creditors shows REAL data (verified candidate, not live). Command Center, Profitability and Cash are still demo data, so their figures will not match.
+          {realPage} shows REAL data (verified candidate, not live). Command Center and Profitability are still demo data, so their figures will not match.
         </span>
       </div>
     );
@@ -128,7 +129,7 @@ type NavId = "command" | "profitability" | "cash" | "creditors";
 const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: "/" | "/profitability" | "/cash" | "/creditors"; testId: string; icon: typeof Truck }[] }[] = [
   { group: "Command", items: [{ id: "command", label: "CFO Command Center", title: "CFO Command Center", to: "/", testId: "nav-command-center", icon: LayoutDashboard }] },
   { group: "Performance", items: [{ id: "profitability", label: "Profitability", title: "Store Profitability", to: "/profitability", testId: "nav-profitability", icon: Store }] },
-  { group: "Liquidity", items: [{ id: "cash", label: "Cash & Working Capital", title: "Cash & Working Capital", to: "/cash", testId: "nav-cash", icon: Banknote }] },
+  { group: "Liquidity", items: [{ id: "cash", label: "Liquidity & Working Capital", title: "Liquidity & Working Capital Control", to: "/cash", testId: "nav-cash", icon: Banknote }] },
   { group: "Exposure", items: [{ id: "creditors", label: "Creditors", title: "Creditors Control", to: "/creditors", testId: "nav-creditors", icon: Truck }] },
 ];
 

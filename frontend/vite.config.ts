@@ -31,6 +31,14 @@ export default defineConfig({
   vite: {
     server: {
       proxy: {
+        "/cash-api": {
+          target,
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/cash-api/, "/api/v1/cash"),
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => proxyReq.removeHeader("authorization")); // the Cash API has no Finance routes: nothing to add, nothing to forward
+          },
+        },
         "/creditors-api": {
           target,
           changeOrigin: false,
