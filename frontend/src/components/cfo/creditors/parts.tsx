@@ -31,6 +31,9 @@ const STATE_STYLE: Record<DataState, string> = {
 };
 const STATE_TEXT: Record<DataState, string> = { verified_candidate: "Verified candidate · not live", live: "Live", superseded: "Superseded", withdrawn: "Withdrawn" };
 
+/** "04 Oct 2026" from an ISO date. */
+const longDate = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+
 /** The data state is stated by the API; this only displays it. A candidate is real, reconciled data that has not been published. */
 export function DataStateBadge({ state, run, asOf, className }: { state: DataState; run: string; asOf: string; className?: string }) {
   return (
@@ -41,8 +44,9 @@ export function DataStateBadge({ state, run, asOf, className }: { state: DataSta
       className={cn("inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[11px] font-semibold", STATE_STYLE[state], className)}
     >
       <FlaskConical className="h-3 w-3" />
+      <span className="rounded-sm bg-foreground px-1 text-[10px] font-bold tracking-wider text-background">REAL DATA</span>
       {STATE_TEXT[state]}
-      <span className="font-normal opacity-80">· {run} · as of {asOf}</span>
+      <span className="font-normal opacity-80">· As of {longDate(asOf)} · {run}</span>
     </span>
   );
 }
