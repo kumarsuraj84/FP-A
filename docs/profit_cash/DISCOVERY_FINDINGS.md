@@ -100,3 +100,22 @@ Finance questions: is AXIS 8218 an overdraft or collection account that is expec
 - `V_FINANCE_STOCK_MOVEMENT`: invalid view.
 - `T_STK_REPORT_FINAL_OUTPUT_NEW`: store x article stock rows by month, but the totals are not a point-in-time position (Mar 2026: 15.7 Cr at stock value; Sep 2026: 152.8 Cr summed over the month's rows) and bear no relation to the 265.96 Cr in the books. Its valuation basis cannot be established; value at MRP is about 2x the stock value. Not usable.
 - Retail price or MRP is not used to reconstruct inventory value, per your rule. Inventory stays **unavailable**.
+
+---
+
+# Receivables retry (receivables_probe_01: runs 010 and 011)
+
+Sundry Debtors (ledger 1000000014) in the OUTSTANDING cube (`T$FINOTSD_533`, report date 2026-10-04), open rows (PENDING <> 0). Aggregates only. The first attempt failed on one wide query; the retry split it into small ones. A broker bug (an Oracle error text the Windows console could not encode killed the run) was fixed and tested.
+
+| Question | Answer |
+|---|---|
+| Identity | Dr: 687 rows, 685 document codes, 41 sub-ledgers. Cr: 2,405 rows, 2,384 document codes, 35 sub-ledgers. |
+| Candidate stable key | **(DOCUMENT_CODE, SUB_LEDGER_CODE) is unique over all 3,092 open rows** (also with Dr/Cr, also with REF_NO). Same key as the creditors pilot. No nulls in document code, sub-ledger or Dr/Cr. REF_NO is 84% null, so it cannot be part of the key. |
+| Sign convention | **Same as creditors**: Dr positive, Cr negative, in both AMOUNT and PENDING. |
+| PENDING semantics | **Same as creditors**: PENDING = sign(AMOUNT) x (|AMOUNT| − |ADJUSTED|) holds on 100% of rows (687 of 687 Dr, 2,405 of 2,405 Cr). ADJUSTED is null on most rows (645 of 687 Dr, 2,397 of 2,405 Cr). The simple `AMOUNT − ADJUSTED` form holds on only 646 Dr rows and 2,397 Cr rows, so the absolute-difference form is the rule. |
+| Totals | Dr: 103.214 Cr (AMOUNT 103.77, ADJUSTED −0.553). Cr: 67.147 Cr absolute (AMOUNT −67.311, ADJUSTED 0.164). Not netted. |
+| Date population | DOCUMENT_DATE and ENTRY_DATE are present on every row. REF_DATE: 486 of 687 Dr, 1 of 2,405 Cr. DUE_DATE: **488 of 687 Dr (71%), 1 of 2,405 Cr.** |
+| Date quality | Dr document dates reach back to an impossible year (0202-01-01): a date outside any valid window, which the creditors rule (technical window 2000 to 2100) would hold as unclassified, not guess. Stored due-date basis: Dr 617 rows "Document Date" (418 with a due date inside the window) and 70 "Entry Date" (all in window). No due date before its document date. |
+| Business identity | Customers (35 Dr sub-ledgers, 27 Cr) plus small SIS and non-trading supplier balances, as found earlier. Dr is almost entirely Sale Service Invoices. |
+
+**Read:** receivables behave exactly like creditors at the cube level, so a `receivables-pilot-1.0` contract can reuse the creditors rules (Document Age and Due Status as separate dimensions, due-date unavailable reported not estimated, Dr and Cr never netted, Cr side unclassified). No extract or mart has been built.
