@@ -915,4 +915,85 @@ RECEIVABLES_PROBE_01: tuple[Dataset, ...] = (
                  f"COUNT(CASE WHEN o.drcr IS NULL THEN 1 END) AS null_drcr, COUNT(CASE WHEN o.ref_no IS NULL THEN 1 END) AS null_ref_no FROM {_O} o WHERE {_RB} FETCH FIRST 1 ROWS ONLY")),
 )
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01}
+# ───────────── cash_pilot_01: the first controlled real extraction for Cash (contract cash-wc-1.0) ─────────────
+# Oracle -> guarded broker -> Parquet + manifest -> offline staging validation (cash_stage.py). Only aggregates: one row per store (till cash),
+# one row per bank/cash ledger per register (ledger book figures). Creditor figures are not extracted here: the API reads them from the creditors mart.
+# Numbers and dates leave Oracle as exact text. Source controls are computed in Oracle in a different shape (no per-store / per-ledger grouping)
+# before and after the extract.
+CASH_RULES = {
+    "contract": "cash-wc-1.0",
+    "rules_version": "1",
+    "fy_start": "2026-04-01",
+    "till_source": "MISRETAIL.V_FINANCE_CASH_CUMLATIVE_BLNC",
+    "till_date_rule": "latest bill date on or before the site register report date with any debit or credit",
+    "bank_source_site": '"T$FINREGSITE_844"',
+    "bank_source_gl": '"T$FINREG_901"',
+    "bank_prior_year_source": '"T$FINREG_886"',
+    "position_rule": "opening (entry type Opening) + posted Dr - posted Cr, entry date <= register report date; unposted shown separately; future-dated entries excluded",
+    "bank_status": "PROVISIONAL, NOT BANK-RECONCILED",
+}
+_TILL = f"{OWNER}.V_FINANCE_CASH_CUMLATIVE_BLNC"
+_FYS = f"DATE '{CASH_RULES['fy_start']}'"
+_TILL_CTE = (
+    f"WITH p AS (SELECT MAX(v.bill_date) AS till FROM {_TILL} v, (SELECT MAX(report_date) AS rd FROM {_SITEREG} WHERE entry_date >= {_FYS}) r "
+    f"WHERE v.bill_date >= {_FYS} AND v.bill_date <= r.rd AND (v.debit <> 0 OR v.credit <> 0)) "
+)
+
+
+def _bank_totals(tbl: str, since: str, rd: str | None, gls: str) -> str:
+    """One scalar row for ALL bank/cash ledgers of a register, with no per-ledger grouping (the source control for the per-ledger extract)."""
+    rdx = rd or "r.rd"
+    op, posted, unposted = "TRIM(t.entry_type_long) = 'Opening'", "t.release_status = 'Posted'", "t.release_status = 'Unposted'"
+    past = f"TRUNC(t.entry_date) <= TRUNC({rdx})"
+    fut = f"TRUNC(t.entry_date) > TRUNC({rdx})"
+    s = lambda col, cond, name: _TM9(f"SUM(CASE WHEN {cond} THEN t.{col} ELSE 0 END)", name)  # noqa: E731
+    n = lambda cond, name: f"COUNT(CASE WHEN {cond} THEN 1 END) AS {name}"  # noqa: E731
+    return (
+        f"SELECT TO_CHAR(MAX({rdx}), 'YYYY-MM-DD') AS report_date, COUNT(DISTINCT t.entry_glcode) AS ledgers_with_entries, {s('debit', op, 'open_dr')}, {s('credit', op, 'open_cr')}, "
+        f"{s('debit', f'NOT ({op}) AND {posted} AND {past}', 'posted_dr')}, {s('credit', f'NOT ({op}) AND {posted} AND {past}', 'posted_cr')}, "
+        f"{s('debit', f'NOT ({op}) AND {unposted} AND {past}', 'unposted_dr')}, {s('credit', f'NOT ({op}) AND {unposted} AND {past}', 'unposted_cr')}, "
+        f"{n(op, 'open_rows')}, {n(f'NOT ({op}) AND {posted} AND {past}', 'posted_rows')}, {n(f'NOT ({op}) AND {unposted} AND {past}', 'unposted_rows')}, {n(fut, 'future_rows')} "
+        f"FROM {tbl} t" + ("" if rd else f", (SELECT MAX(report_date) AS rd FROM {tbl} WHERE entry_date >= DATE '{since}') r") + f" WHERE t.entry_date >= DATE '{since}' AND t.entry_glcode IN ({gls}) FETCH FIRST 1 ROWS ONLY"
+    )
+
+
+_C1_SQL = (
+    _TILL_CTE + "SELECT TO_CHAR(MAX(p.till), 'YYYY-MM-DD') AS till_date, COUNT(DISTINCT v.site_code) AS stores_with_a_row, "
+    + _TM9("SUM(CASE WHEN v.bill_date = p.till THEN v.cumlative_balance ELSE 0 END)", "sum_cumulative") + ", "
+    + _TM9("SUM(CASE WHEN v.bill_date >= TRUNC(p.till, 'MM') THEN v.debit ELSE 0 END)", "mtd_debit") + ", " + _TM9("SUM(CASE WHEN v.bill_date >= TRUNC(p.till, 'MM') THEN v.credit ELSE 0 END)", "mtd_credit") + ", "
+    + _TM9("SUM(v.debit)", "fytd_debit") + ", " + _TM9("SUM(v.credit)", "fytd_credit")
+    + f" FROM {_TILL} v, p WHERE v.bill_date >= {_FYS} AND v.bill_date <= p.till FETCH FIRST 1 ROWS ONLY"
+)
+_E1_SQL = (
+    _TILL_CTE + "SELECT TO_CHAR(v.site_code) AS site_code, v.store_name AS store_name, TO_CHAR(MAX(p.till), 'YYYY-MM-DD') AS till_date, "
+    + _TM9("MAX(CASE WHEN v.bill_date = p.till THEN v.cumlative_balance END)", "cumulative_balance") + ", "
+    + _TM9("SUM(CASE WHEN v.bill_date >= TRUNC(p.till, 'MM') THEN v.debit ELSE 0 END)", "mtd_debit") + ", " + _TM9("SUM(CASE WHEN v.bill_date >= TRUNC(p.till, 'MM') THEN v.credit ELSE 0 END)", "mtd_credit") + ", "
+    + _TM9("SUM(v.debit)", "fytd_debit") + ", " + _TM9("SUM(v.credit)", "fytd_credit") + ", "
+    + "TO_CHAR(MAX(CASE WHEN (v.debit <> 0 OR v.credit <> 0) THEN v.bill_date END), 'YYYY-MM-DD') AS last_activity_date "
+    + f"FROM {_TILL} v, p WHERE v.bill_date >= {_FYS} AND v.bill_date <= p.till GROUP BY v.site_code, v.store_name FETCH FIRST 2000 ROWS ONLY"
+)
+_C2_SQL = _bank_totals(_REG26["844"], CASH_RULES["fy_start"], None, _BANK_LEDGERS)
+
+CASH_PILOT_01: tuple[Dataset, ...] = (
+    Dataset("c1_till_control_pre", "extract", "Source control before the extract: till date, stores, total till cash and Dr/Cr totals (no per-store grouping).", sql=_C1_SQL, role="control_pre"),
+    Dataset("c2_bank_control_pre", "extract", "Source control before the extract: bank/cash ledger totals of the site register (no per-ledger grouping).", sql=_C2_SQL, role="control_pre"),
+    Dataset("e1_store_till", "extract", "The extract: one row per store with till cash on the till date, month-to-date and year-to-date Dr/Cr, last activity.", sql=_E1_SQL, role="extract"),
+    Dataset("e2_bank_site_register", "extract", "The extract: one row per bank/cash ledger from the site-wise register (T$FINREGSITE_844): opening, posted, unposted, future, last dates.",
+            sql=_position(_REG26["844"], CASH_RULES["fy_start"], None, _BANK_LEDGERS, "site_register", ", COUNT(DISTINCT t.sitecode) AS sites") + " FETCH FIRST 200 ROWS ONLY", role="extract"),
+    Dataset("e3_bank_gl_register", "extract", "The extract: the same ledgers from the GL register (T$FINREG_901), as a second source.",
+            sql=_position(_REG26["901"], CASH_RULES["fy_start"], None, _BANK_LEDGERS, "gl_register") + " FETCH FIRST 200 ROWS ONLY", role="extract"),
+    Dataset("e4_bank_prior_year_closing", "extract", "The extract: the same ledgers in the FY25-26 register to 31 Mar 2026 (closing that must equal this year's opening).",
+            sql=_position(f'{OWNER}."T$FINREG_886"', "2025-04-01", "DATE '2026-03-31'", _BANK_LEDGERS, "prior_year_closing") + " FETCH FIRST 200 ROWS ONLY", role="extract"),
+    Dataset("c1_till_control_post", "extract", "The same till control after the extract.", sql=_C1_SQL, role="control_post"),
+    Dataset("c2_bank_control_post", "extract", "The same bank control after the extract.", sql=_C2_SQL, role="control_post"),
+)
+
+CASH_META = {
+    "halt_on_failure": True,
+    "contract": {**CASH_RULES, "scope": {"till": CASH_RULES["till_source"], "bank_ledgers": "MAS$FINGL nature in ('Bank', 'Cash')"},
+                 "caps": {"e1_store_till": 2000, "e2_bank_site_register": 200, "e3_bank_gl_register": 200, "e4_bank_prior_year_closing": 200}},
+}
+
+PACKAGE_META["cash_pilot_01"] = CASH_META
+
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01}

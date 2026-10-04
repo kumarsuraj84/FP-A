@@ -21,8 +21,8 @@ import sys
 from pathlib import Path
 
 SQL_DIR = Path(__file__).resolve().parent / "sql"
-SCRIPTS = ["000_roles.sql", "001_cred_schema.sql", "002_candidate_views.sql"]
-VERSIONS = {"001_cred_schema.sql": "001", "002_candidate_views.sql": "002"}
+SCRIPTS = ["000_roles.sql", "001_cred_schema.sql", "002_candidate_views.sql", "003_core_run_model.sql", "004_cash_schema.sql"]
+VERSIONS = {"001_cred_schema.sql": "001", "002_candidate_views.sql": "002", "003_core_run_model.sql": "003", "004_cash_schema.sql": "004"}
 #: databases this tool will never create or migrate: the application database and the maintenance database
 PROTECTED = {"fpa", "postgres", "template0", "template1"}
 _SECRET = re.compile(r"(://[^:/@\s]+:)[^@\s]*@")
