@@ -36,8 +36,8 @@ No application database, no pilot database, no Oracle, no frontend and no real r
 ```json
 {
   "schema_owner": "cred_owner",
-  "tables": 10,
-  "views": 13,
+  "tables": 11,
+  "views": 17,
   "roles_nologin_nosuper": [
     "cred_api_reader",
     "cred_finance_reader",
@@ -47,7 +47,7 @@ No application database, no pilot database, no Oracle, no frontend and no real r
     "cred_verifier"
   ],
   "initial_policy": "require_api_layer=true, require_ui_layer=false",
-  "second_apply": "refused"
+  "second_apply": "no-op (ledger 001, 002); 001 alone refused"
 }
 ```
 
@@ -332,7 +332,7 @@ No application database, no pilot database, no Oracle, no frontend and no real r
 ```json
 {
   "suite": "tools/creditors_mart/tests/test_cred_mart_db.py",
-  "tests_collected": 33,
+  "tests_collected": 161,
   "failures_so_far": 0,
   "isolation": "every test runs in a fresh database cloned from the migrated template"
 }
@@ -422,7 +422,7 @@ No application database, no pilot database, no Oracle, no frontend and no real r
 ## U16: install verifier
 ```json
 {
-  "checks_on_clean_install": 34,
+  "checks_on_clean_install": 35,
   "failures": 0,
   "drift_detected": {
     "extra_grant_to_api_reader": [

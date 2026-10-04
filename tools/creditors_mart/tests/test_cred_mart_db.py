@@ -260,10 +260,12 @@ def test_u02_schema_applied_and_owned_by_cred_owner(db):
         assert t in tables
     pol = db.execute("SELECT require_api_layer, require_ui_layer FROM cred.policy_change ORDER BY change_id DESC LIMIT 1").fetchone()
     assert pol == (True, False)
-    # the migration refuses to run twice
+    # applying again is a no-op (nothing pending), and 001 on its own still refuses to run twice
+    assert migrate.apply(db) == []
     with pytest.raises(E.RaiseException):
-        migrate.apply(db)
-    ev("U02", "schema applied", schema_owner=schema_owner, tables=len(tables), views=len(views), roles_nologin_nosuper=sorted(roles), initial_policy="require_api_layer=true, require_ui_layer=false", second_apply="refused")
+        db.execute((migrate.SQL_DIR / "001_cred_schema.sql").read_text(encoding="utf-8"))
+    assert [r[0] for r in db.execute("SELECT version FROM cred.schema_migration ORDER BY 1")] == ["001", "002"]
+    ev("U02", "schema applied", schema_owner=schema_owner, tables=len(tables), views=len(views), roles_nologin_nosuper=sorted(roles), initial_policy="require_api_layer=true, require_ui_layer=false", second_apply="no-op (ledger 001, 002); 001 alone refused")
 
 
 # ───────────── U03 ─────────────

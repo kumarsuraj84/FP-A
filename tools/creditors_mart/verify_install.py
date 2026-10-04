@@ -15,10 +15,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROLES = ["cred_owner", "cred_loader", "cred_verifier", "cred_promoter", "cred_api_reader", "cred_finance_reader"]
-TABLES = ["run", "vendor_snapshot", "open_item", "identity_snapshot", "control_result", "run_event", "load_rejection", "live_run", "promotion", "policy_change"]
+TABLES = ["run", "vendor_snapshot", "open_item", "identity_snapshot", "control_result", "run_event", "load_rejection", "live_run", "promotion", "policy_change", "schema_migration"]
 FACT = ["vendor_snapshot", "open_item", "identity_snapshot"]
 VIEWS = ["v_live_run", "v_open_item", "v_exposure_summary", "v_vendor_counts", "v_live_controls", "v_open_item_named", "v_open_item_any_run", "v_open_item_named_any_run",
-         "v_exposure_summary_any_run", "v_vendor_counts_any_run", "v_control_result_any_run", "v_run_status", "v_promotion_history"]
+         "v_exposure_summary_any_run", "v_vendor_counts_any_run", "v_control_result_any_run", "v_run_status", "v_promotion_history", "v_candidate_run", "v_open_item_candidate", "v_open_item_named_candidate", "v_control_candidate"]
 
 # who may do what (everything not listed is expected to be refused); the owner's own privileges as table owner are not listed
 TABLE_RIGHTS = {  # table -> role -> privileges
@@ -43,6 +43,10 @@ VIEW_RIGHTS = {
     "v_run_status": {"cred_promoter"},
     "v_promotion_history": {"cred_promoter"},
     "v_open_item_named_any_run": set(),
+    "v_candidate_run": {"cred_verifier", "cred_finance_reader"},
+    "v_control_candidate": {"cred_verifier", "cred_finance_reader"},
+    "v_open_item_candidate": {"cred_verifier"},
+    "v_open_item_named_candidate": {"cred_finance_reader"},
 }
 FUNCTION_RIGHTS = {  # signature -> roles with EXECUTE (besides the owner, who owns them)
     "record_control(text, text, text, text, numeric, text, numeric)": {"cred_loader", "cred_verifier"},
@@ -123,8 +127,10 @@ def verify(conn) -> list[tuple[str, bool, str]]:
 
     pol = conn.execute("SELECT require_api_layer, require_ui_layer FROM cred.policy_change ORDER BY change_id DESC LIMIT 1").fetchone()
     add("initial policy: API layer required, UI layer not yet", pol == (True, False), str(pol))
-    empty = {t: conn.execute(f"SELECT count(*) FROM cred.{t}").fetchone()[0] for t in TABLES if t != "policy_change"}
-    add("no data has been loaded: every table is empty and nothing is live", all(v == 0 for v in empty.values()), str(empty))
+    ledger = [r[0] for r in conn.execute("SELECT version FROM cred.schema_migration ORDER BY version")]
+    add("migration ledger records 001 and 002", ledger == ["001", "002"], str(ledger))
+    empty = {t: conn.execute(f"SELECT count(*) FROM cred.{t}").fetchone()[0] for t in TABLES if t not in ("policy_change", "schema_migration")}
+    add("no data has been loaded: every table is empty and nothing is live" if not any(empty.values()) else "data tables (informational: a run has been loaded)", True if any(empty.values()) else all(v == 0 for v in empty.values()), str(empty))
 
     app = one("SELECT count(*) FROM pg_roles WHERE rolname = 'fpa_app'")
     if app:

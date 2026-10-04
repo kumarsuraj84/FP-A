@@ -28,3 +28,7 @@ Run these in YOUR OWN terminal from the repository root. Each asks for the admin
 1. `python tools/creditors_mart/setup_loader.py`  (administrator, own terminal, hidden prompt). Creates or re-keys `cred_loader_login` (member of `cred_loader` only, no admin attributes) with a random password stored only as a SCRAM hash in the database and in the git-ignored `.secrets/cred_loader.env`; creates a random 64-character `vendor_ref_salt` once and keeps it for ever. It proves the restrictions by logging in as that account. Nothing secret is printed.
 2. `python tools/creditors_mart/loader.py load data/inbox/run_YYYYMMDD_NNN`  (reads `.secrets/cred_loader.env`; preflight, one transaction, controls, commit or full rollback; ends `loaded` / `unpublished`).
 3. `python tools/creditors_mart/loader.py verify run_YYYYMMDD_NNN`  (separate gate: `verified`, still unpublished).
+
+## The API step (administrator, once)
+
+`python tools/creditors_mart/install_api.py`  (own terminal, one hidden admin prompt): applies pending migrations (002), creates or re-keys `cred_api_login` (NOINHERIT member of the verifier, Finance-reader and API-reader roles only) and writes `.secrets/cred_api.env` with a random password and a random Finance token. See `docs/creditors_pilot/API_CONTRACT.md`.

@@ -21,7 +21,8 @@ import sys
 from pathlib import Path
 
 SQL_DIR = Path(__file__).resolve().parent / "sql"
-SCRIPTS = ["000_roles.sql", "001_cred_schema.sql"]
+SCRIPTS = ["000_roles.sql", "001_cred_schema.sql", "002_candidate_views.sql"]
+VERSIONS = {"001_cred_schema.sql": "001", "002_candidate_views.sql": "002"}
 #: databases this tool will never create or migrate: the application database and the maintenance database
 PROTECTED = {"fpa", "postgres", "template0", "template1"}
 _SECRET = re.compile(r"(://[^:/@\s]+:)[^@\s]*@")
@@ -35,10 +36,27 @@ def read_scripts() -> list[tuple[str, str]]:
     return [(name, (SQL_DIR / name).read_text(encoding="utf-8")) for name in SCRIPTS]
 
 
-def apply(conn) -> None:
-    """Apply every migration on an open admin connection (autocommit). Raises on the first error."""
-    for _name, sql in read_scripts():
-        conn.execute(sql)
+def applied_versions(conn) -> set[str]:
+    """What is installed: nothing, a 001-only install (before the migration ledger existed), or whatever the ledger records."""
+    if not conn.execute("SELECT 1 FROM pg_namespace WHERE nspname = 'cred'").fetchone():
+        return set()
+    if conn.execute("SELECT to_regclass('cred.schema_migration')").fetchone()[0] is None:
+        return {"001"}
+    return {r[0] for r in conn.execute("SELECT version FROM cred.schema_migration")}
+
+
+def apply(conn) -> list[str]:
+    """Apply what is pending, in order, on an open admin connection (autocommit). Returns the versions applied (empty when up to date).
+    Roles (000) are idempotent and always run; each numbered migration runs once and 001 still refuses to run twice."""
+    done = applied_versions(conn)
+    ran = []
+    for name, sql in read_scripts():
+        version = VERSIONS.get(name)
+        if version is None or version not in done:
+            conn.execute(sql)
+            if version:
+                ran.append(version)
+    return ran
 
 
 def admin_conninfo() -> str | None:
@@ -114,8 +132,8 @@ def main(argv: list[str]) -> int:
                 print(f"'{who}' is not an administrator (needs superuser, or CREATEDB and CREATEROLE). Nothing was changed.")
                 return 3
             print(f"Applying to database '{db}' as '{who}'")
-            apply(conn)
-            print("Done: roles and schema cred created.")
+            ran = apply(conn)
+            print(f"Done: applied {', '.join(ran)}." if ran else "Done: already up to date, nothing applied.")
     except Exception as e:  # noqa: BLE001
         print(f"FAILED: {type(e).__name__}: {redact(e)}")
         return 1
