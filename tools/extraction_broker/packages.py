@@ -790,4 +790,98 @@ PROFIT_CASH_PROBE_02: tuple[Dataset, ...] = (
                  "GROUP BY o.ledger_code, o.drcr FETCH FIRST 20 ROWS ONLY")),
 )
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02}
+# ───────────── cash_wc_probe_02: the final bounded Cash probe (aggregates only) ─────────────
+# A. Bank / cash position per ledger from the GL registers: opening, posted Dr/Cr up to the report date, unposted, future-dated, last dates, ledgers with no
+#    movement. Position = opening + posted Dr - posted Cr with a strict entry_date <= report_date. The opening sign convention is reported as evidence, not forced.
+# B. Receivables foundation on the debtor ledgers of the outstanding cube (aggregates; no party names or codes leave Oracle).
+# C. Inventory: current valuation sources only; if none is credible the stock sources stay unavailable.
+_BANK_LEDGERS = f"SELECT glcode FROM {OWNER}.\"MAS$FINGL\" WHERE nature IN ('Bank', 'Cash')"
+_STOCK_GL = "1000000012, 1000000013, 1000000039, 244, 245"  # Stock - RM (B/S), Stock - FG (B/S), Closing Stock - FG (B/S), Opening Stock, Opening Stock Loss
+
+
+def _position(tbl: str, since: str, rd: str | None, gl_filter: str, label: str, extra: str = "") -> str:
+    """One row per ledger of the master (LEFT JOIN, so ledgers with no movement still appear)."""
+    rdx = rd or "r.rd"
+    t = "TRIM(t.entry_type_long) = 'Opening'"
+    posted = "t.release_status = 'Posted'"
+    unposted = "t.release_status = 'Unposted'"
+    past = f"TRUNC(t.entry_date) <= TRUNC({rdx})"
+    fut = f"TRUNC(t.entry_date) > TRUNC({rdx})"
+
+    def s(col: str, cond: str, name: str) -> str:
+        return _TM9(f"SUM(CASE WHEN {cond} THEN t.{col} ELSE 0 END)", name)
+
+    def n(cond: str, name: str) -> str:
+        return f"COUNT(CASE WHEN {cond} THEN 1 END) AS {name}"
+
+    inner = (
+        f"SELECT t.entry_glcode, {s('debit', t, 'open_dr')}, {s('credit', t, 'open_cr')}, {n(t, 'open_rows')}, {n(t + ' AND ' + unposted, 'open_unposted_rows')}, "
+        f"{s('debit', f'NOT ({t}) AND {posted} AND {past}', 'posted_dr')}, {s('credit', f'NOT ({t}) AND {posted} AND {past}', 'posted_cr')}, {n(f'NOT ({t}) AND {posted} AND {past}', 'posted_rows')}, "
+        f"{s('debit', f'NOT ({t}) AND {unposted} AND {past}', 'unposted_dr')}, {s('credit', f'NOT ({t}) AND {unposted} AND {past}', 'unposted_cr')}, {n(f'NOT ({t}) AND {unposted} AND {past}', 'unposted_rows')}, "
+        f"{s('debit', f'{posted} AND {fut}', 'future_posted_dr')}, {s('credit', f'{posted} AND {fut}', 'future_posted_cr')}, {s('debit', f'{unposted} AND {fut}', 'future_unposted_dr')}, "
+        f"{s('credit', f'{unposted} AND {fut}', 'future_unposted_cr')}, {n(fut, 'future_rows')}, "
+        f"{s('debit', f'TRIM(t.entry_type_long) = ' + chr(39) + 'Voucher (Contra)' + chr(39) + f' AND {posted} AND {past}', 'contra_posted_dr')}, "
+        f"{s('credit', f'TRIM(t.entry_type_long) = ' + chr(39) + 'Voucher (Contra)' + chr(39) + f' AND {posted} AND {past}', 'contra_posted_cr')}, "
+        f"TO_CHAR(MAX(CASE WHEN {posted} AND {past} THEN t.entry_date END), 'YYYY-MM-DD') AS last_posted_date, TO_CHAR(MAX(t.entry_date), 'YYYY-MM-DD') AS last_entry_date, "
+        f"TO_CHAR(MAX({rdx}), 'YYYY-MM-DD') AS report_date{extra} "
+        f"FROM {tbl} t" + ("" if rd else f", (SELECT MAX(report_date) AS rd FROM {tbl} WHERE entry_date >= DATE '{since}') r")
+        + f" WHERE t.entry_date >= DATE '{since}' AND t.entry_glcode IN ({gl_filter}) GROUP BY t.entry_glcode"
+    )
+    return (f"SELECT '{label}' AS register, g.glcode, g.glname, g.type AS gl_type, g.nature, g.extinct, a.* FROM {OWNER}.\"MAS$FINGL\" g "
+            f"LEFT JOIN ({inner}) a ON a.entry_glcode = g.glcode WHERE g.glcode IN ({gl_filter})")
+
+
+_REG26 = {"901": f'{OWNER}."T$FINREG_901"', "844": _SITEREG}
+_O = f"{OWNER}.\"T$FINOTSD_533\""
+_DEBTORS = "1000000014, 1114925832"  # Sundry Debtors, Sundry Debtors (Subsidiary)
+_DB = f"o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_DEBTORS}) AND o.pending <> 0"
+_STK = f"{OWNER}.T_STK_REPORT_FINAL_OUTPUT_NEW"
+
+CASH_WC_PROBE_02: tuple[Dataset, ...] = (
+    Dataset("a0_register_report_dates", "extract", "Report date of each GL register used (the position cut-off).",
+            sql=" UNION ALL ".join(f"SELECT '{k}' AS register, TO_CHAR(MIN(report_date), 'YYYY-MM-DD') AS report_date_min, TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS report_date_max, COUNT(DISTINCT report_date) AS report_dates, COUNT(*) AS entry_rows FROM {tbl} WHERE entry_date >= DATE '2026-04-01'" for k, tbl in _REG26.items()) + " FETCH FIRST 5 ROWS ONLY"),
+    Dataset("a1_bank_cash_position_gl_register", "extract", "Bank and cash ledgers, FY26-27 GL register (T$FINREG_901): opening, posted, unposted, future-dated, last dates, per ledger (ledgers without movement included).",
+            sql=_position(_REG26["901"], "2026-04-01", None, _BANK_LEDGERS, "gl_register_26_27") + " FETCH FIRST 200 ROWS ONLY"),
+    Dataset("a2_bank_cash_position_site_register", "extract", "The same from the site-wise register (T$FINREGSITE_844), with distinct site counts: do the two registers agree?",
+            sql=_position(_REG26["844"], "2026-04-01", None, _BANK_LEDGERS, "site_register_26_27", ", COUNT(DISTINCT t.sitecode) AS sites") + " FETCH FIRST 200 ROWS ONLY"),
+    Dataset("a3_prior_year_closing", "extract", "Bank and cash ledgers, FY25-26 register to 31 Mar 2026: closing evidence to tie to the FY26-27 openings.",
+            sql=_position(f'{OWNER}."T$FINREG_886"', "2025-04-01", "DATE '2026-03-31'", _BANK_LEDGERS, "gl_register_25_26") + " FETCH FIRST 200 ROWS ONLY"),
+    Dataset("b1_debtors_foundation", "extract", "Debtor ledgers in the outstanding cube by ledger and Dr/Cr: open items, exact PENDING / AMOUNT / ADJUSTED, distinct sub-ledgers and documents, date-field population, PENDING semantics.",
+            sql=(f"SELECT o.ledger_code, o.drcr, TO_CHAR(MAX(o.report_date), 'YYYY-MM-DD') AS report_date, COUNT(*) AS open_items, COUNT(DISTINCT o.sub_ledger_code) AS sub_ledgers, COUNT(DISTINCT o.document_code) AS documents, "
+                 f"{_TM9('SUM(o.pending)', 'sum_pending')}, {_TM9('SUM(ABS(o.pending))', 'sum_abs_pending')}, {_TM9('SUM(o.amount)', 'sum_amount')}, {_TM9('SUM(o.adjusted)', 'sum_adjusted')}, "
+                 "COUNT(o.document_date) AS n_document_date, COUNT(o.entry_date) AS n_entry_date, COUNT(o.ref_date) AS n_ref_date, COUNT(o.due_date) AS n_due_date, "
+                 "COUNT(CASE WHEN o.due_date >= DATE '2000-01-01' AND o.due_date <= DATE '2100-12-31' THEN 1 END) AS n_due_in_window, "
+                 "COUNT(CASE WHEN o.pending = o.amount - o.adjusted THEN 1 END) AS n_pending_eq_amount_minus_adjusted, COUNT(CASE WHEN ABS(o.pending) = ABS(o.amount) - ABS(o.adjusted) THEN 1 END) AS n_abs_pending_eq_abs_diff, "
+                 f"TO_CHAR(MIN(o.document_date), 'YYYY-MM-DD') AS document_date_min, TO_CHAR(MAX(o.document_date), 'YYYY-MM-DD') AS document_date_max FROM {_O} o WHERE {_DB} GROUP BY o.ledger_code, o.drcr FETCH FIRST 20 ROWS ONLY")),
+    Dataset("b2_debtors_by_party_class", "extract", "Debtor open items by party class and type (no names, codes or contact data).",
+            sql=(f"SELECT o.ledger_code, s.sl_class, s.sl_class_type, o.drcr, COUNT(*) AS open_items, COUNT(DISTINCT o.sub_ledger_code) AS sub_ledgers, {_TM9('SUM(ABS(o.pending))', 'sum_abs_pending')} "
+                 f"FROM {_O} o LEFT JOIN {OWNER}.SUB_LEDGER_MV s ON s.slcode = o.sub_ledger_code WHERE {_DB} GROUP BY o.ledger_code, s.sl_class, s.sl_class_type, o.drcr FETCH FIRST 200 ROWS ONLY")),
+    Dataset("b3_debtors_by_document_type", "extract", "Debtor open items by document type and Dr/Cr: what the credit-side balances are (credit notes, receipts on account, advances).",
+            sql=(f"SELECT o.ledger_code, o.document_type, o.document_initial, o.drcr, COUNT(*) AS open_items, {_TM9('SUM(ABS(o.pending))', 'sum_abs_pending')} FROM {_O} o WHERE {_DB} "
+                 "GROUP BY o.ledger_code, o.document_type, o.document_initial, o.drcr FETCH FIRST 300 ROWS ONLY")),
+    Dataset("b4_debtors_due_state", "extract", "Debtor open items by due-date state (missing, not yet due, due or past) and Dr/Cr.",
+            sql=(f"SELECT o.ledger_code, o.drcr, CASE WHEN o.due_date IS NULL THEN 'due_missing' WHEN o.due_date > o.report_date THEN 'not_yet_due' ELSE 'due_or_past' END AS due_state, "
+                 f"COUNT(*) AS open_items, {_TM9('SUM(ABS(o.pending))', 'sum_abs_pending')} FROM {_O} o WHERE {_DB} "
+                 "GROUP BY o.ledger_code, o.drcr, CASE WHEN o.due_date IS NULL THEN 'due_missing' WHEN o.due_date > o.report_date THEN 'not_yet_due' ELSE 'due_or_past' END FETCH FIRST 50 ROWS ONLY")),
+    Dataset("c1_stock_report_value", "extract", "Stock report (store x article): stock quantity and value, total stock value, MRP value of the same stock (valuation-basis test), stores, departments, last purchase and final dates, per final-date month.",
+            sql=(f"SELECT TO_CHAR(TRUNC(final_date, 'MM'), 'YYYY-MM-DD') AS final_month, COUNT(*) AS stock_rows, COUNT(DISTINCT store_name) AS stores, COUNT(DISTINCT department) AS departments, "
+                 f"{_TM9('SUM(stk_q)', 'stk_q')}, {_TM9('SUM(stk_v)', 'stk_v')}, {_TM9('SUM(tot_stk_q)', 'tot_stk_q')}, {_TM9('SUM(tot_stk_v)', 'tot_stk_v')}, {_TM9('SUM(stk_q * mrp)', 'stk_q_x_mrp')}, "
+                 f"TO_CHAR(MAX(last_pur_date), 'YYYY-MM-DD') AS last_pur_date_max, TO_CHAR(MAX(final_date), 'YYYY-MM-DD') AS final_date_max FROM {_STK} WHERE final_date >= DATE '2026-01-01' "
+                 "GROUP BY TRUNC(final_date, 'MM') FETCH FIRST 50 ROWS ONLY")),
+    Dataset("c2_stock_age_cube", "extract", "Stock age cube (cost rate and cost amount by site): quantity, cost amount and sites per report date.",
+            sql=(f"SELECT TO_CHAR(report_date, 'YYYY-MM-DD') AS report_date, COUNT(DISTINCT sitecode) AS sites, COUNT(*) AS stock_rows, {_TM9('SUM(qty)', 'qty')}, {_TM9('SUM(cost_amount)', 'cost_amount')} "
+                 f"FROM {OWNER}.CUBE$STKAGE WHERE report_date >= DATE '2026-01-01' GROUP BY report_date FETCH FIRST 100 ROWS ONLY")),
+    Dataset("c3_stock_value_cube_dates", "extract", "Stock value cube: which report dates exist since 2025 and their value.",
+            sql=(f"SELECT TO_CHAR(report_date, 'YYYY-MM-DD') AS report_date, COUNT(DISTINCT sitecode) AS sites, COUNT(*) AS stock_rows, {_TM9('SUM(closing_stock_qty)', 'closing_qty')}, {_TM9('SUM(closing_stock_amount)', 'closing_value')} "
+                 f"FROM {OWNER}.CUBE$STKVAL WHERE report_date >= DATE '2025-01-01' GROUP BY report_date FETCH FIRST 100 ROWS ONLY")),
+    Dataset("c4_site_stock_cube", "extract", "Site stock cube: closing quantity and amount per report date.",
+            sql=(f"SELECT TO_CHAR(report_date, 'YYYY-MM-DD') AS report_date, COUNT(DISTINCT sitecode) AS sites, COUNT(*) AS stock_rows, {_TM9('SUM(closing_qty_effective)', 'closing_qty')}, "
+                 f"{_TM9('SUM(closing_amount_effective)', 'closing_value')} FROM {OWNER}.CUBE$SITESTOCK WHERE report_date >= DATE '2026-01-01' GROUP BY report_date FETCH FIRST 100 ROWS ONLY")),
+    Dataset("c5_stock_ledgers_in_gl", "extract", "Stock balance-sheet ledgers in the FY26-27 GL register (opening, posted, unposted): the accounting-side stock value.",
+            sql=_position(_REG26["901"], "2026-04-01", None, _STOCK_GL, "gl_register_26_27_stock") + " FETCH FIRST 50 ROWS ONLY"),
+    Dataset("c6_stock_movement_retry", "extract", "Finance stock movement view, narrower retry (the earlier version raised an ODBC error): closing value and quantity by end date.",
+            sql=(f"SELECT TO_CHAR(end_date, 'YYYY-MM-DD') AS end_date, COUNT(*) AS rows_in_period, {_TM9('SUM(cls_stk_v)', 'closing_value')}, {_TM9('SUM(cls_stk_q)', 'closing_qty')} "
+                 f"FROM {OWNER}.V_FINANCE_STOCK_MOVEMENT WHERE end_date >= DATE '2026-09-01' GROUP BY end_date FETCH FIRST 20 ROWS ONLY")),
+)
+
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02}
