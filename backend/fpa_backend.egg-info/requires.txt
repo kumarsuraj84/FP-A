@@ -1,0 +1,13 @@
+fastapi
+sqlalchemy>=2
+asyncpg
+pydantic>=2
+pydantic-settings
+oracledb
+
+[dev]
+pytest
+httpx
+
+[odbc]
+pyodbc

@@ -3,10 +3,10 @@ One-time administrator step for the Creditors API, run in YOUR OWN terminal (one
 
     python tools/creditors_mart/install_api.py            # database defaults to fpa_pilot
 
-  1. applies any pending mart migrations (002: verified-candidate views and the migration ledger) through the reviewed migration path;
-  2. creates (or re-keys) the login `cred_api_login`: a member of cred_verifier, cred_finance_reader and cred_api_reader ONLY, set
+  1. applies any pending mart migrations (002 verified-candidate views, 003 shared run model, 004 cash schema) through the reviewed migration path;
+  2. creates (or re-keys) the login `cred_api_login`: a member of cred_verifier, cred_finance_reader, cred_api_reader, cash_verifier and cash_api_reader ONLY, set
      NOINHERIT so it holds no privilege of its own: the API must `SET ROLE` into exactly one of them per request, and the database
-     decides what each role may read. It is not a member of cred_loader, cred_owner or cred_promoter and has no admin attributes;
+     decides what each role may read. It is not a member of any loader, owner or promoter role and has no admin attributes;
   3. writes the random password and a random Finance access token ONLY to the git-ignored file .secrets/cred_api.env;
      the password reaches PostgreSQL only as a SCRAM hash. Nothing secret is printed;
   4. proves the restrictions by logging in as that account.
@@ -23,8 +23,8 @@ from setup_loader import read_env, write_secret_file  # noqa: E402
 
 LOGIN = "cred_api_login"
 SECRET_FILE = HERE.parents[1] / ".secrets" / "cred_api.env"
-MEMBER_OF = ["cred_verifier", "cred_finance_reader", "cred_api_reader"]
-FORBIDDEN = ["cred_owner", "cred_loader", "cred_promoter"]
+MEMBER_OF = ["cred_verifier", "cred_finance_reader", "cred_api_reader", "cash_verifier", "cash_api_reader"]
+FORBIDDEN = ["cred_owner", "cred_loader", "cred_promoter", "cash_owner", "cash_loader", "cash_promoter"]
 
 
 def provision(admin, secret_path: Path, host: str, port: str, dbname: str) -> dict:
@@ -62,9 +62,9 @@ def check_role(admin) -> list[tuple[str, bool]]:
         out.append((f"member of {r}", one("SELECT pg_has_role(%s, %s, 'MEMBER')", LOGIN, r) is True))
     for r in FORBIDDEN:
         out.append((f"NOT a member of {r}", one("SELECT pg_has_role(%s, %s, 'MEMBER')", LOGIN, r) is False))
-    out.append(("no privilege of its own on any table or view in schema cred", not one(
+    out.append(("no privilege of its own on any table or view in schemas cred and cash", not one(
         "SELECT bool_or(has_table_privilege(%s, c.oid, 'SELECT') OR has_table_privilege(%s, c.oid, 'INSERT') OR has_table_privilege(%s, c.oid, 'UPDATE') OR has_table_privilege(%s, c.oid, 'DELETE')) "
-        "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'cred' AND c.relkind IN ('r','v')", LOGIN, LOGIN, LOGIN, LOGIN)))
+        "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('cred', 'cash', 'core') AND c.relkind IN ('r','v')", LOGIN, LOGIN, LOGIN, LOGIN)))
     return out
 
 
@@ -77,14 +77,17 @@ def check_login(conninfo: str) -> list[tuple[str, bool]]:
     with psycopg.connect(conninfo, autocommit=True) as c:
         out.append(("password login works as cred_api_login", c.execute("SELECT current_user").fetchone()[0] == LOGIN))
         for label, stmt in (("read items with no role set", "SELECT * FROM cred.v_open_item_candidate"), ("promote", "SELECT cred.promote_run('run_00000000_000','x')"),
-                            ("purge", "SELECT cred.purge_run('run_00000000_000','x')"), ("DDL", "CREATE TABLE cred.evil (x int)")):
+                            ("purge", "SELECT cred.purge_run('run_00000000_000','x')"), ("DDL", "CREATE TABLE cred.evil (x int)"),
+                            ("read cash with no role set", "SELECT * FROM cash.v_store_till"), ("promote cash", "SELECT cash.promote_run('run_00000000_000','x')")):
             try:
                 c.execute(stmt)
                 out.append((f"refused: {label}", False))
             except E.InsufficientPrivilege:
                 out.append((f"refused: {label}", True))
         for role, view, ok in (("cred_verifier", "cred.v_open_item_candidate", True), ("cred_verifier", "cred.v_open_item_named_candidate", False),
-                               ("cred_finance_reader", "cred.v_open_item_named_candidate", True), ("cred_api_reader", "cred.v_open_item_named", False)):
+                               ("cred_finance_reader", "cred.v_open_item_named_candidate", True), ("cred_api_reader", "cred.v_open_item_named", False),
+                               ("cash_api_reader", "cash.v_store_till", True), ("cash_api_reader", "cash.store_till", False), ("cash_verifier", "cash.v_bank_ledger", True),
+                               ("cash_api_reader", "core.v_domain_run", True)):
             try:
                 c.execute(f"SET ROLE {role}")
                 c.execute(f"SELECT 1 FROM {view} LIMIT 1")
