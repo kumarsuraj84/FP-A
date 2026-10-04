@@ -1,6 +1,7 @@
 import type { CfoApi, ComparisonId, DataStateId, DrillNode, DrillOrigin, Horizon, HeroTab, PeriodId, QueryCtx, ScenarioId } from "@/types/cfo";
 import { originFromBridgeItem, originFromLiquidity, originFromWcRow } from "@/lib/origins";
-import { CREDITORS_ORIGIN, abnormalNode, ageNode, flowNode, isCreditors, vendorNode } from "@/lib/creditorNodes";
+import { liveCreditors, toCr, vendorLabel } from "@/api/creditorsLive";
+import { CREDITORS_ORIGIN, ageNode, isCreditors, vendorNode } from "@/lib/creditorNodes";
 import { AGE_FILTER_LABELS, type AgeFilter, type Lens } from "@/types/creditors";
 import { CASH_ORIGIN, cashNode, isCashKey, isCashRoom, type CashKey } from "@/lib/cashNodes";
 import { PROFIT_ORIGIN, isProfitability, movementNode, quadrantNode, storeIdOf, storeNode } from "@/lib/profitNodes";
@@ -189,25 +190,24 @@ async function resolveOrigin(api: CfoApi, ctx: QueryCtx, horizon: Horizon, scope
   return null;
 }
 
-/** Rebuilds one creditors-room node (age filter, migration flow, abnormal category, vendor) from its URL segment. */
-async function resolveCreditorNode(api: CfoApi, ctx: QueryCtx, seg: string): Promise<DrillNode | null> {
+/**
+ * Rebuilds one creditors-room node (age / due filter, vendor) from its URL segment, against the REAL Creditors API.
+ * Demo-only segments (migration flows, abnormal categories) no longer exist on the real page and do not resolve.
+ */
+async function resolveCreditorNode(seg: string): Promise<DrillNode | null> {
   if (seg.startsWith("Ageing bucket:")) {
     const age = seg.slice("Ageing bucket:".length) as AgeFilter;
     return age in AGE_FILTER_LABELS ? ageNode(age) : null;
   }
-  if (seg.startsWith("Migration:")) {
-    const m = ok(await api.getAgeingMigration(ctx));
-    const f = m?.flows.find((x) => x.id === seg.slice("Migration:".length));
-    return f ? flowNode(f) : null;
-  }
-  if (seg.startsWith("Abnormal:")) {
-    const a = ok(await api.getAbnormalBalances(ctx));
-    const c = a?.categories.find((x) => x.id === seg.slice("Abnormal:".length));
-    return c ? abnormalNode(c) : null;
-  }
   if (seg.startsWith("Vendor:")) {
-    const p = ok(await api.getVendorProfile(ctx, seg.slice("Vendor:".length)));
-    return p ? vendorNode(p.vendorId, p.name, p.openBalance) : null;
+    const ref = seg.slice("Vendor:".length);
+    try {
+      const run = await liveCreditors.current();
+      const { vendor } = await liveCreditors.vendor(run.extraction_run_id, ref);
+      return vendorNode(vendor.vendor_ref, vendorLabel(vendor), toCr(vendor.credit_outstanding) ?? 0);
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -294,7 +294,7 @@ export async function resolveDrill(api: CfoApi, ctx: QueryCtx, horizon: Horizon,
         nodes.push(node);
         filters.push(node);
       } else if (isCreditors(origin)) {
-        const node = await resolveCreditorNode(api, ctx, seg);
+        const node = await resolveCreditorNode(seg);
         if (!node) return null;
         nodes.push(node);
         filters.push(node);

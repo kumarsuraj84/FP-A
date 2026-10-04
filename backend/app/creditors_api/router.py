@@ -121,11 +121,17 @@ def controls(request: Request, run_id: str):
         return ok({**run_header(run), **repo.control_tally(conn, src, run_id), "failures": repo.failing_controls(conn, src, run_id)})
 
 
-def _vendors(request, run_id, finance, ledger_code, party_class, q, sort, order, limit, offset, vendor_ref=None):
+def _vendors(request, run_id, finance, ledger_code, party_class, q, sort, order, limit, offset, vendor_ref=None, cohort=None):
     if finance:
         finance_gate(request)
     with open_run(request, run_id, finance) as (conn, src, run):
-        return {**run_header(run), **repo.vendors(conn, src, run_id, ledger_code=ledger_code, party_class=party_class, q=q, vendor_ref=vendor_ref, sort=sort, descending=(order != "asc"), limit=limit, offset=offset)}
+        return {**run_header(run), **repo.vendors(conn, src, run_id, ledger_code=ledger_code, party_class=party_class, q=q, vendor_ref=vendor_ref, cohort=cohort, sort=sort, descending=(order != "asc"), limit=limit, offset=offset)}
+
+
+def _cohort(value: str | None) -> str | None:
+    if value and value not in repo.COHORTS:
+        raise HTTPException(422, f"unknown cohort; use one of {sorted(repo.COHORTS)}")
+    return value
 
 
 def _profile(request, run_id, finance, vendor_ref):
@@ -146,9 +152,9 @@ def _items(request, run_id, finance, vendor_ref, drcr, bucket, due, limit, offse
 
 
 @router.get("/runs/{run_id}/vendors")
-def vendor_list(request: Request, run_id: str, ledger_code: str | None = None, party_class: str | None = None, sort: str = "credit_outstanding", order: str = "desc",
+def vendor_list(request: Request, run_id: str, ledger_code: str | None = None, party_class: str | None = None, cohort: str | None = None, sort: str = "credit_outstanding", order: str = "desc",
                 limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)):
-    return ok(_vendors(request, run_id, False, ledger_code, party_class, None, sort, order, limit, offset))
+    return ok(_vendors(request, run_id, False, ledger_code, party_class, None, sort, order, limit, offset, None, _cohort(cohort)))
 
 
 @router.get("/runs/{run_id}/vendors/{vendor_ref}")
@@ -163,9 +169,9 @@ def vendor_items(request: Request, run_id: str, vendor_ref: str, drcr: str | Non
 
 
 @router.get("/runs/{run_id}/finance/vendors")
-def finance_vendor_list(request: Request, run_id: str, ledger_code: str | None = None, party_class: str | None = None, q: str | None = None, sort: str = "credit_outstanding",
+def finance_vendor_list(request: Request, run_id: str, ledger_code: str | None = None, party_class: str | None = None, q: str | None = None, cohort: str | None = None, sort: str = "credit_outstanding",
                         order: str = "desc", limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)):
-    return ok(_vendors(request, run_id, True, ledger_code, party_class, q, sort, order, limit, offset))
+    return ok(_vendors(request, run_id, True, ledger_code, party_class, q, sort, order, limit, offset, None, _cohort(cohort)))
 
 
 @router.get("/runs/{run_id}/finance/vendors/{vendor_ref}")

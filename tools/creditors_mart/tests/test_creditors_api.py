@@ -372,6 +372,30 @@ def test_a13_install_api_creates_a_noinherit_login_that_can_only_assume_the_thre
     ev("A13", "install_api login", role_checks=len(checks), login_checks=len(login), api_served_through_the_login=True, rerun="keeps the Finance token, re-keys the password", secrets_in_output="none")
 
 
+def test_a14_vendor_cohorts_rank_by_the_cohort_exposure_and_match_the_rows(env):
+    verify(env)
+    c = env["client"]
+    full = c.get(base("/vendors"), params={"limit": 500}).json()["vendors"]
+    cases = {"gt90": ("credit_by_document_age", ("D91_180", "D181_365", "D365_PLUS")), "gt180": ("credit_by_document_age", ("D181_365", "D365_PLUS")),
+             "past_due": ("credit_by_due_status", ("PAST_DUE_OR_DUE_TODAY",)), "due_unavailable": ("credit_by_due_status", ("DUE_UNAVAILABLE",)), "D0_30": ("credit_by_document_age", ("D0_30",))}
+    seen = {}
+    for cohort, (field, keys) in cases.items():
+        r = c.get(base("/vendors"), params={"cohort": cohort, "limit": 500}).json()
+        want = {v["vendor_ref"]: sum(Decimal(v[field][k]) for k in keys) for v in full}
+        want = {k: x for k, x in want.items() if x > 0}
+        got = {v["vendor_ref"]: Decimal(v["cohort_credit"]) for v in r["vendors"]}
+        assert got == want, cohort
+        assert r["total"]["vendors"] == len(want) and Decimal(r["total"]["cohort_credit"]) == sum(want.values())
+        ordered = [Decimal(v["cohort_credit"]) for v in r["vendors"]]
+        assert ordered == sorted(ordered, reverse=True)
+        seen[cohort] = len(want)
+    assert c.get(base("/vendors"), params={"cohort": "nonsense"}).status_code == 422
+    assert "cohort_credit" not in c.get(base("/vendors")).json()["vendors"][0]
+    named = c.get(base("/finance/vendors"), params={"cohort": "gt90"}, headers=FIN).json()
+    assert named["vendors"] and all("vendor_name" in v and "cohort_credit" in v for v in named["vendors"])
+    ev("A14", "vendor cohorts", cohorts_checked=len(cases), vendors_per_cohort=seen, ranking="by cohort exposure", unknown_cohort="422", uncohorted_list_unchanged=True)
+
+
 def write_evidence():
     EVIDENCE_FILE.parent.mkdir(parents=True, exist_ok=True)
     order = sorted(EVIDENCE, key=lambda e: e["id"])

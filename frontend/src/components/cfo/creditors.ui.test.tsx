@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
 import { routeTree } from "@/routeTree.gen";
+import { FIXTURE, installCreditorsApi } from "@/test/creditorsFixture";
+
+/* The Creditors room runs on the real Creditors API. These tests serve it a SYNTHETIC API (invented vendors, round numbers). */
 
 const T = { timeout: 5000 };
 const q = (path: string, params: Record<string, string> = {}) => `${path}?${new URLSearchParams({ period: "ytdfy27", compare: "budget", scenario: "normal", ...params }).toString()}`;
@@ -21,9 +24,15 @@ function mount(href: string) {
 type M = ReturnType<typeof mount>;
 const search = (m: M) => m.router.state.location.search as Record<string, string | undefined>;
 const crumbs = () => screen.getByTestId("breadcrumbs").textContent ?? "";
-const drawerTitle = () => within(screen.getByTestId("investigation-drawer")).getByTestId("drawer-title");
+const exact = (id: string) => screen.getByTestId(id).getAttribute("data-exact");
 
-describe("Stage 2: Command Center → Creditors hand-off keeps the analytical context", () => {
+let calls: string[] = [];
+beforeEach(() => {
+  calls = installCreditorsApi();
+});
+afterEach(() => vi.unstubAllGlobals());
+
+describe("Creditors room: hand-off from the Command Center keeps the analytical context", () => {
   it("the Creditors pulse opens the room, preserving period / comparison / scenario", async () => {
     const m = mount(q("/", { period: "q2fy27", compare: "ly", scenario: "aged_creditors" }));
     fireEvent.click(await screen.findByTestId("pulse-creditors", {}, T));
@@ -32,28 +41,18 @@ describe("Stage 2: Command Center → Creditors hand-off keeps the analytical co
     expect(search(m)).toMatchObject({ period: "q2fy27", compare: "ly", scenario: "aged_creditors", lens: "age" });
     expect(search(m).drill).toBeUndefined();
     expect(crumbs()).toBe("CityKartCFO Command CenterCreditors");
-    expect((screen.getByTestId("select-scenario") as HTMLSelectElement).value).toBe("aged_creditors");
   });
 
-  it("the Payables risk pillar opens the room prefiltered to >180 days", async () => {
+  it("the Payables risk pillar opens the room prefiltered to >180 days of document age", async () => {
     const m = mount(q("/"));
     fireEvent.click(await screen.findByTestId("risk-payables", {}, T));
     await screen.findByTestId("creditors-room", {}, T);
     expect(search(m).drill).toBe("creditors.room/Ageing bucket:gt180");
     await waitFor(() => expect(screen.getByTestId("exposure-gt180")).toHaveAttribute("aria-pressed", "true"), T);
-    expect(crumbs()).toBe("CityKartCFO Command CenterCreditors>180 days");
     expect(screen.getByTestId("lens-filter-chip")).toHaveTextContent(">180 days");
   });
 
-  it("the CFO-focus action '>180 Days' opens the room with the same context", async () => {
-    const m = mount(q("/", { scenario: "aged_creditors" }));
-    fireEvent.click(await screen.findByTestId("action-cta-creditors_181", {}, T));
-    await screen.findByTestId("creditors-room", {}, T);
-    expect(search(m).drill).toBe("creditors.room/Ageing bucket:gt180");
-    expect(search(m).scenario).toBe("aged_creditors");
-  });
-
-  it("other metrics still open the Stage 1 drawer, unchanged", async () => {
+  it("other metrics still open the drawer, unchanged", async () => {
     const m = mount(q("/"));
     fireEvent.click(await screen.findByTestId("pulse-advances", {}, T));
     await screen.findByTestId("investigation-drawer", {}, T);
@@ -68,275 +67,184 @@ describe("Stage 2: Command Center → Creditors hand-off keeps the analytical co
   });
 });
 
-describe("Stage 2: the room's structure and ordering", () => {
-  it("shows exposure → age → movement → diagnosis, and no table above the fold", async () => {
-    mount(q("/creditors", { lens: "age" }));
-    await screen.findByTestId("river-b0_30", {}, T);
-    const order = ["exposure-strip", "river-section", "migration", "lens-workspace"].map((id) => screen.getByTestId(id));
-    for (let i = 0; i < order.length - 1; i++) expect(order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(document.querySelectorAll("table").length).toBe(0);
-    for (const id of ["current", "overdue", "gt90", "gt180", "b365p", "all"]) expect(screen.getByTestId(`exposure-${id}`)).toBeInTheDocument();
-  });
-
-  it("states the unconfirmed ageing basis in the header, river, migration and vendor profile", async () => {
+describe("Creditors room: the real strip", () => {
+  it("shows exactly the six agreed metrics, from exact API values, with the data state stated by the API", async () => {
     mount(q("/creditors"));
-    await screen.findByTestId("river-b0_30", {}, T);
-    await waitFor(() => expect(screen.getAllByTestId("ageing-basis-note").length).toBeGreaterThanOrEqual(3), T);
-    for (const el of screen.getAllByTestId("ageing-basis-note")) expect(el).toHaveTextContent("Ageing basis awaiting finance validation");
-    expect(screen.getAllByTestId("basis-dot").length).toBe(2); // Currently due, Overdue
+    const strip = await screen.findByTestId("exposure-strip", {}, T);
+    for (const label of ["Credit Outstanding", "Creditor Debit Balance", "Past Due", "Due Date Unavailable", ">90 Days Document Age", ">180 Days Document Age"]) expect(strip).toHaveTextContent(label);
+    expect(exact("exposure-credit-value")).toBe(FIXTURE.credit);
+    expect(exact("exposure-debit-value")).toBe(FIXTURE.debit);
+    expect(exact("exposure-past_due-value")).toBe(FIXTURE.pastDue);
+    expect(exact("exposure-due_unavailable-value")).toBe(FIXTURE.dueUnavailable);
+    expect(exact("exposure-gt90-value")).toBe(FIXTURE.over90);
+    expect(exact("exposure-gt180-value")).toBe(FIXTURE.over180);
+    expect(screen.getByTestId("exposure-credit-value")).toHaveTextContent("₹100.00 Cr");
+    expect(screen.getByTestId("exposure-debit-value")).toHaveTextContent("₹5.00 Cr");
+    // no invented movement, and no age-based "currently due / overdue"
+    expect(strip).not.toHaveTextContent(/vs opening/i);
+    expect(strip).not.toHaveTextContent(/currently due/i);
+    const badge = await screen.findByTestId("data-state", {}, T);
+    expect(badge).toHaveAttribute("data-state", "verified_candidate");
+    expect(badge).toHaveTextContent(/Verified candidate · not live/);
   });
 
-  it("a bare /creditors visit fills in the URL without adding history", async () => {
-    const m = mount("/creditors");
-    await screen.findByTestId("river-b0_30", {}, T);
-    await waitFor(() => expect(search(m).period).toBe("ytdfy27"), T);
-    expect(search(m).lens).toBe("age");
-    expect(m.history.length).toBe(1);
-    expect(crumbs()).toBe("CityKartCFO Command CenterCreditors");
-  });
-});
-
-describe("Stage 2: ageing river, strip and lenses are URL-addressable filters", () => {
-  it("clicking a river bucket selects it, updates the URL and replaces history", async () => {
-    const m = mount(q("/creditors", { lens: "age" }));
-    fireEvent.click(await screen.findByTestId("river-b181_365", {}, T));
-    await waitFor(() => expect(search(m).drill).toBe("creditors.room/Ageing bucket:b181_365"), T);
-    expect(screen.getByTestId("bucket-b181_365")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTestId("bucket-b0_30")).toHaveAttribute("aria-pressed", "false");
-    expect(m.history.length).toBe(1);
-    fireEvent.click(screen.getByTestId("river-b91_180"));
-    await waitFor(() => expect(search(m).drill).toBe("creditors.room/Ageing bucket:b91_180"), T);
-    expect(m.history.length).toBe(1);
-    fireEvent.click(screen.getByTestId("clear-age-filter"));
-    await waitFor(() => expect(search(m).drill).toBeUndefined(), T);
+  it("never blends credit and debit: the signed net is a labelled reference line only", async () => {
+    mount(q("/creditors"));
+    const ctx = await screen.findByTestId("strip-context", {}, T);
+    expect(ctx).toHaveTextContent(/Signed net \(Credit − Debit\)/);
+    expect(ctx).toHaveTextContent(/not netted into Credit Outstanding/);
+    expect(screen.getByTestId("exposure-debit")).toHaveTextContent(/not netted/);
   });
 
-  it("clicking a strip value filters the whole page; the lens workspace follows", async () => {
-    const m = mount(q("/creditors", { lens: "concentration" }));
-    fireEvent.click(await screen.findByTestId("exposure-gt90", {}, T));
-    await waitFor(() => expect(search(m).drill).toBe("creditors.room/Ageing bucket:gt90"), T);
-    await waitFor(() => expect(screen.getByTestId("lens-filter-chip")).toHaveTextContent(">90 days"), T);
-    const rowsFiltered = (await screen.findByTestId("concentration-list", {}, T)).querySelectorAll("li").length;
-    fireEvent.click(screen.getByTestId("exposure-all"));
-    await waitFor(() => expect(search(m).drill).toBeUndefined(), T);
-    await waitFor(() => expect((screen.getByTestId("concentration-list").querySelectorAll("li").length)).toBeGreaterThanOrEqual(rowsFiltered), T);
-  });
-
-  it("switching lens updates the URL (replace) and swaps the workspace", async () => {
-    const m = mount(q("/creditors", { lens: "age" }));
-    await screen.findByTestId("age-lens", {}, T);
-    for (const lens of ["concentration", "movement", "abnormal", "age"]) {
-      fireEvent.click(screen.getByTestId(`lens-${lens}`));
-      await waitFor(() => expect(search(m).lens).toBe(lens), T);
-    }
-    expect(m.history.length).toBe(1);
-    fireEvent.click(screen.getByTestId("lens-concentration"));
-    expect(await screen.findByTestId("concentration-indicators", {}, T)).toBeInTheDocument();
-    for (const id of ["ind-top1", "ind-top5", "ind-top10", "ind-largest"]) expect(screen.getByTestId(id)).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("lens-movement"));
-    expect(await screen.findByTestId("movement-lens", {}, T)).toBeInTheDocument();
-  });
-
-  it("the abnormal lens lists diagnostic categories, never calls a debit balance an advance, never shows missing as zero", async () => {
-    mount(q("/creditors", { lens: "abnormal", scenario: "vendor_advance_risk" }));
-    const lens = await screen.findByTestId("abnormal-lens", {}, T);
-    expect(within(lens).getByTestId("abnormal-note")).toHaveTextContent(/not treated as a vendor advance/i);
-    const debit = within(lens).getByTestId("abnormal-debit_balance");
-    expect(debit).toHaveTextContent("Debit balance in creditor account");
-    expect(debit).toHaveTextContent(/Not classified as vendor advance/i);
-    for (const id of ["opening_balance", "no_ageing_date"]) {
-      const row = within(lens).getByTestId(`abnormal-${id}`);
-      expect(row).toHaveTextContent("—");
-      expect(row).toHaveTextContent("Awaiting finance mapping");
-      expect(row.textContent).not.toMatch(/₹0\.00/);
-    }
-    expect(lens.querySelectorAll('[data-testid^="abnormal-"]:not([data-testid="abnormal-note"])').length).toBe(9);
-  });
-});
-
-describe("Stage 2: migration → vendors → vendor profile → ledger → voucher", () => {
-  it("a migration flow opens the drawer with the vendors behind it, then a vendor, ledger and voucher", async () => {
+  it("clicking Past Due filters by Due Status; clicking >90 filters by Document Age; they stay separate dimensions", async () => {
     const m = mount(q("/creditors"));
-    fireEvent.click(await screen.findByTestId("flow-b61_90>b91_180", {}, T));
-    await screen.findByTestId("investigation-drawer", {}, T);
-    await waitFor(() => expect(drawerTitle()).toHaveTextContent("61–90 → 91–180"), T);
-    expect(search(m).drill).toBe("creditors.room/Migration:b61_90>b91_180");
-    const rows = await within(screen.getByTestId("investigation-drawer")).findByTestId("drill-rows", {}, T);
-    const first = rows.querySelector("button") as HTMLButtonElement;
-    fireEvent.click(first);
-
-    await screen.findByTestId("vendor-profile", {}, T);
-    expect(m.router.state.location.pathname).toBe("/creditors/vendor");
-    expect(screen.queryByTestId("investigation-drawer")).toBeNull();
-    expect(crumbs()).toMatch(/^CityKartCFO Command CenterCreditors61–90 → 91–180.+$/);
-    await screen.findByTestId("lifecycle", {}, T);
-
-    fireEvent.click(screen.getByTestId("vendor-open-ledger"));
-    await screen.findByTestId("ledger-table", {}, T);
-    expect(m.router.state.location.pathname).toBe("/ledger");
-    expect(screen.getByTestId("ledger-balance-note")).toHaveTextContent(/credit-positive/i);
-    fireEvent.click(await screen.findByTestId("ledger-row-E1", {}, T));
-    await screen.findByTestId("evidence", {}, T);
-    expect(m.router.state.location.pathname).toBe("/voucher");
-    expect(crumbs()).toMatch(/GL(PI|PV|DN)-26-\d+$/);
-  });
-
-  it("a vendor opened from the concentration lens keeps the age filter in the breadcrumb", async () => {
-    const m = mount(q("/creditors", { lens: "concentration", drill: "creditors.room/Ageing bucket:gt180" }));
-    const first = await waitFor(() => {
-      const el = document.querySelector('[data-testid^="vendor-V"]') as HTMLElement | null;
-      if (!el) throw new Error("no vendor yet");
-      return el;
-    }, T);
-    fireEvent.click(first);
-    await screen.findByTestId("vendor-profile", {}, T);
-    expect(search(m).drill).toMatch(/^creditors\.room\/Ageing bucket:gt180\/Vendor:V\d+$/);
-    expect(crumbs()).toMatch(/Creditors>180 days.+/);
-  });
-
-  it("open items open a voucher straight from the vendor profile, and Back returns", async () => {
-    const m = mount(q("/creditors/vendor", { drill: "creditors.room/Vendor:V10003" }));
-    await screen.findByTestId("vendor-open-items", {}, T);
-    const item = (await screen.findByTestId("open-items", {}, T)).querySelector("tbody tr") as HTMLElement;
-    fireEvent.click(item);
-    await screen.findByTestId("evidence", {}, T);
-    expect(m.router.state.location.pathname).toBe("/voucher");
-    m.router.history.back();
-    await screen.findByTestId("vendor-profile", {}, T);
-    expect(m.router.state.location.pathname).toBe("/creditors/vendor");
+    fireEvent.click(await screen.findByTestId("exposure-past_due", {}, T));
+    await waitFor(() => expect(search(m).drill).toBe("creditors.room/Ageing bucket:past_due"), T);
+    await waitFor(() => expect(calls.some((c) => c.includes("cohort=past_due"))).toBe(true), T);
+    expect(screen.getByTestId("due-PAST_DUE_OR_DUE_TODAY")).toHaveAttribute("aria-pressed", "true");
+    // a Due Status filter does not light up any Document Age bucket
+    expect(screen.getByTestId("bucket-b91_180")).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByTestId("exposure-gt90"));
+    await waitFor(() => expect(search(m).drill).toBe("creditors.room/Ageing bucket:gt90"), T);
+    await waitFor(() => expect(screen.getByTestId("bucket-b91_180")).toHaveAttribute("aria-pressed", "true"), T);
+    expect(screen.getByTestId("bucket-b181_365")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("bucket-b365p")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("due-PAST_DUE_OR_DUE_TODAY")).toHaveAttribute("aria-pressed", "false");
   });
 });
 
-describe("Stage 2: vendor profile content and finance rules", () => {
-  it("shows the six-part strip, lifecycle, trend, migration, behaviour; advance and debit are separate", async () => {
-    mount(q("/creditors/vendor", { drill: "creditors.room/Vendor:V10003" }));
-    const strip = await screen.findByTestId("vendor-strip", {}, T);
-    for (const id of ["outstanding", "overdue", "over90", "advance", "oldest", "lastpay"]) expect(within(strip).getByTestId(`strip-${id}`)).toBeInTheDocument();
-    expect(within(strip).getByTestId("strip-advance")).toHaveTextContent(/separate from creditor balance/i);
-    for (const id of ["opening", "liability", "adjustment", "payment", "open"]) expect(screen.getByTestId(`lifecycle-${id}`)).toBeInTheDocument();
-    expect(screen.getByTestId("vendor-trend")).toBeInTheDocument();
-    expect(screen.getByTestId("vendor-migration")).toBeInTheDocument();
-    expect(screen.getByTestId("payment-behaviour")).toBeInTheDocument();
-    expect(screen.getByTestId("advance-position")).toHaveTextContent(/separate from the creditor balance/i);
-    expect(screen.getByTestId("debit-balance")).toHaveTextContent(/not classified as a vendor advance/i);
-    // open items are last: after the lifecycle, trend, behaviour and diagnostics
-    const after = (a: string, b: string) => screen.getByTestId(a).compareDocumentPosition(screen.getByTestId(b)) & Node.DOCUMENT_POSITION_FOLLOWING;
-    expect(after("vendor-lifecycle", "vendor-open-items")).toBeTruthy();
-    expect(after("vendor-abnormal", "vendor-open-items")).toBeTruthy();
+describe("Creditors room: Document Age, Due Status and the ledgers", () => {
+  it("renders Document Age (six buckets + unclassified held aside) and Due Status (four states) from the API", async () => {
+    mount(q("/creditors"));
+    await screen.findByTestId("river-detail", {}, T);
+    for (const id of ["b0_30", "b31_60", "b61_90", "b91_180", "b181_365", "b365p"]) expect(screen.getByTestId(`bucket-${id}`)).toBeInTheDocument();
+    expect(screen.getByTestId("bucket-b0_30")).toHaveTextContent("₹30.00 Cr");
+    expect(screen.getByTestId("age-unclassified")).toHaveTextContent(/Unclassified/);
+    for (const s of ["NOT_YET_DUE", "PAST_DUE_OR_DUE_TODAY", "DUE_UNAVAILABLE", "DUE_INVALID"]) expect(await screen.findByTestId(`due-${s}`, {}, T)).toBeInTheDocument();
+    expect(screen.getByTestId("due-DUE_UNAVAILABLE")).toHaveTextContent(/never estimated/);
+    expect(screen.getByTestId("due-DUE_INVALID")).toBeDisabled(); // nothing in it: no empty filter to click
   });
 
-  it("open items carry both dates and a provisional age with the basis called out", async () => {
-    mount(q("/creditors/vendor", { drill: "creditors.room/Vendor:V10003" }));
+  it("shows the four creditor ledgers with credit and debit in separate columns", async () => {
+    mount(q("/creditors"));
+    const panel = await screen.findByTestId("ledger-panel", {}, T);
+    await within(panel).findByTestId("ledger-1000000026", {}, T);
+    expect(within(panel).getByText("Credit outstanding")).toBeInTheDocument();
+    expect(within(panel).getByText("Debit balance")).toBeInTheDocument();
+    expect(exact("ledger-1000000026") ?? "").toBe(""); // the row itself carries no blended figure
+  });
+
+  it("states the sections the verified extract cannot support, instead of showing zeros", async () => {
+    mount(q("/creditors"));
+    await screen.findByTestId("lens-workspace", {}, T);
+    fireEvent.click(screen.getByTestId("lens-movement"));
+    const na = await screen.findByTestId("movement-unavailable", {}, T);
+    expect(na).toHaveTextContent(/Movement is not available yet/);
+    expect(na).toHaveTextContent(/two verified snapshots/);
+    expect(na).not.toHaveTextContent(/₹/);
+  });
+
+  it("the Debits & gaps lens reports debit balances as found and never calls them advances", async () => {
+    const m = mount(q("/creditors", { lens: "abnormal" }));
+    const lens = await screen.findByTestId("abnormal-lens", {}, T);
+    expect(await within(lens).findByTestId("gap-debit", {}, T)).toHaveTextContent(/classification pending/);
+    expect(screen.getByTestId("abnormal-note")).toHaveTextContent(/not classified as vendor advances/);
+    expect(lens).not.toHaveTextContent(/advance position/i);
+    fireEvent.click(await screen.findByTestId("gap-due_unavailable", {}, T));
+    await waitFor(() => expect(search(m).drill).toBe("creditors.room/Ageing bucket:due_unavailable"), T);
+  });
+});
+
+describe("Creditors room: vendors", () => {
+  it("lists real vendors by name for Finance access, ranked by credit, and filters rank by the cohort", async () => {
+    const m = mount(q("/creditors", { lens: "concentration" }));
+    const list = await screen.findByTestId("concentration-list", {}, T);
+    const rows = await within(list).findAllByRole("listitem", {}, T);
+    expect(rows[0]).toHaveTextContent("Alpha Textiles (test)");
+    expect(screen.getByTestId("vendor-search")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("exposure-gt180"));
+    await waitFor(() => expect(search(m).drill).toBe("creditors.room/Ageing bucket:gt180"), T);
+    await waitFor(() => expect(within(screen.getByTestId("concentration-list")).getAllByRole("listitem")).toHaveLength(1), T); // only Alpha has >180 credit
+    expect(screen.getByTestId("vendor-total")).toHaveTextContent(/1 vendor with credit in >180 days/);
+  });
+
+  it("without Finance access the page shows vendor references only, and says why", async () => {
+    vi.unstubAllGlobals();
+    installCreditorsApi({ named: false });
+    mount(q("/creditors", { lens: "concentration" }));
+    const list = await screen.findByTestId("concentration-list", {}, T);
+    await within(list).findAllByRole("listitem", {}, T);
+    expect(list).not.toHaveTextContent("Alpha Textiles");
+    expect(list).toHaveTextContent("Vendor Vaaaaaaaaaaaa");
+    expect(screen.getByTestId("masked-note")).toBeInTheDocument();
+    expect(screen.queryByTestId("vendor-search")).toBeNull();
+  });
+
+  it("opens a vendor: strip, separate Document Age and Due Status splits, identity, open items with Dr/Cr kept apart", async () => {
+    const m = mount(q("/creditors", { lens: "concentration" }));
+    fireEvent.click(await screen.findByTestId("vendor-Vaaaaaaaaaaaa", {}, T));
+    await screen.findByTestId("vendor-profile", {}, T);
+    await waitFor(() => expect(m.router.state.location.pathname).toBe("/creditors/vendor"), T);
+    expect(search(m).drill).toBe("creditors.room/Vendor:Vaaaaaaaaaaaa");
+    expect(await screen.findByTestId("strip-credit", {}, T)).toHaveTextContent("₹55.00 Cr");
+    expect(screen.getByTestId("strip-debit")).toHaveTextContent("₹5.00 Cr");
+    expect(screen.getByTestId("strip-over90")).toHaveTextContent("₹30.00 Cr");
+    expect(await screen.findByTestId("vendor-age", {}, T)).toBeInTheDocument();
+    expect(screen.getByTestId("vendor-due")).toBeInTheDocument();
+    expect(screen.getByTestId("vendor-identity")).toHaveTextContent("Alpha Textiles (test)");
+    expect(screen.getByTestId("vendor-unavailable")).toHaveTextContent(/nothing is estimated/);
     const table = await screen.findByTestId("open-items", {}, T);
-    const heads = Array.from(table.querySelectorAll("th")).map((h) => h.textContent);
-    expect(heads).toEqual(expect.arrayContaining(["Document date", "Due date", "Age (provisional)"]));
-    expect(within(screen.getByTestId("vendor-open-items")).getAllByTestId("ageing-basis-note").length).toBeGreaterThan(0);
-  });
-});
-
-describe("Stage 2: browser Back, breadcrumb Back and refresh", () => {
-  const DEEP = "creditors.room/Ageing bucket:gt180/Vendor:V10003";
-
-  it("refreshing a deep vendor link restores the vendor, breadcrumbs and filters", async () => {
-    const m = mount(q("/creditors/vendor", { scenario: "aged_creditors", period: "q2fy27", lens: "movement", drill: DEEP }));
-    await screen.findByTestId("vendor-profile", {}, T);
-    await waitFor(() => expect(crumbs()).toMatch(/Creditors>180 daysBhilwara Textiles|Creditors>180 days.+/), T);
-    expect((screen.getByTestId("select-scenario") as HTMLSelectElement).value).toBe("aged_creditors");
-    expect((screen.getByTestId("select-period") as HTMLSelectElement).value).toBe("q2fy27");
-    expect(search(m).lens).toBe("movement");
-    const href = m.router.state.location.href;
-    cleanup();
-    const again = mount(href);
-    await screen.findByTestId("vendor-profile", {}, T);
-    expect(again.router.state.location.pathname).toBe("/creditors/vendor");
-    expect(search(again).drill).toBe(DEEP);
+    expect(within(table).getAllByText("Cr").length).toBeGreaterThan(0);
+    expect(within(table).getAllByText("Dr").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByTestId("items-Dr"));
+    await waitFor(() => expect(within(screen.getByTestId("open-items")).queryAllByText("Cr")).toHaveLength(0), T);
+    expect(calls.some((c) => c.includes("/items") && c.includes("drcr=Dr"))).toBe(true);
+    // no ledger/voucher drill-down: those sources are not in the verified extract
+    expect(screen.queryByTestId("vendor-open-ledger")).toBeNull();
   });
 
-  it("refreshing a flow link reopens the drawer; a ledger link reopens the ledger", async () => {
-    mount(q("/creditors", { lens: "age", drill: "creditors.room/Migration:b91_180>b181_365" }));
-    await screen.findByTestId("investigation-drawer", {}, T);
-    await waitFor(() => expect(drawerTitle()).toHaveTextContent("91–180 → 181–365"), T);
-    cleanup();
-    const m = mount(q("/ledger", { lens: "age", drill: `${DEEP}/ledger` }));
-    expect(await screen.findByTestId("ledger-table", {}, T)).toBeInTheDocument();
-    expect(m.router.state.location.pathname).toBe("/ledger");
+  it("a masked vendor page carries no name, code or document number", async () => {
+    vi.unstubAllGlobals();
+    installCreditorsApi({ named: false });
+    mount(q("/creditors/vendor", { drill: "creditors.room/Vendor:Vaaaaaaaaaaaa" }));
+    const identity = await screen.findByTestId("vendor-identity", {}, T);
+    expect(identity).toHaveTextContent(/restricted/);
+    expect(identity).not.toHaveTextContent("Alpha");
+    const table = await screen.findByTestId("open-items", {}, T);
+    expect(table).not.toHaveTextContent("PI-1");
   });
 
-  it("browser Back unwinds voucher → ledger → vendor → room, and Forward replays", async () => {
-    const m = mount(q("/creditors", { drill: "creditors.room/Ageing bucket:gt180" }));
-    const first = await waitFor(() => {
-      fireEvent.click(screen.getByTestId("lens-concentration"));
-      const el = document.querySelector('[data-testid^="vendor-V"]') as HTMLElement | null;
-      if (!el) throw new Error("no vendor yet");
-      return el;
-    }, T);
-    fireEvent.click(first);
+  it("refreshing a vendor link restores the vendor and breadcrumbs from the API", async () => {
+    mount(q("/creditors/vendor", { drill: "creditors.room/Ageing bucket:gt90/Vendor:Vbbbbbbbbbbbb" }));
     await screen.findByTestId("vendor-profile", {}, T);
-    fireEvent.click(screen.getByTestId("vendor-open-ledger"));
-    await screen.findByTestId("ledger-table", {}, T);
-    fireEvent.click(await screen.findByTestId("ledger-row-E1", {}, T));
-    await screen.findByTestId("evidence", {}, T);
-
-    m.router.history.back();
-    await screen.findByTestId("ledger-table", {}, T);
-    m.router.history.back();
-    await screen.findByTestId("vendor-profile", {}, T);
-    m.router.history.back();
-    await screen.findByTestId("creditors-room", {}, T);
-    expect(m.router.state.location.pathname).toBe("/creditors");
-    expect(search(m).drill).toBe("creditors.room/Ageing bucket:gt180");
-    m.router.history.forward();
-    await screen.findByTestId("vendor-profile", {}, T);
+    await waitFor(() => expect(crumbs()).toContain("Beta Packaging (test)"), T);
+    expect(crumbs()).toContain(">90 days");
   });
 
-  it("breadcrumb Back keeps filters and lens, and each level is clickable", async () => {
-    const m = mount(q("/creditors/vendor", { scenario: "aged_creditors", lens: "abnormal", drill: "creditors.room/Ageing bucket:gt180/Vendor:V10011" }));
-    await screen.findByTestId("vendor-profile", {}, T);
-    await waitFor(() => expect(screen.getByTestId("crumb-3")).toBeInTheDocument(), T); // the deep link is still replaying
-    fireEvent.click(screen.getByTestId("crumb-3")); // >180 days
-    await screen.findByTestId("creditors-room", {}, T);
-    expect(search(m).drill).toBe("creditors.room/Ageing bucket:gt180");
-    expect(search(m).scenario).toBe("aged_creditors");
-    expect(search(m).lens).toBe("abnormal");
-    fireEvent.click(screen.getByTestId("crumb-2")); // Creditors
-    await waitFor(() => expect(search(m).drill).toBeUndefined(), T);
-    expect(m.router.state.location.pathname).toBe("/creditors");
-    fireEvent.click(screen.getByTestId("crumb-1")); // CFO Command Center
-    await screen.findByTestId("command-center", {}, T);
-    expect(search(m).scenario).toBe("aged_creditors");
-  });
-
-  it("a stale or tampered creditors link falls back to the room, filters kept", async () => {
-    const m = mount(q("/creditors/vendor", { scenario: "cash_pressure", drill: "creditors.room/Vendor:V99999" }));
+  it("a stale or tampered vendor link falls back to the room, filters kept", async () => {
+    const m = mount(q("/creditors/vendor", { scenario: "cash_pressure", drill: "creditors.room/Vendor:Vdeadbeefdead" }));
     await screen.findByTestId("creditors-room", {}, T);
     await waitFor(() => expect(m.router.state.location.pathname).toBe("/creditors"), T);
     expect(search(m).scenario).toBe("cash_pressure");
   });
 });
 
-describe("Stage 2: scenarios and data states", () => {
-  it("Aged Creditors materially changes what the room shows", async () => {
-    mount(q("/creditors", { scenario: "normal" }));
-    const read = async () => (await screen.findByTestId("exposure-gt180", {}, T)).textContent ?? "";
-    await waitFor(async () => expect(await read()).toContain("18.40"), T);
-    fireEvent.change(screen.getByTestId("select-scenario"), { target: { value: "aged_creditors" } });
-    await waitFor(async () => expect(await read()).toContain("46.30"), T);
-    expect(screen.getByTestId("exposure-all")).toHaveTextContent("268.40");
+describe("Creditors room: data states", () => {
+  it("an API failure is shown as an error with Retry, never as zeros", async () => {
+    vi.unstubAllGlobals();
+    installCreditorsApi({ fail: 500 });
+    mount(q("/creditors"));
+    const errors = await screen.findAllByTestId("state-error", {}, T);
+    expect(errors.length).toBeGreaterThan(2); // every section reports the failure itself
+    expect(document.querySelector("[data-section=exposure-strip-error]")!).toHaveTextContent("—");
+    expect(screen.getByTestId("creditors-room")).not.toHaveTextContent("₹0.00 Cr");
+    expect((await screen.findAllByRole("button", { name: /retry/i }, T)).length).toBeGreaterThan(0);
   });
 
-  it("unavailable shows — with a reason, never zero; stale is flagged; error offers retry", async () => {
-    mount(q("/creditors", { data: "unavailable" }));
-    const strip = (await screen.findByTestId("exposure-strip-state", {}, T).catch(() => null)) ?? (await screen.findAllByTestId("state-unavailable", {}, T))[0];
-    expect(strip).toHaveTextContent("—");
-    expect(strip).toHaveTextContent("Awaiting finance mapping");
-    expect(strip.textContent).not.toMatch(/₹0/);
-    cleanup();
-    mount(q("/creditors", { data: "stale" }));
-    await screen.findByTestId("exposure-strip", {}, T);
-    expect((await screen.findAllByTestId("stale-chip", {}, T)).length).toBeGreaterThan(0);
-    cleanup();
-    mount(q("/creditors", { data: "error" }));
-    expect((await screen.findAllByTestId("state-error", {}, T)).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("Retry", {}, T)).length).toBeGreaterThan(0);
+  it("states a live run as Live, and a withdrawn one as Withdrawn: the API decides", async () => {
+    vi.unstubAllGlobals();
+    installCreditorsApi({ state: "live" });
+    mount(q("/creditors"));
+    expect(await screen.findByTestId("data-state", {}, T)).toHaveAttribute("data-state", "live");
   });
 });

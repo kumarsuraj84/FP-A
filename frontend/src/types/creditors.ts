@@ -13,7 +13,10 @@ import type { MetricValue } from "./cfo";
 export type BucketId = "b0_30" | "b31_60" | "b61_90" | "b91_180" | "b181_365" | "b365p";
 
 /** A selectable slice of the creditor book: one bucket, a cumulative cohort, or everything. */
-export type AgeFilter = BucketId | "all" | "current" | "overdue" | "gt90" | "gt180";
+export type AgeFilter = BucketId | "all" | "current" | "overdue" | "gt90" | "gt180" | DueFilter;
+
+/** Due Status cohorts of the real creditors room (a separate dimension from Document Age). "current" / "overdue" belong to the demo service only. */
+export type DueFilter = "past_due" | "not_yet_due" | "due_unavailable" | "due_invalid";
 
 export type Lens = "age" | "concentration" | "movement" | "abnormal";
 
@@ -32,6 +35,10 @@ export const AGE_FILTER_LABELS: Record<AgeFilter, string> = {
   overdue: "Overdue",
   gt90: ">90 days",
   gt180: ">180 days",
+  past_due: "Past due",
+  not_yet_due: "Not yet due",
+  due_unavailable: "Due date unavailable",
+  due_invalid: "Invalid due date",
   ...BUCKET_LABELS,
 };
 export const LENSES: { id: Lens; label: string; hint: string }[] = [

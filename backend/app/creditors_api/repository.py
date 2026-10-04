@@ -17,8 +17,19 @@ UNCLASSIFIED = ("UNCLASSIFIED", "Unclassified")
 DUE_STATES = [("NOT_YET_DUE", "Not yet due"), ("PAST_DUE_OR_DUE_TODAY", "Past due / due today"), ("DUE_UNAVAILABLE", "Due date unavailable"), ("DUE_INVALID", "Invalid due date")]
 OVER_90 = ("D91_180", "D181_365", "D365_PLUS")
 OVER_180 = ("D181_365", "D365_PLUS")
+# Vendor-list cohorts: fixed SQL fragments chosen from this whitelist (never built from request text). They narrow the CREDIT exposure the list is ranked by.
+COHORTS = {
+    "gt90": "document_age_bucket IN ('D91_180','D181_365','D365_PLUS')",
+    "gt180": "document_age_bucket IN ('D181_365','D365_PLUS')",
+    "past_due": "due_status = 'PAST_DUE_OR_DUE_TODAY'",
+    "not_yet_due": "due_status = 'NOT_YET_DUE'",
+    "due_unavailable": "due_status = 'DUE_UNAVAILABLE'",
+    "due_invalid": "due_status = 'DUE_INVALID'",
+    "unclassified": "document_age_bucket LIKE 'UNCLASSIFIED%'",
+    **{b: f"document_age_bucket = '{b}'" for b, _ in AGE_BUCKETS},
+}
 VENDOR_SORTS = {"credit_outstanding": "credit_outstanding", "debit_balance": "debit_balance", "net": "signed_net", "items": "items",
-                "past_due": "past_due_credit", "due_unavailable": "due_unavailable_credit", "oldest": "oldest_credit_age_days"}
+                "past_due": "past_due_credit", "due_unavailable": "due_unavailable_credit", "oldest": "oldest_credit_age_days", "cohort": "cohort_credit"}
 
 
 @dataclass(frozen=True)
@@ -135,7 +146,16 @@ def ledgers(conn, src: Source, run_id: str) -> list[dict]:
         FROM {src.items} WHERE extraction_run_id = %s GROUP BY ledger_code ORDER BY ledger_code""", (run_id,)).fetchall()
 
 
-def vendors(conn, src: Source, run_id: str, *, ledger_code=None, party_class=None, q=None, vendor_ref=None, sort="credit_outstanding", descending=True, limit=100, offset=0) -> dict:
+def vendors(conn, src: Source, run_id: str, *, ledger_code=None, party_class=None, q=None, vendor_ref=None, cohort=None, sort="credit_outstanding", descending=True, limit=100, offset=0) -> dict:
+    cond = COHORTS.get(cohort) if cohort else None
+    if cohort and cond is None:
+        raise ValueError(f"unknown cohort {cohort!r}")
+    cohort_col = f", coalesce(sum(abs(pending)) FILTER (WHERE drcr = 'Cr' AND {cond}), 0) AS cohort_credit" if cond else ""
+    having = " HAVING coalesce(sum(abs(pending)) FILTER (WHERE drcr = 'Cr' AND " + cond + "), 0) > 0" if cond else ""
+    if cond and sort == "credit_outstanding":
+        sort = "cohort"
+    if sort == "cohort" and not cond:
+        sort = "credit_outstanding"
     where, params = ["extraction_run_id = %s"], [run_id]
     for col, val in (("ledger_code", ledger_code), ("party_class", party_class), ("vendor_ref", vendor_ref)):
         if val:
@@ -157,11 +177,13 @@ def vendors(conn, src: Source, run_id: str, *, ledger_code=None, party_class=Non
                coalesce(sum(pending), 0) AS signed_net,
                coalesce(sum(abs(pending)) FILTER (WHERE drcr = 'Cr' AND due_status = 'PAST_DUE_OR_DUE_TODAY'), 0) AS past_due_credit,
                coalesce(sum(abs(pending)) FILTER (WHERE drcr = 'Cr' AND due_status = 'DUE_UNAVAILABLE'), 0) AS due_unavailable_credit,
-               max(document_age_days) FILTER (WHERE drcr = 'Cr') AS oldest_credit_age_days
-        FROM {src.items} WHERE {w} GROUP BY vendor_ref{extra_group}
+               max(document_age_days) FILTER (WHERE drcr = 'Cr') AS oldest_credit_age_days{cohort_col}
+        FROM {src.items} WHERE {w} GROUP BY vendor_ref{extra_group}{having}
         ORDER BY {sort_col} {direction} NULLS LAST, vendor_ref LIMIT %s OFFSET %s""", params + [limit, offset]).fetchall()
     tot = conn.execute(f"SELECT count(DISTINCT vendor_ref) AS vendors, coalesce(sum(abs(pending)) FILTER (WHERE drcr = 'Cr'), 0) AS credit_outstanding, "
                        f"coalesce(sum(abs(pending)) FILTER (WHERE drcr = 'Dr'), 0) AS debit_balance, coalesce(sum(pending), 0) AS signed_net FROM {src.items} WHERE {w}", params).fetchone()
+    if cond:
+        tot = conn.execute(f"SELECT count(*) AS vendors, coalesce(sum(c), 0) AS cohort_credit FROM (SELECT sum(abs(pending)) FILTER (WHERE drcr = 'Cr' AND {cond}) AS c FROM {src.items} WHERE {w} GROUP BY vendor_ref HAVING coalesce(sum(abs(pending)) FILTER (WHERE drcr = 'Cr' AND {cond}), 0) > 0) t", params).fetchone() | {k: tot[k] for k in ("credit_outstanding", "debit_balance", "signed_net")}
     all_credit = conn.execute(f"SELECT coalesce(sum(abs(pending)) FILTER (WHERE drcr = 'Cr'), 0) AS c FROM {src.items} WHERE extraction_run_id = %s", (run_id,)).fetchone()["c"]
     refs = [r["vendor_ref"] for r in rows]
     age, due = {}, {}

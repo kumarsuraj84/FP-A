@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installCreditorsApi } from "@/test/creditorsFixture";
 import { mockApi } from "@/api/mockApi";
 import { CREDITORS_ORIGIN, ageNode, flowNode, vendorNode } from "@/lib/creditorNodes";
 import { crumbsFor, drawerAllowed, initialState, reducer, routeFor, type CfoState } from "./cfoState";
@@ -86,46 +87,30 @@ describe("creditors URL contract", () => {
   });
 });
 
-describe("replaying a shared creditors link", () => {
-  it("resolves age, migration, abnormal and vendor nodes through the API", async () => {
-    const age = await resolveDrill(mockApi, ctx, "30d", "creditors.room/Ageing bucket:gt180/Vendor:V10003");
-    expect(age!.origin.scope).toBe("creditors");
-    expect(age!.nodes.map((n) => [n.dim, n.label])).toEqual([["Ageing bucket", ">180 days"], ["Vendor", "Bhilwara Textiles"]]);
-    expect(age!.nodes[1].amount).toBeGreaterThan(0);
+describe("replaying a shared creditors link (against the real Creditors API, served synthetically)", () => {
+  beforeEach(() => {
+    installCreditorsApi();
+  });
+  afterEach(() => vi.unstubAllGlobals());
 
-    const flow = await resolveDrill(mockApi, ctx, "30d", "creditors.room/Migration:b61_90>b91_180");
-    expect(flow!.nodes[0]).toMatchObject({ dim: "Migration", label: "61–90 → 91–180" });
-    expect(flow!.nodes[0].amount).toBeGreaterThan(0);
-
-    const abn = await resolveDrill(mockApi, ctx, "30d", "creditors.room/Abnormal:debit_balance/Vendor:V10005");
-    expect(abn!.nodes[0]).toMatchObject({ dim: "Abnormal", label: "Debit balance in creditor account" });
-    expect(abn!.nodes[1].dim).toBe("Vendor");
+  it("resolves age / due filters and a vendor through the API", async () => {
+    const r = await resolveDrill(mockApi, ctx, "30d", "creditors.room/Ageing bucket:gt180/Vendor:Vaaaaaaaaaaaa");
+    expect(r!.origin.scope).toBe("creditors");
+    expect(r!.nodes.map((n) => [n.dim, n.label])).toEqual([["Ageing bucket", ">180 days"], ["Vendor", "Alpha Textiles (test)"]]);
+    expect(r!.nodes[1].amount).toBeCloseTo(55, 6); // ₹55 Cr, converted from exact text
+    const due = await resolveDrill(mockApi, ctx, "30d", "creditors.room/Ageing bucket:due_unavailable");
+    expect(due!.nodes[0]).toMatchObject({ dim: "Ageing bucket", label: "Due date unavailable" });
   });
 
-  it("resolves a voucher from the ledger and a voucher from the vendor's open items", async () => {
-    const vnode = (await resolveDrill(mockApi, ctx, "30d", "creditors.room/Vendor:V10003"))!.nodes[0];
-    const ledger = (await mockApi.getLedger(ctx, CREDITORS_ORIGIN, [vnode])).data!;
-    const vid = ledger.entries[2].voucherId;
-    const viaLedger = await resolveDrill(mockApi, ctx, "30d", `creditors.room/Vendor:V10003/ledger/voucher:${vid}`);
-    expect(viaLedger!.nodes.map((n) => n.level)).toEqual(["entity", "ledger", "voucher"]);
-
-    const prof = (await mockApi.getVendorProfile(ctx, "V10003")).data!;
-    const doc = prof.openItems[0].documentRef;
-    const viaItem = await resolveDrill(mockApi, ctx, "30d", `creditors.room/Vendor:V10003/voucher:${doc}`);
-    expect(viaItem!.nodes.at(-1)).toMatchObject({ level: "voucher", id: doc });
-    expect(viaItem!.nodes.at(-1)!.amount).toBeCloseTo(prof.openItems[0].amount, 6);
-  });
-
-  it("returns null for unknown vendors, flows, categories and buckets", async () => {
-    for (const bad of ["creditors.room/Vendor:V99999", "creditors.room/Migration:nope", "creditors.room/Abnormal:nope", "creditors.room/Ageing bucket:nope", "creditors.room/Vendor:V10003/voucher:PI-26-000000"]) {
+  it("returns null for unknown vendors and buckets, and for the demo-only flow / abnormal segments", async () => {
+    for (const bad of ["creditors.room/Vendor:Vdeadbeefdead", "creditors.room/Ageing bucket:nope", "creditors.room/Migration:b61_90>b91_180", "creditors.room/Abnormal:debit_balance"]) {
       expect(await resolveDrill(mockApi, ctx, "30d", bad), bad).toBeNull();
     }
   });
 
-  it("resolves for every scenario (links survive a scenario switch when the entity still exists)", async () => {
+  it("is independent of the demo scenario (real data does not change with it)", async () => {
     for (const s of ["normal", "cash_pressure", "aged_creditors", "vendor_advance_risk", "margin_pressure"] as const) {
-      const r = await resolveDrill(mockApi, { ...ctx, scenario: s }, "30d", "creditors.room/Ageing bucket:gt180/Vendor:V10003");
-      expect(r, s).not.toBeNull();
+      expect(await resolveDrill(mockApi, { ...ctx, scenario: s }, "30d", "creditors.room/Ageing bucket:gt180/Vendor:Vaaaaaaaaaaaa"), s).not.toBeNull();
     }
   });
 });

@@ -1,18 +1,19 @@
 import { X } from "lucide-react";
-import { useCreditors } from "@/api/hooks";
+import { useLiveRun } from "@/api/creditorsLiveHooks";
 import { AGE_FILTER_LABELS } from "@/types/creditors";
 import { AgeingRiver } from "./AgeingRiver";
+import { DueStatusPanel } from "./DueStatusPanel";
 import { ExposureStrip } from "./ExposureStrip";
+import { LedgerPanel } from "./LedgerPanel";
 import { LensWorkspace } from "./LensWorkspace";
-import { MigrationPanel } from "./MigrationPanel";
-import { AgeingBasisNote, useRoomSelection } from "./parts";
+import { DataStateBadge, useRoomSelection } from "./parts";
 
 /**
- * Stage 2: Creditors / Payables Control Room.
- * Exposure → Age → Movement → Diagnosis → Vendor → Ledger → Voucher. Tables come last, on the vendor page.
+ * Creditors / Payables Control Room on REAL data (the verified FP&A mart, through the read-only Creditors API).
+ * Exposure → Document Age → Due Status → Ledgers → Diagnosis → Vendor. The API states the data state; this page only displays it.
  */
 export function CreditorsRoom() {
-  const q = useCreditors();
+  const run = useLiveRun();
   const { age, select } = useRoomSelection();
   return (
     <div data-testid="creditors-room" className="@container">
@@ -20,7 +21,7 @@ export function CreditorsRoom() {
         <div className="min-w-0">
           <div className="eyebrow">Payables</div>
           <h1 className="truncate text-[20px] font-semibold tracking-tight text-foreground">Creditors Control Room</h1>
-          <div className="text-[12px] text-muted-foreground">How much we owe, how old it is, what is moving into risk, and which vendors need attention.</div>
+          <div className="text-[12px] text-muted-foreground">How much we owe, how old the documents are, what the source says is due, and which vendors carry it.</div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {age !== "all" && (
@@ -28,13 +29,14 @@ export function CreditorsRoom() {
               Filter: {AGE_FILTER_LABELS[age]} <X className="h-3 w-3" />
             </button>
           )}
-          {q.data?.data && <AgeingBasisNote basis={q.data.data.ageingBasis} />}
+          {run.data && <DataStateBadge state={run.data.data_state} run={run.data.extraction_run_id} asOf={run.data.as_of_date} />}
         </div>
       </div>
       <ExposureStrip />
       <div className="space-y-4 p-4">
         <AgeingRiver />
-        <MigrationPanel />
+        <DueStatusPanel />
+        <LedgerPanel />
         <LensWorkspace />
       </div>
     </div>
