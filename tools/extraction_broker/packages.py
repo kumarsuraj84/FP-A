@@ -470,4 +470,86 @@ PAYABLES_PROBE_02: tuple[Dataset, ...] = (
     ),
 )
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02}
+# ───────────── payables_probe_03: is there a stable, unique source-row identity? ─────────────
+# Aggregate-only duplicate counting for candidate identity keys on the four creditor ledgers, for open rows and for all rows
+# (a settled item must keep its identity, so settled rows are in scope for the test). No value, code or name leaves Oracle.
+# Mutable accounting state (PENDING, ADJUSTED) and free text (NARRATION) are never part of a candidate key.
+_SCOPES = {"open": f"{_BO} AND o.ledger_code IN ({_LEDGER_IN}) AND o.pending <> 0", "all": f"{_BO} AND o.ledger_code IN ({_LEDGER_IN})"}
+
+
+def _key(*cols: str) -> str:
+    return " || '|' || ".join(f"NVL(TO_CHAR(o.{c}), '~')" for c in cols)
+
+
+_K1 = ("document_code", "ledger_code", "sub_ledger_code", "drcr")
+_K2 = _K1 + ("ref_no",)
+_K3 = _K2 + ("document_date",)
+_K4 = _K3 + ("amount",)
+KEY_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "K1": _K1,
+    "K2": _K2,
+    "K3": _K3,  # K2 + DOCUMENT_DATE
+    "K4": _K4,  # K3 + AMOUNT
+    "K2A": _K2 + ("amount",),  # K2 + AMOUNT without the date, to see which field resolves the ties
+    "K5": _K4 + ("document_no", "document_type", "document_initial", "entry_date", "created_by_site"),
+}
+KEY_COMPONENTS = tuple(dict.fromkeys(c for cols in KEY_CANDIDATES.values() for c in cols))
+
+
+def _key_test(scope: str, name: str, cols: tuple[str, ...]) -> str:
+    k = _key(*cols)
+    return (
+        f"SELECT '{scope}' AS scope_name, '{name}' AS key_name, SUM(c) AS total_rows, COUNT(*) AS distinct_keys, SUM(c) - COUNT(*) AS surplus_rows, "
+        "NVL(SUM(CASE WHEN c > 1 THEN c END), 0) AS rows_in_dup_groups, NVL(SUM(CASE WHEN c > 1 THEN 1 END), 0) AS dup_groups, MAX(c) AS max_group_size "
+        f"FROM (SELECT COUNT(*) AS c FROM {_T} o WHERE {_SCOPES[scope]} GROUP BY {k})"
+    )
+
+
+def _null_counts(scope: str) -> str:
+    cols = ", ".join(f"SUM(CASE WHEN o.{c} IS NULL THEN 1 ELSE 0 END) AS n_{c}" for c in KEY_COMPONENTS)
+    return f"SELECT '{scope}' AS scope_name, COUNT(*) AS total_rows, {cols} FROM {_T} o WHERE {_SCOPES[scope]}"
+
+
+_STRUCTURE = {
+    # pattern name -> (group by, having)
+    "doc_code_many_rows": ("o.document_code", "COUNT(*) > 1"),
+    "doc_code_sub_ledger_many_rows": ("o.document_code, o.sub_ledger_code", "COUNT(*) > 1"),
+    "doc_code_ledger_both_drcr": ("o.document_code, o.ledger_code", "COUNT(DISTINCT o.drcr) > 1"),
+    "doc_code_many_sub_ledgers": ("o.document_code", "COUNT(DISTINCT o.sub_ledger_code) > 1"),
+}
+
+
+def _structure(scope: str, pattern: str) -> str:
+    group, having = _STRUCTURE[pattern]
+    return (
+        f"SELECT '{scope}' AS scope_name, '{pattern}' AS pattern_name, COUNT(*) AS groups, NVL(SUM(c), 0) AS rows_in_groups, MAX(c) AS max_group_size "
+        f"FROM (SELECT COUNT(*) AS c FROM {_T} o WHERE {_SCOPES[scope]} GROUP BY {group} HAVING {having})"
+    )
+
+
+def _union(parts: list[str], columns: str, order: str, cap: int) -> str:
+    return f"SELECT {columns} FROM ({' UNION ALL '.join(parts)}) ORDER BY {order} FETCH FIRST {cap} ROWS ONLY"
+
+
+PAYABLES_PROBE_03: tuple[Dataset, ...] = (
+    Dataset(
+        "s1_key_uniqueness",
+        "extract",
+        "Duplicate counts for each candidate identity key, open rows and all rows of the four creditor ledgers (scalars only).",
+        sql=_union([_key_test(sc, n, c) for sc in _SCOPES for n, c in KEY_CANDIDATES.items()], "scope_name, key_name, total_rows, distinct_keys, surplus_rows, rows_in_dup_groups, dup_groups, max_group_size", "scope_name, key_name", 40),
+    ),
+    Dataset(
+        "s2_key_component_nulls",
+        "extract",
+        "Null counts of every key component, open rows and all rows.",
+        sql=_union([_null_counts(sc) for sc in _SCOPES], "scope_name, total_rows, " + ", ".join(f"n_{c}" for c in KEY_COMPONENTS), "scope_name", 5),
+    ),
+    Dataset(
+        "s3_duplicate_structure",
+        "extract",
+        "How duplicate document codes are structured: line splits within a sub-ledger, both sides of a ledger, or several sub-ledgers (counts only).",
+        sql=_union([_structure(sc, pt) for sc in _SCOPES for pt in _STRUCTURE], "scope_name, pattern_name, groups, rows_in_groups, max_group_size", "scope_name, pattern_name", 20),
+    ),
+)
+
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03}
