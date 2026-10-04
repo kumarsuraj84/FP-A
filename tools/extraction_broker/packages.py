@@ -884,4 +884,32 @@ CASH_WC_PROBE_02: tuple[Dataset, ...] = (
                  f"FROM {OWNER}.V_FINANCE_STOCK_MOVEMENT WHERE end_date >= DATE '2026-09-01' GROUP BY end_date FETCH FIRST 20 ROWS ONLY")),
 )
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02}
+# ───────────── receivables_probe_01: the simpler retry of the debtors foundation (aggregates only) ─────────────
+# The first attempt raised an ODBC error with one wide query. Each question is its own small query on the Sundry Debtors ledger of the outstanding cube.
+_RB = f"o.report_date >= DATE '2026-01-01' AND o.ledger_code = 1000000014 AND o.pending <> 0"
+
+RECEIVABLES_PROBE_01: tuple[Dataset, ...] = (
+    Dataset("d1_identity_counts", "extract", "Open debtor rows by Dr/Cr: rows and distinct document codes, sub-ledgers, document numbers.",
+            sql=(f"SELECT o.drcr, COUNT(*) AS open_rows, COUNT(DISTINCT o.document_code) AS document_codes, COUNT(DISTINCT o.sub_ledger_code) AS sub_ledgers, COUNT(DISTINCT o.document_no) AS document_nos, "
+                 f"TO_CHAR(MAX(o.report_date), 'YYYY-MM-DD') AS report_date FROM {_O} o WHERE {_RB} GROUP BY o.drcr FETCH FIRST 10 ROWS ONLY")),
+    Dataset("d2_date_population", "extract", "Population of each date field on open debtor rows, by Dr/Cr, and the document-date range.",
+            sql=(f"SELECT o.drcr, COUNT(*) AS open_rows, COUNT(o.document_date) AS n_document_date, COUNT(o.entry_date) AS n_entry_date, COUNT(o.ref_date) AS n_ref_date, COUNT(o.due_date) AS n_due_date, "
+                 f"TO_CHAR(MIN(o.document_date), 'YYYY-MM-DD') AS document_date_min, TO_CHAR(MAX(o.document_date), 'YYYY-MM-DD') AS document_date_max, TO_CHAR(MIN(o.due_date), 'YYYY-MM-DD') AS due_date_min, "
+                 f"TO_CHAR(MAX(o.due_date), 'YYYY-MM-DD') AS due_date_max FROM {_O} o WHERE {_RB} GROUP BY o.drcr FETCH FIRST 10 ROWS ONLY")),
+    Dataset("d3_due_date_validity", "extract", "Due dates inside the technical window 2000-2100, before the document date, and the stored due-date basis, by Dr/Cr.",
+            sql=(f"SELECT o.drcr, o.due_date_basis, COUNT(*) AS open_rows, COUNT(CASE WHEN o.due_date >= DATE '2000-01-01' AND o.due_date <= DATE '2100-12-31' THEN 1 END) AS due_in_window, "
+                 f"COUNT(CASE WHEN o.due_date < o.document_date THEN 1 END) AS due_before_document FROM {_O} o WHERE {_RB} GROUP BY o.drcr, o.due_date_basis FETCH FIRST 40 ROWS ONLY")),
+    Dataset("d4_amount_semantics", "extract", "AMOUNT, ADJUSTED, PENDING sums by Dr/Cr and whether PENDING = AMOUNT - ADJUSTED, in signed and absolute form (the sign convention).",
+            sql=(f"SELECT o.drcr, COUNT(*) AS open_rows, {_TM9('SUM(o.amount)', 'sum_amount')}, {_TM9('SUM(o.adjusted)', 'sum_adjusted')}, {_TM9('SUM(o.pending)', 'sum_pending')}, {_TM9('SUM(ABS(o.pending))', 'sum_abs_pending')}, "
+                 "COUNT(CASE WHEN o.pending = o.amount - o.adjusted THEN 1 END) AS pending_eq_amount_minus_adjusted, COUNT(CASE WHEN ABS(o.pending) = ABS(o.amount) - ABS(o.adjusted) THEN 1 END) AS abs_pending_eq_abs_diff, "
+                 f"COUNT(CASE WHEN o.amount < 0 THEN 1 END) AS negative_amount_rows, COUNT(CASE WHEN o.pending < 0 THEN 1 END) AS negative_pending_rows FROM {_O} o WHERE {_RB} GROUP BY o.drcr FETCH FIRST 10 ROWS ONLY")),
+    Dataset("d5_candidate_key", "extract", "Duplicate counts for the creditors identity key (document code + sub-ledger) and the sub-ledger-free key on open debtor rows (scalars).",
+            sql=(f"SELECT 'doc_sub' AS key_name, COUNT(*) AS total_rows, COUNT(DISTINCT o.document_code || '|' || o.sub_ledger_code) AS distinct_keys FROM {_O} o WHERE {_RB} "
+                 f"UNION ALL SELECT 'doc_sub_drcr', COUNT(*), COUNT(DISTINCT o.document_code || '|' || o.sub_ledger_code || '|' || o.drcr) FROM {_O} o WHERE {_RB} "
+                 f"UNION ALL SELECT 'doc_sub_drcr_ref', COUNT(*), COUNT(DISTINCT o.document_code || '|' || o.sub_ledger_code || '|' || o.drcr || '|' || o.ref_no) FROM {_O} o WHERE {_RB} FETCH FIRST 5 ROWS ONLY")),
+    Dataset("d6_null_components", "extract", "Null counts of the key components on open debtor rows.",
+            sql=(f"SELECT COUNT(*) AS open_rows, COUNT(CASE WHEN o.document_code IS NULL THEN 1 END) AS null_document_code, COUNT(CASE WHEN o.sub_ledger_code IS NULL THEN 1 END) AS null_sub_ledger, "
+                 f"COUNT(CASE WHEN o.drcr IS NULL THEN 1 END) AS null_drcr, COUNT(CASE WHEN o.ref_no IS NULL THEN 1 END) AS null_ref_no FROM {_O} o WHERE {_RB} FETCH FIRST 1 ROWS ONLY")),
+)
+
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01}
