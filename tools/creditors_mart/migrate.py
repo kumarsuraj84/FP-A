@@ -1,7 +1,10 @@
 """
 Apply the creditors pilot mart migrations as a database administrator.
 
-    set FPA_PG_ADMIN_URL=postgresql://<admin>:<password>@localhost:5432/postgres      (your terminal environment only; never a file, never chat)
+    Simplest: run the command in your own terminal and it asks for host, port, admin user and password (the password is hidden,
+    never echoed, never stored). A credential is never typed into chat or a file.
+    Alternative (scripted): PowerShell   $env:FPA_PG_ADMIN_URL = "postgresql://<admin>:<password>@localhost:5432/postgres"
+    (a password containing @ : / must be percent-encoded in a URL, e.g. @ as %40; the prompt avoids that problem)
 
     python tools/creditors_mart/migrate.py --create-database fpa_pilot     # creates the empty database if missing, then applies 000 and 001
     python tools/creditors_mart/migrate.py                                 # applies to the database named in the URL (which must already exist)
@@ -38,6 +41,24 @@ def apply(conn) -> None:
         conn.execute(sql)
 
 
+def admin_conninfo() -> str | None:
+    """The administrator connection: FPA_PG_ADMIN_URL if set, otherwise an interactive prompt (never echoed, never stored)."""
+    url = os.environ.get("FPA_PG_ADMIN_URL")
+    if url:
+        return url
+    if not sys.stdin.isatty():
+        return None
+    import getpass
+
+    from psycopg.conninfo import make_conninfo
+
+    host = input("PostgreSQL host [localhost]: ").strip() or "localhost"
+    port = input("Port [5432]: ").strip() or "5432"
+    user = input("Admin user [postgres]: ").strip() or "postgres"
+    password = getpass.getpass("Admin password (hidden, not stored): ")
+    return make_conninfo(host=host, port=port, user=user, password=password, dbname="postgres")
+
+
 def with_database(url: str, dbname: str) -> str:
     """The same server and credential, another database. Works for URL and key=value connection strings."""
     from psycopg.conninfo import conninfo_to_dict, make_conninfo
@@ -62,10 +83,10 @@ def create_database(url: str, name: str) -> bool:
 
 
 def main(argv: list[str]) -> int:
-    url = os.environ.get("FPA_PG_ADMIN_URL")
+    url = admin_conninfo()
     if not url:
         print(__doc__)
-        print("FPA_PG_ADMIN_URL is not set in this environment.")
+        print("No administrator connection available: run this in an interactive terminal, or set FPA_PG_ADMIN_URL.")
         return 2
     import psycopg
 

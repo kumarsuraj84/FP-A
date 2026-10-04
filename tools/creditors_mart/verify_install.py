@@ -2,7 +2,7 @@
 Read-only verification of an installed `cred` schema: owners, role attributes, the full privilege matrix, public grants, guard triggers,
 initial policy, and that no data exists yet. It reads the catalog only and writes nothing to the database.
 
-    set FPA_PG_ADMIN_URL=...   (environment only)
+    Run it in your own terminal: it asks for the admin connection (password hidden, never stored), or uses FPA_PG_ADMIN_URL if set.
     python tools/creditors_mart/verify_install.py fpa_pilot        # prints the result and writes docs/creditors_pilot/MART_REAL_INSTALL_EVIDENCE.md
 
 The report names the database and the roles only. It never contains a credential, a host or a password.
@@ -144,12 +144,17 @@ def render(db: str, results: list[tuple[str, bool, str]]) -> str:
 
 
 def main(argv: list[str]) -> int:
-    url = os.environ.get("FPA_PG_ADMIN_URL")
-    if not url or len(argv) != 2:
+    if len(argv) != 2:
         print(__doc__)
         return 2
     import psycopg
-    from migrate import redact, with_database
+    from migrate import admin_conninfo, redact, with_database
+
+    url = admin_conninfo()
+    if not url:
+        print(__doc__)
+        print("No administrator connection available: run this in an interactive terminal, or set FPA_PG_ADMIN_URL.")
+        return 2
 
     db = argv[1]
     try:
