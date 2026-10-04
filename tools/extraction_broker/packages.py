@@ -341,4 +341,95 @@ AGEING_PROBE_01: tuple[Dataset, ...] = (
     ),
 )
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01}
+# ───────────── payables_probe_01: which rows are open payables, and can a missing due date be derived? ─────────────
+# Still evidence-gathering: grouped aggregates over MISRETAIL."T$FINOTSD_533" joined (inside MISRETAIL) to the two masters.
+# No row-level extract, no derived due dates are written anywhere, no rule is decided.
+_S = f"{OWNER}.SUB_LEDGER_MV"
+_G = f"{OWNER}.LEDGER_MV"
+_BO = "o.report_date >= DATE '2026-01-01'"
+
+PAYABLES_PROBE_01: tuple[Dataset, ...] = (
+    Dataset(
+        "q1_due_date_derivation",
+        "extract",
+        "OPEN rows only (PENDING <> 0): does the stored DUE_DATE equal document_date + CREDIT_DAYS, or entry_date + CREDIT_DAYS? "
+        "Counts by DUE_DATE_BASIS, party class, credit-days state, Dr/Cr and due-date state. Nothing is derived or written.",
+        sql=(
+            "SELECT due_date_basis, sl_class_type, sl_class, drcr, credit_days_state, due_state, master_state, COUNT(*) AS open_rows, "
+            "SUM(comparable) AS comparable_rows, SUM(eq_document) AS eq_document_plus_credit, SUM(eq_entry) AS eq_entry_plus_credit FROM ("
+            "SELECT o.due_date_basis AS due_date_basis, s.sl_class_type AS sl_class_type, s.sl_class AS sl_class, o.drcr AS drcr, "
+            "CASE WHEN s.slcode IS NULL THEN 'no_master_row' ELSE 'in_master' END AS master_state, "
+            "CASE WHEN s.credit_days IS NULL THEN 'credit_days_null' WHEN s.credit_days = 0 THEN 'credit_days_zero' ELSE 'credit_days_positive' END AS credit_days_state, "
+            "CASE WHEN o.due_date IS NULL THEN 'due_null' ELSE 'due_filled' END AS due_state, "
+            "CASE WHEN o.due_date IS NOT NULL AND s.credit_days IS NOT NULL THEN 1 ELSE 0 END AS comparable, "
+            "CASE WHEN o.due_date IS NOT NULL AND s.credit_days IS NOT NULL AND TRUNC(o.due_date) = TRUNC(o.document_date) + s.credit_days THEN 1 ELSE 0 END AS eq_document, "
+            "CASE WHEN o.due_date IS NOT NULL AND s.credit_days IS NOT NULL AND TRUNC(o.due_date) = TRUNC(o.entry_date) + s.credit_days THEN 1 ELSE 0 END AS eq_entry "
+            f"FROM {_T} o LEFT JOIN {_S} s ON s.slcode = o.sub_ledger_code WHERE {_BO} AND o.pending <> 0) "
+            "GROUP BY due_date_basis, sl_class_type, sl_class, drcr, credit_days_state, due_state, master_state "
+            "ORDER BY COUNT(*) DESC FETCH FIRST 5000 ROWS ONLY"
+        ),
+    ),
+    Dataset(
+        "q2_date_quality_by_exposure",
+        "extract",
+        "Date problems (pre-2000, after the report date, null) split by settled / open and Dr / Cr, with row counts AND the "
+        "absolute pending exposure they carry. Invalid dates are flagged, never discarded.",
+        sql=(
+            "SELECT pending_state, drcr, COUNT(*) AS total_rows, SUM(abs_pending) AS abs_pending, "
+            "SUM(f_doc_pre2000) AS doc_pre2000_rows, SUM(f_doc_pre2000 * abs_pending) AS doc_pre2000_abs, "
+            "SUM(f_doc_after_report) AS doc_after_report_rows, SUM(f_doc_after_report * abs_pending) AS doc_after_report_abs, "
+            "SUM(f_due_after_report) AS due_after_report_rows, SUM(f_due_after_report * abs_pending) AS due_after_report_abs, "
+            "SUM(f_doc_null) AS doc_null_rows, SUM(f_doc_null * abs_pending) AS doc_null_abs, "
+            "SUM(f_due_null) AS due_null_rows, SUM(f_due_null * abs_pending) AS due_null_abs, "
+            "SUM(f_credit_null) AS credit_null_rows, SUM(f_credit_null * abs_pending) AS credit_null_abs, "
+            "SUM(f_entry_pre2000) AS entry_pre2000_rows, SUM(f_entry_after_report) AS entry_after_report_rows FROM ("
+            "SELECT CASE WHEN o.pending = 0 THEN 'settled' ELSE 'open' END AS pending_state, o.drcr AS drcr, ABS(o.pending) AS abs_pending, "
+            "CASE WHEN o.document_date < DATE '2000-01-01' THEN 1 ELSE 0 END AS f_doc_pre2000, "
+            "CASE WHEN o.document_date > o.report_date THEN 1 ELSE 0 END AS f_doc_after_report, "
+            "CASE WHEN o.due_date > o.report_date THEN 1 ELSE 0 END AS f_due_after_report, "
+            "CASE WHEN o.document_date IS NULL THEN 1 ELSE 0 END AS f_doc_null, "
+            "CASE WHEN o.due_date IS NULL THEN 1 ELSE 0 END AS f_due_null, "
+            "CASE WHEN s.credit_days IS NULL THEN 1 ELSE 0 END AS f_credit_null, "
+            "CASE WHEN o.entry_date < DATE '2000-01-01' THEN 1 ELSE 0 END AS f_entry_pre2000, "
+            "CASE WHEN o.entry_date > o.report_date THEN 1 ELSE 0 END AS f_entry_after_report "
+            f"FROM {_T} o LEFT JOIN {_S} s ON s.slcode = o.sub_ledger_code WHERE {_BO}) "
+            "GROUP BY pending_state, drcr ORDER BY pending_state, drcr FETCH FIRST 20 ROWS ONLY"
+        ),
+    ),
+    Dataset(
+        "q3_payable_population",
+        "extract",
+        "The ledger / party-class population: per ledger code, name, type, Dr/Cr and party class, the row count, open-row "
+        "count, signed and absolute pending, and distinct open sub-ledgers. Shows which ledgers really carry creditor balances.",
+        sql=(
+            "SELECT o.ledger_code AS ledger_code, l.glname AS ledger_name, l.type AS ledger_type, l.nature AS ledger_nature, o.drcr AS drcr, "
+            "s.sl_class_type AS party_class_type, s.sl_class AS party_class, COUNT(*) AS row_count, "
+            "SUM(CASE WHEN o.pending <> 0 THEN 1 ELSE 0 END) AS open_rows, SUM(o.pending) AS signed_sum_pending, "
+            "SUM(ABS(o.pending)) AS abs_sum_pending, COUNT(DISTINCT CASE WHEN o.pending <> 0 THEN o.sub_ledger_code END) AS open_sub_ledgers "
+            f"FROM {_T} o LEFT JOIN {_G} l ON l.glcode = o.ledger_code LEFT JOIN {_S} s ON s.slcode = o.sub_ledger_code "
+            f"WHERE {_BO} GROUP BY o.ledger_code, l.glname, l.type, l.nature, o.drcr, s.sl_class_type, s.sl_class "
+            "ORDER BY SUM(ABS(o.pending)) DESC FETCH FIRST 20000 ROWS ONLY"
+        ),
+    ),
+    Dataset(
+        "q4_amount_adjusted_pending",
+        "extract",
+        "How AMOUNT, ADJUSTED and PENDING reconcile, by Dr/Cr and settled/open: which formula holds and what sign ADJUSTED carries.",
+        sql=(
+            "SELECT drcr, pending_state, COUNT(*) AS total_rows, "
+            "SUM(CASE WHEN adjusted IS NULL THEN 1 ELSE 0 END) AS adjusted_null, SUM(CASE WHEN adjusted = 0 THEN 1 ELSE 0 END) AS adjusted_zero, "
+            "SUM(CASE WHEN adjusted > 0 THEN 1 ELSE 0 END) AS adjusted_positive, SUM(CASE WHEN adjusted < 0 THEN 1 ELSE 0 END) AS adjusted_negative, "
+            "SUM(CASE WHEN ABS(pending - (amount - NVL(adjusted, 0))) <= 0.01 THEN 1 ELSE 0 END) AS p_eq_amount_minus_adj, "
+            "SUM(CASE WHEN ABS(pending - (amount + NVL(adjusted, 0))) <= 0.01 THEN 1 ELSE 0 END) AS p_eq_amount_plus_adj, "
+            "SUM(CASE WHEN ABS(pending - SIGN(amount) * (ABS(amount) - ABS(NVL(adjusted, 0)))) <= 0.01 THEN 1 ELSE 0 END) AS p_eq_abs_difference, "
+            "SUM(CASE WHEN ABS(pending - amount) <= 0.01 THEN 1 ELSE 0 END) AS p_eq_amount, "
+            "SUM(CASE WHEN ABS(adjusted) > ABS(amount) THEN 1 ELSE 0 END) AS adj_exceeds_amount, "
+            "SUM(CASE WHEN ABS(pending) > ABS(amount) THEN 1 ELSE 0 END) AS pending_exceeds_amount FROM ("
+            "SELECT o.drcr AS drcr, CASE WHEN o.pending = 0 THEN 'settled' ELSE 'open' END AS pending_state, "
+            f"o.amount AS amount, o.adjusted AS adjusted, o.pending AS pending FROM {_T} o WHERE {_BO}) "
+            "GROUP BY drcr, pending_state ORDER BY drcr, pending_state FETCH FIRST 20 ROWS ONLY"
+        ),
+    ),
+)
+
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01}
