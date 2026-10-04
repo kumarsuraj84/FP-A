@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import ApiSettings
 from .db import Db
 from .router import router
+from ..cash_api.router import router as cash_router
 
 
 def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> FastAPI:
@@ -16,6 +17,7 @@ def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> Fas
     app.state.db = db if db is not None else (Db(settings.conninfo) if settings.conninfo else None)
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["GET"], allow_headers=["Authorization", "Content-Type"])
     app.include_router(router)
+    app.include_router(cash_router)
     return app
 
 

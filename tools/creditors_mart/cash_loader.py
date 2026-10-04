@@ -43,6 +43,8 @@ TILL_COLUMNS = ["run_id", "site_code", "store_name", "cumulative_balance", "mtd_
 BANK_COLUMNS = ["run_id", "source", "ledger_code", "ledger_name", "gl_type", "nature", "extinct", "has_movement", "opening_dr", "opening_cr", "posted_dr", "posted_cr", "unposted_dr",
                 "unposted_cr", "future_net", "contra_posted_dr", "contra_posted_cr", "opening_rows", "posted_rows", "unposted_rows", "future_rows", "last_posted_date",
                 "last_entry_date", "register_report_date", "sites"]
+#: the staging rows use the extract's own names for the opening figures; the mart columns spell them out
+BANK_MAP = {"opening_dr": "open_dr", "opening_cr": "open_cr", "opening_rows": "open_rows"}
 BANK_SUMS = ["opening_dr", "opening_cr", "posted_dr", "posted_cr", "unposted_dr", "unposted_cr", "future_net", "contra_posted_dr", "contra_posted_cr"]
 
 
@@ -156,7 +158,8 @@ def preflight(run_dir: Path | str) -> Plan:
                      "mtd_debit": cs.money(r, "mtd_debit"), "mtd_credit": cs.money(r, "mtd_credit"), "fytd_debit": cs.money(r, "fytd_debit"), "fytd_credit": cs.money(r, "fytd_credit"),
                      "last_activity_date": cs.parse_date(r["last_activity_date"])} for r in cs.load(run_dir, "e1_store_till")]
     stores = _pq(run_dir / "staging" / "cash_store_till.parquet")
-    if sorted(map(repr, fresh_stores)) != sorted(map(repr, [{k: s[k] for k in fresh_stores[0]} for s in stores])):
+    fs, ds = {r["site_code"]: r for r in fresh_stores}, {r["site_code"]: {k: r[k] for k in fresh_stores[0]} for r in stores}
+    if len(fs) != len(fresh_stores) or fs != ds:                              # Decimal equality is by value: 5000.25 equals 5000.2500
         raise LoadError("staging_report", "the derived store rows differ from the raw extract")
     fresh_banks = [cs.bank_row(r, src) for ds, src in cs.SOURCES.items() for r in cs.load(run_dir, ds)]
     banks = _pq(run_dir / "staging" / "cash_bank_ledger.parquet")
@@ -171,7 +174,7 @@ def preflight(run_dir: Path | str) -> Plan:
     expected[("B_rows", "all_sources")] = Decimal(agg["bank_rows"])
     for src, d in agg["bank"].items():
         for k in BANK_SUMS:
-            expected[(f"B_sum_{src}", k)] = Decimal(d[k])
+            expected[(f"B_sum_{src}", k)] = Decimal(d[BANK_MAP.get(k, k)])
         expected[(f"B_rows_{src}", "ledgers")] = Decimal(d["ledgers"])
         expected[(f"B_rows_{src}", "with_movement")] = Decimal(d["with_movement"])
     for k, val in agg["site_register_position"].items():
@@ -243,7 +246,7 @@ def load_run(conn, plan: Plan) -> dict:
                 (run_id, plan.as_of, plan.till_date, c["contract"], json.dumps({k: v for k, v in c.items() if k != "caps"}), plan.manifest_sha256, plan.report_sha256,
                  plan.extract_started_at, plan.extract_finished_at, len(plan.stores), len(plan.banks)))
             n_t = _copy(conn, "store_till", TILL_COLUMNS, ([run_id] + [s[k] for k in TILL_COLUMNS[1:]] for s in plan.stores))
-            n_b = _copy(conn, "bank_ledger", BANK_COLUMNS, ([run_id] + [b[k] for k in BANK_COLUMNS[1:]] for b in plan.banks))
+            n_b = _copy(conn, "bank_ledger", BANK_COLUMNS, ([run_id] + [b[BANK_MAP.get(k, k)] for k in BANK_COLUMNS[1:]] for b in plan.banks))
             log.info("run %s: %d stores, %d bank-ledger rows inserted", run_id, n_t, n_b)
             for cr in plan.source_controls:
                 conn.execute("SELECT cash.record_control(%s,%s,%s,'source',%s,'extract',%s)", (run_id, cr["control"], cr["dimension"], Decimal(cr["left"]), Decimal(cr["right"])))

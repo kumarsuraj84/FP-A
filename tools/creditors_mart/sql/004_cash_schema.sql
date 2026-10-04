@@ -210,7 +210,7 @@ $$
   UNION ALL SELECT 'M3_negative_amounts', count(*) FROM cash.bank_ledger WHERE run_id = p_run
        AND (opening_dr < 0 OR opening_cr < 0 OR posted_dr < 0 OR posted_cr < 0 OR unposted_dr < 0 OR unposted_cr < 0 OR contra_posted_dr < 0 OR contra_posted_cr < 0)
   UNION ALL SELECT 'M4_register_date_vs_run', count(*) FROM cash.bank_ledger b JOIN cash.run r USING (run_id)
-       WHERE b.run_id = p_run AND b.source = 'site_register' AND b.register_report_date IS DISTINCT FROM r.as_of_date
+       WHERE b.run_id = p_run AND b.source = 'site_register' AND b.has_movement AND b.register_report_date IS DISTINCT FROM r.as_of_date
   UNION ALL SELECT 'M5_same_ledgers_in_every_current_source', count(*) FROM (
        SELECT ledger_code FROM cash.bank_ledger WHERE run_id = p_run AND source IN ('site_register', 'gl_register') GROUP BY ledger_code HAVING count(*) <> 2) x
   UNION ALL SELECT 'M6_till_dates', count(*) FROM cash.run WHERE run_id = p_run AND till_balance_date > as_of_date

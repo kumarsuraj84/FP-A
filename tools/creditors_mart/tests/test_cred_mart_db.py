@@ -264,7 +264,7 @@ def test_u02_schema_applied_and_owned_by_cred_owner(db):
     assert migrate.apply(db) == []
     with pytest.raises(E.RaiseException):
         db.execute((migrate.SQL_DIR / "001_cred_schema.sql").read_text(encoding="utf-8"))
-    assert [r[0] for r in db.execute("SELECT version FROM cred.schema_migration ORDER BY 1")] == ["001", "002"]
+    assert [r[0] for r in db.execute("SELECT version FROM cred.schema_migration ORDER BY 1")] == ["001", "002", "003", "004"]
     ev("U02", "schema applied", schema_owner=schema_owner, tables=len(tables), views=len(views), roles_nologin_nosuper=sorted(roles), initial_policy="require_api_layer=true, require_ui_layer=false", second_apply="no-op (ledger 001, 002); 001 alone refused")
 
 

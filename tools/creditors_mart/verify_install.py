@@ -62,6 +62,46 @@ FUNCTION_RIGHTS = {  # signature -> roles with EXECUTE (besides the owner, who o
 PUBLIC_FUNCTIONS = {"caller_role()", "caller_is(name)", "maintenance_on()"}
 
 
+CASH_ROLES = ["cash_owner", "cash_loader", "cash_verifier", "cash_promoter", "cash_api_reader"]
+CASH_TABLES = ["run", "store_till", "bank_ledger", "control_result", "run_event", "load_rejection", "live_run", "promotion"]
+CASH_TABLE_RIGHTS = {"run": {"cash_loader": {"INSERT", "SELECT"}}, "store_till": {"cash_loader": {"INSERT", "SELECT"}}, "bank_ledger": {"cash_loader": {"INSERT", "SELECT"}},
+                     "control_result": {"cash_loader": {"SELECT"}}, "load_rejection": {"cash_loader": {"INSERT"}}}
+CASH_VIEW_RIGHTS = {"v_serving_run": {"cash_verifier", "cash_api_reader"}, "v_store_till": {"cash_verifier", "cash_api_reader"}, "v_bank_ledger": {"cash_verifier", "cash_api_reader"},
+                    "v_control": {"cash_verifier", "cash_api_reader", "cash_promoter"}, "v_run_status": {"cash_promoter"}, "v_promotion_history": {"cash_promoter"}}
+
+
+def verify_cash(conn, add, one) -> None:
+    """The cash schema and the shared run model: owners, role attributes, the privilege matrix, immutability triggers (catalog only)."""
+    add("schema cash exists and is owned by cash_owner", one("SELECT coalesce(pg_get_userbyid(nspowner), '') FROM pg_namespace WHERE nspname = 'cash'") == "cash_owner" if one("SELECT count(*) FROM pg_namespace WHERE nspname = 'cash'") else False)
+    owners = {r[0] for r in conn.execute("SELECT pg_get_userbyid(relowner) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'cash' AND c.relkind IN ('r','v','S')")}
+    add("every cash table, view and sequence is owned by cash_owner", owners == {"cash_owner"}, str(sorted(owners)))
+    fown = {r[0] for r in conn.execute("SELECT pg_get_userbyid(proowner) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'cash'")}
+    add("every cash function is owned by cash_owner", fown == {"cash_owner"}, str(sorted(fown)))
+    attrs = {r[0]: r[1:] for r in conn.execute("SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls FROM pg_roles WHERE rolname = ANY(%s)", (CASH_ROLES,))}
+    add("the five cash roles exist, none is superuser / createdb / createrole / replication / bypassrls", sorted(attrs) == sorted(CASH_ROLES) and all(not any(v[1:]) for v in attrs.values()))
+    mism = []
+    for t in CASH_TABLES:
+        for r in CASH_ROLES[1:]:
+            for priv in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
+                want = priv in CASH_TABLE_RIGHTS.get(t, {}).get(r, set())
+                if want != one("SELECT has_table_privilege(%s, %s, %s)", r, f"cash.{t}", priv):
+                    mism.append(f"{r} {priv} on {t}")
+    add("cash table privilege matrix matches the design (only the loader inserts; nobody updates or deletes)", not mism, "; ".join(mism[:6]) or "checked")
+    mism = []
+    for v, allowed in CASH_VIEW_RIGHTS.items():
+        for r in CASH_ROLES[1:]:
+            if (r in allowed) != one("SELECT has_table_privilege(%s, %s, 'SELECT')", r, f"cash.{v}"):
+                mism.append(f"{r} SELECT on {v}")
+    add("cash view privilege matrix matches the design", not mism, "; ".join(mism[:6]) or "checked")
+    funcs = {"promote_run(text, text)": {"cash_promoter"}, "demote_to(text, text)": {"cash_promoter"}, "api_verify_run(text)": {"cash_verifier"}, "verify_run(text)": {"cash_loader", "cash_owner"}}
+    mism = [f"{r} {f}" for f, allowed in funcs.items() for r in CASH_ROLES[1:] if (r in allowed) != one("SELECT has_function_privilege(%s, %s, 'EXECUTE')", r, f"cash.{f}")]
+    add("cash function execute rights match the design (only the promoter publishes)", not mism, "; ".join(mism[:6]) or "checked")
+    trig = {r[0] for r in conn.execute("SELECT c.relname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'cash' AND t.tgname IN ('no_mutation', 'no_delete')")}
+    add("immutability triggers on every fact, control and history table", {"run", "store_till", "bank_ledger", "control_result", "run_event", "load_rejection", "promotion"} <= trig, str(sorted(trig)))
+    add("shared run model core.v_domain_run exists and covers both domains", one("SELECT count(*) FROM pg_views WHERE schemaname = 'core' AND viewname = 'v_domain_run'") == 1
+        and all(d in one("SELECT pg_get_viewdef('core.v_domain_run'::regclass)") for d in ("'creditors'", "'cash'")))
+
+
 def verify(conn) -> list[tuple[str, bool, str]]:
     """Returns (check, ok, detail). Read-only: catalog queries only."""
     out: list[tuple[str, bool, str]] = []
@@ -128,7 +168,8 @@ def verify(conn) -> list[tuple[str, bool, str]]:
     pol = conn.execute("SELECT require_api_layer, require_ui_layer FROM cred.policy_change ORDER BY change_id DESC LIMIT 1").fetchone()
     add("initial policy: API layer required, UI layer not yet", pol == (True, False), str(pol))
     ledger = [r[0] for r in conn.execute("SELECT version FROM cred.schema_migration ORDER BY version")]
-    add("migration ledger records 001 and 002", ledger == ["001", "002"], str(ledger))
+    add("migration ledger records 001 to 004", ledger == ["001", "002", "003", "004"], str(ledger))
+    verify_cash(conn, add, one)
     empty = {t: conn.execute(f"SELECT count(*) FROM cred.{t}").fetchone()[0] for t in TABLES if t not in ("policy_change", "schema_migration")}
     add("no data has been loaded: every table is empty and nothing is live" if not any(empty.values()) else "data tables (informational: a run has been loaded)", True if any(empty.values()) else all(v == 0 for v in empty.values()), str(empty))
 

@@ -7,7 +7,7 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
-ROLES = {"candidate": "cred_verifier", "live": "cred_api_reader", "finance": "cred_finance_reader"}
+ROLES = {"candidate": "cred_verifier", "live": "cred_api_reader", "finance": "cred_finance_reader", "cash": "cash_api_reader", "cash_verifier": "cash_verifier"}
 
 
 class Db:

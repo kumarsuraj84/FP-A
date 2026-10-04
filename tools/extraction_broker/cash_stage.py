@@ -246,7 +246,7 @@ def validate(run_dir: Path) -> dict:
         "as_of_date": as_of.isoformat(), "till_balance_date": till_date.isoformat(), "stores": len(stores),
         "till": {k: tot(stores, k) for k in ("cumulative_balance", "mtd_debit", "mtd_credit", "fytd_debit", "fytd_credit")},
         "bank_rows": sum(len(r) for r in banks.values()),
-        "bank": {src: {**{k: tot(rows, k) for k in MONEY}, **{k: sum(r[k] for r in rows) for k in COUNTS}, "ledgers": len(rows), "with_movement": sum(1 for r in rows if r["has_movement"])} for src, rows in banks.items()},
+        "bank": {src: {**{k: tot(rows, k) for k in MONEY + ["future_net"]}, **{k: sum(r[k] for r in rows) for k in COUNTS}, "ledgers": len(rows), "with_movement": sum(1 for r in rows if r["has_movement"])} for src, rows in banks.items()},
         "site_register_position": {
             "opening": str(sum((b["open_dr"] - b["open_cr"] for b in banks["site_register"]), ZERO)),
             "posted_closing": str(sum((b["open_dr"] - b["open_cr"] + b["posted_dr"] - b["posted_cr"] for b in banks["site_register"]), ZERO)),
