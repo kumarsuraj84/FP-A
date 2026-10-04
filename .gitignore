@@ -24,3 +24,4 @@ data/inbox/
 
 # local secrets (loader login, vendor pseudonym key): never committed
 .secrets/
+*.egg-info/
