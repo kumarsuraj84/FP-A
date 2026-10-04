@@ -174,22 +174,31 @@ export function VoucherPage() {
               </section>
             </div>
             <section className="rounded-md border bg-card shadow-elegant" data-testid="evidence">
-              <div className="flex items-center gap-2 border-b px-4 py-2.5 text-[13px] font-semibold"><FileCheck2 className="h-4 w-4 text-primary" /> Source evidence</div>
+              <div className="flex items-center gap-2 border-b px-4 py-2.5 text-[13px] font-semibold">
+                <FileCheck2 className="h-4 w-4 text-primary" /> Source and reconciliation evidence
+                <span data-testid="evidence-unverified" className="ml-auto rounded-sm border border-dashed border-[oklch(0.8_0.08_85)] bg-[oklch(0.985_0.03_90)] px-1.5 py-0.5 text-[10.5px] font-medium text-[oklch(0.45_0.09_75)]">Unverified · demo</span>
+              </div>
               <dl className="grid grid-cols-1 gap-2.5 px-4 py-3 text-[12.5px]">
                 {[
+                  ["Source system", v.sourceSystem],
                   ["Source object", v.evidence.sourceObject],
-                  ["Extraction batch", v.evidence.extractionBatch],
-                  ["Row hash", v.evidence.rowHash],
-                  ["Mapping status", v.evidence.mappingStatus],
+                  ["Source record key", "Not available · awaiting finance mapping"],
+                  ["Extraction run", v.evidence.extractionBatch],
+                  ["Mart record key", "Not available · awaiting finance mapping"],
+                  ["Reconciliation status", v.evidence.mappingStatus],
+                  ["Source last updated", "Not available · awaiting extraction"],
                 ].map(([k, val]) => (
                   <div key={k}>
                     <dt className="text-[11px] text-muted-foreground">{k}</dt>
-                    <dd className="num font-medium">{val}</dd>
+                    <dd className={cn("num font-medium", val.startsWith("Not available") && "text-muted-foreground")}>{val}</dd>
                   </div>
                 ))}
               </dl>
-              <div className="border-t px-4 py-3">
-                <div className="eyebrow mb-1.5">Attachments</div>
+              <div className="border-t bg-[oklch(0.985_0.006_265)] px-4 py-1.5 text-[11px] text-muted-foreground" data-testid="evidence-illustrative">
+                Illustrative only. The items below are sample content, not source evidence, until the mapping is verified.
+              </div>
+              <div className="border-t px-4 py-3 opacity-70">
+                <div className="eyebrow mb-1.5">Sample attachments</div>
                 <ul className="space-y-1">
                   {v.evidence.attachments.map((a) => (
                     <li key={a.name} className="flex items-center gap-2 text-[12.5px]">
@@ -200,8 +209,8 @@ export function VoucherPage() {
                   ))}
                 </ul>
               </div>
-              <div className="border-t px-4 py-3">
-                <div className="eyebrow mb-1.5">Audit trail</div>
+              <div className="border-t px-4 py-3 opacity-70">
+                <div className="eyebrow mb-1.5">Sample audit trail</div>
                 <ol className="space-y-1.5 border-l pl-3">
                   {v.evidence.trail.map((t) => (
                     <li key={t.at} className="text-[12px]">

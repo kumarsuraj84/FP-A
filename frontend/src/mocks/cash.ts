@@ -1,6 +1,7 @@
 import type { BridgeItem, Horizon, QueryCtx, Tone } from "@/types/cfo";
-import type { CashObligation, CashRoom, CashStep, WcDriver } from "@/types/cash";
+import type { CashDecision, CashObligation, CashRoom, CashStep, WcDriver } from "@/types/cash";
 import { HORIZON_DAYS, buildLiquidity, buildWorkingCapital, dayLabel, params } from "./builders";
+import { fmtCr } from "@/lib/format";
 import { weightedSplit } from "./seed";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -83,7 +84,26 @@ export function buildCashRoom(ctx: QueryCtx, horizon: Horizon): CashRoom {
     };
   });
 
+  const sel = steps.find((x) => x.horizon === horizon) ?? steps[steps.length - 1];
+  const absorbing = [...drivers].filter((d) => d.cashImpact < 0).sort((a, b) => a.cashImpact - b.cashImpact)[0];
+  const biggest = obligations.filter((o) => o.inHorizon).sort((a, b) => b.amount - a.amount)[0];
+  const decision: CashDecision = {
+    horizonLabel: horizon === "today" ? "Today" : `Next ${sel.label}`,
+    horizonLine: `${fmtCr(sel.closing)} closing · ${sel.headroom < 0 ? `${fmtCr(-sel.headroom)} below minimum` : `${fmtCr(sel.headroom)} headroom`} · ${liq.breachDay ? `Breach ${liq.breachDay}` : "No breach"}`,
+    tone: liq.breachDay || sel.headroom < 0 ? "bad" : sel.headroom < 8 ? "warn" : "good",
+    absorption: absorbing ? { label: absorbing.label, amount: absorbing.cashImpact, key: absorbing.id } : null,
+    obligation: biggest ? { label: biggest.label, amount: biggest.amount, dayLabel: biggest.dayLabel, key: `obl_${biggest.kind === "occupancy" ? "other" : biggest.kind}` } : null,
+    action: liq.breachDay
+      ? biggest
+        ? { text: `Review ${biggest.label.toLowerCase()} timing`, key: `obl_${biggest.kind === "occupancy" ? "other" : biggest.kind}` }
+        : { text: "Review projected cash", key: "projected" }
+      : absorbing
+        ? { text: `Review ${absorbing.label.toLowerCase()} build-up`, key: absorbing.id }
+        : null,
+  };
+
   return {
+    decision,
     horizon,
     openingCash: opening,
     forecastClosing: closing,

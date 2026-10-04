@@ -43,7 +43,18 @@ export interface WcDriver {
   deteriorating: boolean;
 }
 
+export interface CashDecision {
+  /** the selected horizon in one line, e.g. "₹53.27 Cr closing · ₹23.27 Cr headroom · No breach" */
+  horizonLine: string;
+  horizonLabel: string;
+  tone: Tone;
+  absorption: { label: string; amount: number; key: string } | null;
+  obligation: { label: string; amount: number; dayLabel: string; key: string } | null;
+  action: { text: string; key: string } | null;
+}
+
 export interface CashRoom {
+  decision: CashDecision;
   horizon: Horizon;
   openingCash: number;
   forecastClosing: number;

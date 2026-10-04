@@ -287,4 +287,45 @@ describe("Stage 4: Cash & Working Capital Control", () => {
     expect(await screen.findByTestId("cash-headline", {}, T)).toHaveTextContent(/falls below/i);
     expect(screen.getByTestId("cash-capex")).not.toHaveTextContent("₹0");
   });
+
+  it("a connected decision strip says what to care about and opens the matching investigation", async () => {
+    mount(q("/cash"));
+    const strip = await screen.findByTestId("cash-decision", {}, T);
+    expect(within(strip).getByTestId("decision-horizon")).toHaveTextContent(/headroom/);
+    expect(within(strip).getByTestId("decision-absorption")).toHaveTextContent("Inventory");
+    fireEvent.click(within(strip).getByTestId("decision-action"));
+    const d = await screen.findByTestId("investigation-drawer", {}, T);
+    await waitFor(() => expect(within(d).getByTestId("drawer-title")).toHaveTextContent("Inventory"), T);
+  });
+});
+
+describe("Polish: evidence wording, terminology, map emphasis", () => {
+  it("voucher evidence leads with the unverified reconciliation block and labels sample content as such", async () => {
+    mount(q("/ledger", { drill: "profitability.portfolio/Store:rohini/Movement:payroll/Account:6101/ledger" }));
+    fireEvent.click(await screen.findByTestId("ledger-row-E2", {}, T));
+    const ev = await screen.findByTestId("evidence", {}, T);
+    expect(within(ev).getByTestId("evidence-unverified")).toHaveTextContent("Unverified");
+    expect(within(ev).getByTestId("evidence-illustrative")).toHaveTextContent(/not source evidence/i);
+    for (const k of ["Source system", "Source object", "Source record key", "Extraction run", "Mart record key", "Reconciliation status", "Source last updated"]) expect(ev).toHaveTextContent(k);
+    expect(ev).toHaveTextContent("Sample attachments");
+    expect(ev).toHaveTextContent("Sample audit trail");
+  });
+
+  it("the hover tooltip identifies the store, its cluster and its gap", async () => {
+    mount(q("/profitability"));
+    const dot = await screen.findByTestId("dot-rohini", {}, T);
+    fireEvent.mouseEnter(dot);
+    const tip = await screen.findByTestId("quadrant-tooltip", {}, T);
+    expect(tip).toHaveTextContent("Rohini");
+    expect(tip).toHaveTextContent("Delhi NCR · Delhi");
+    expect(tip).toHaveTextContent(/Gap vs plan/);
+    expect(dot.getAttribute("opacity")).toBe("1");
+    expect(screen.getByTestId("dot-karol-bagh").getAttribute("opacity")).toBe("0.38");
+  });
+
+  it("uses one term per level: Contribution for stores, Operating profit with a pending-definition note for the company", async () => {
+    mount(q("/profitability"));
+    expect(await screen.findByTestId("pf-contribution", {}, T)).toHaveTextContent("Contribution");
+    expect(screen.getByTestId("pf-contribution")).not.toHaveTextContent("Store contribution");
+  });
 });

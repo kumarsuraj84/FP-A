@@ -141,10 +141,10 @@ export function SideNav() {
     creditors: () => enterCreditors(),
   };
   return (
-    <nav aria-label="Primary" className="hidden w-14 shrink-0 flex-col border-r bg-card py-3 md:flex min-[1360px]:w-[196px]">
+    <nav aria-label="Primary" className="hidden w-14 shrink-0 flex-col border-r bg-card py-3 md:flex min-[1700px]:w-[204px]">
       {NAV_GROUPS.map(({ group, items }) => (
-        <div key={group} className="mb-1">
-          <div className="eyebrow mt-3 hidden px-4 first:mt-0 min-[1360px]:block">{group}</div>
+        <div key={group} className="mb-1 border-t pt-1 first:border-t-0 first:pt-0 min-[1700px]:border-t-0 min-[1700px]:pt-0">
+          <div className="eyebrow mt-3 hidden px-4 first:mt-0 min-[1700px]:block" aria-hidden>{group}</div>
           {items.map(({ id, label, title, to, testId, icon: Icon }) => (
             <Link
               key={id}
@@ -156,23 +156,23 @@ export function SideNav() {
               title={title}
               aria-current={active === id ? "page" : undefined}
               className={cn(
-                "press mx-2 mt-1 flex items-center justify-center gap-2 rounded px-2.5 py-2 text-[13px] font-semibold min-[1360px]:justify-start",
+                "press mx-2 mt-1 flex items-center justify-center gap-2 rounded px-2.5 py-2 text-[13px] font-semibold min-[1700px]:justify-start",
                 active === id ? "bg-[oklch(0.95_0.025_265)] text-[oklch(0.28_0.09_265)]" : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >
-              <Icon className="h-4 w-4 shrink-0" /> <span className="hidden whitespace-nowrap min-[1360px]:inline">{label}</span>
+              <Icon className="h-4 w-4 shrink-0" /> <span className="hidden whitespace-nowrap min-[1700px]:inline">{label}</span>
             </Link>
           ))}
         </div>
       ))}
-      <div className="eyebrow mt-4 hidden px-4 min-[1360px]:block">Upcoming</div>
-      <ul className="mt-3 space-y-0.5 px-2 min-[1360px]:mt-1.5">
+      <div className="eyebrow mt-4 hidden px-4 min-[1700px]:block">Upcoming</div>
+      <ul className="mt-3 space-y-0.5 px-2 min-[1700px]:mt-1.5">
         {FUTURE.map(({ label, icon: Icon }) => (
           <li key={label}>
-            <div aria-disabled="true" title={`${label} — planned for a later stage`} className="flex cursor-not-allowed items-center justify-center gap-2 rounded px-2.5 py-1.5 text-[12.5px] text-muted-foreground/70 min-[1360px]:justify-start">
+            <div aria-disabled="true" title={`${label} — planned for a later stage`} className="flex cursor-not-allowed items-center justify-center gap-2 rounded px-2.5 py-1.5 text-[12.5px] text-muted-foreground/70 min-[1700px]:justify-start">
               <Icon className="h-4 w-4 shrink-0" />
-              <span className="hidden flex-1 whitespace-nowrap min-[1360px]:inline">{label}</span>
-              <Lock className="hidden h-3 w-3 opacity-60 min-[1360px]:block" />
+              <span className="hidden flex-1 whitespace-nowrap min-[1700px]:inline">{label}</span>
+              <Lock className="hidden h-3 w-3 opacity-60 min-[1700px]:block" />
             </div>
           </li>
         ))}

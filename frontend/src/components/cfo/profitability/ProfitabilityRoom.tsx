@@ -65,7 +65,7 @@ export function ProfitabilityRoom() {
               <StripCell testId="pf-stores" label="Stores" value={portfolio.stores.length} sub="trading in the period" />
               <StripCell testId="pf-revenue" label="Revenue" value={fmtCr(portfolio.company.revenue)} sub={`${fmtPct(portfolio.company.revenueGrowthPct, { signed: true })} year on year`} />
               <StripCell testId="pf-gm" label="Gross margin" value={fmtPct(portfolio.company.gmPct)} sub="of revenue" />
-              <StripCell testId="pf-contribution" label="Store contribution" value={fmtCr(portfolio.company.contribution)} variance={deltaCr(portfolio.company.contributionVsComparison)} tone={portfolio.company.contributionVsComparison < 0 ? "bad" : "good"} sub={portfolio.comparisonLabel} />
+              <StripCell testId="pf-contribution" label="Contribution" value={fmtCr(portfolio.company.contribution)} variance={deltaCr(portfolio.company.contributionVsComparison)} tone={portfolio.company.contributionVsComparison < 0 ? "bad" : "good"} sub={portfolio.comparisonLabel} />
               <StripCell testId="pf-cm" label="Contribution margin" value={fmtPct(portfolio.company.contributionMarginPct)} sub="network line on the map" />
               <StripCell testId="pf-attention" label="Need attention" value={portfolio.quadrants.filter((x) => x.id === "fix" || x.id === "turnaround").reduce((a, x) => a + x.count, 0)} sub="Fix Economics + Turnaround" />
             </div>

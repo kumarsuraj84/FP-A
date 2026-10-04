@@ -51,7 +51,7 @@ export function profitBridge(ctx: QueryCtx): Bridge {
   return {
     id: "profit",
     title: `Why is operating profit ${actual >= start ? "ahead of" : "behind"} ${cmp.short.toLowerCase()}?`,
-    subtitle: `${per.label} · Operating profit / contribution · ${cmp.label}`,
+    subtitle: `${per.label} · Operating profit (Finance definition pending) · ${cmp.label}`,
     unitNote: "₹ Cr · axis truncated for variance visibility",
     items,
   };

@@ -216,4 +216,19 @@ describe("Cash & Working Capital Control", () => {
   it("STORE_IDS are unique slugs", () => {
     expect(new Set(STORE_IDS).size).toBe(STORE_IDS.length);
   });
+
+  it("the decision strip is supplied by the service and every target exists on the page", () => {
+    for (const sc of SCENARIO_ORDER)
+      for (const h of ["today", "7d", "15d", "30d"] as const) {
+        const room = buildCashRoom(ctxOf(sc), h);
+        const d = room.decision;
+        const known = new Set([...room.bridge.items.map((i) => i.id), ...room.drivers.map((x) => x.id)]);
+        for (const key of [d.absorption?.key, d.obligation?.key, d.action?.key]) if (key) expect(known.has(key), `${sc}/${h}/${key}`).toBe(true);
+        expect(d.horizonLine.length).toBeGreaterThan(0);
+      }
+    const pressure = buildCashRoom(ctxOf("cash_pressure"), "30d").decision;
+    expect(pressure.tone).toBe("bad");
+    expect(pressure.action?.key).toBe("obl_vendor");
+    expect(buildCashRoom(ctxOf(), "30d").decision.absorption?.label).toBe("Inventory");
+  });
 });

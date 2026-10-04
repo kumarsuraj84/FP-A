@@ -253,7 +253,7 @@ export function buildProfitPortfolio(ctx: QueryCtx): ProfitPortfolio {
     quadrants,
     headline: `${need.length} of ${stores.length} stores earn below the network margin of ${n.split.marginPct.toFixed(1)}%; largest shortfall is ${worst.name} (${fmtCr(worst.contributionVsComparison, { signed: true })} ${cmp.label.toLowerCase()})`,
     comparisonLabel: cmp.label,
-    basisNote: `Store contribution before head-office costs · network ${gap >= 0 ? "ahead of" : "behind"} ${cmp.short.toLowerCase()} by ${money(gap)}`,
+    basisNote: `Contribution before head-office costs; not the same measure as company operating profit · network ${gap >= 0 ? "ahead of" : "behind"} ${cmp.short.toLowerCase()} by ${money(gap)}`,
   };
 }
 
@@ -343,7 +343,7 @@ export function buildStoreWorkspace(ctx: QueryCtx, storeId: string): StoreWorksp
   const bridge: Bridge = {
     id: `store-${dot.id}`,
     title: `Why is ${dot.name} contribution ${gap >= 0 ? "ahead of" : "behind"} ${cmp.short.toLowerCase()}?`,
-    subtitle: `${per.label} · Store contribution · ${cmp.label}`,
+    subtitle: `${per.label} · Contribution (store level) · ${cmp.label}`,
     unitNote: "₹ Cr · axis truncated for variance visibility",
     items: bridgeItems,
   };

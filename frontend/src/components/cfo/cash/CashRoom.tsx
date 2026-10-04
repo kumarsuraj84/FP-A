@@ -40,6 +40,41 @@ function Strip({ room, horizon, onHorizon }: { room: CashRoomData; horizon: Hori
   );
 }
 
+function DecisionStrip({ room, onOpen }: { room: CashRoomData; onOpen: (key: string, label: string, amount: number | null) => void }) {
+  const d = room.decision;
+  const bridgeItem = (key: string) => room.bridge.items.find((i) => i.id === key);
+  const driver = (key: string) => room.drivers.find((x) => x.id === key);
+  const openKey = (key: string) => {
+    const b = bridgeItem(key);
+    const w = driver(key);
+    if (b) onOpen(key, b.label, b.value);
+    else if (w) onOpen(key, w.label, w.cashImpact);
+  };
+  return (
+    <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto] divide-x rounded-md border bg-card shadow-elegant @max-[1100px]:grid-cols-2 @max-[1100px]:divide-y" data-testid="cash-decision">
+      <div className="px-4 py-2.5" data-testid="decision-horizon">
+        <div className="eyebrow">{d.horizonLabel}</div>
+        <div className={cn("num-mono text-[14px] font-semibold", toneClass(d.tone))}>{d.horizonLine}</div>
+      </div>
+      <button data-testid="decision-absorption" disabled={!d.absorption} onClick={() => d.absorption && openKey(d.absorption.key)} className="press px-4 py-2.5 text-left hover:bg-[oklch(0.97_0.012_265)] disabled:cursor-default">
+        <div className="eyebrow">Largest cash absorption</div>
+        <div className="text-[14px] font-semibold">{d.absorption ? <>{d.absorption.label} <span className="num-mono tone-bad">{deltaCr(d.absorption.amount)}</span></> : "None in the period"}</div>
+      </button>
+      <button data-testid="decision-obligation" disabled={!d.obligation} onClick={() => d.obligation && openKey(d.obligation.key)} className="press px-4 py-2.5 text-left hover:bg-[oklch(0.97_0.012_265)] disabled:cursor-default">
+        <div className="eyebrow">Largest upcoming obligation</div>
+        <div className="text-[14px] font-semibold">{d.obligation ? <>{d.obligation.label} <span className="num-mono tone-bad">{fmtCr(-d.obligation.amount)}</span> <span className="font-normal text-muted-foreground">· {d.obligation.dayLabel}</span></> : "None in this horizon"}</div>
+      </button>
+      {d.action ? (
+        <button data-testid="decision-action" onClick={() => openKey(d.action!.key)} className="press flex items-center gap-1.5 bg-primary px-4 py-2.5 text-[13px] font-semibold text-primary-foreground hover:bg-primary/90">
+          {d.action.text} <ArrowRight className="h-3.5 w-3.5" />
+        </button>
+      ) : (
+        <div className="flex items-center px-4 text-[12px] text-muted-foreground">No action needed</div>
+      )}
+    </div>
+  );
+}
+
 function Trajectory({ room, onOpen }: { room: CashRoomData; onOpen: () => void }) {
   let todayIdx = 0;
   room.series.forEach((p, i) => {
@@ -265,7 +300,8 @@ export function CashRoom() {
           <>
             <Strip room={room} horizon={state.horizon} onHorizon={(h) => dispatch({ type: "setHorizon", value: h })} />
             <div className="space-y-4 p-4">
-              <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4 @max-[1350px]:grid-cols-1">
+              <DecisionStrip room={room} onOpen={open} />
+              <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-4 @max-[1500px]:grid-cols-1">
                 <Trajectory room={room} onOpen={() => open("projected", "Forecast Closing Cash", room.forecastClosing)} />
                 <HorizonBridge room={room} selected={selected} onOpen={(it) => open(it.id, it.label, it.value)} />
               </div>
