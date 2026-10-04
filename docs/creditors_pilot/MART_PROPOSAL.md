@@ -4,6 +4,21 @@ Status: design gate. No Postgres connection was made, no DDL was run, no row was
 The DDL below has **not been executed anywhere**; its syntax is validated on a scratch database as the first step after approval.
 Input being loaded later: the passed run `run_20261004_006` (staging validation PASSED, 414 of 414 controls, ₹0.00 variance).
 
+## Amendment 1 (approved after the scratch UAT): six roles, `cred_promoter`
+
+Publication is separated from administration. `cred_owner` is a schema, migration and retention identity (it runs `purge_run` and `set_policy`) and no routine workflow uses it.
+
+| Role | Purpose |
+|---|---|
+| `cred_owner` | schema, migrations, retention (`purge_run`), policy. Cannot promote or roll back. |
+| `cred_loader` | ingest one run, record source/extract/mart controls, `verify_run` |
+| `cred_verifier` | read candidate runs (masked), record API/UI-layer controls through functions |
+| **`cred_promoter`** | `promote_run` and `demote_to` only, plus `v_run_status`, `v_promotion_history`, `v_control_result_any_run`, `v_live_run`. No fact access, no DDL, no purge, no vendor names, cannot bypass controls (eligibility is enforced inside `promote_run`). |
+| `cred_api_reader` | masked live views only |
+| `cred_finance_reader` | the same plus the named view |
+
+Masking is stricter than first proposed and is approved: broad viewers receive no vendor name, document code, document number, reference number, SLID or SLCODE. They get `vendor_ref` (pseudonym), `item_ref` and safe analytical attributes.
+
 ## 1. Fit with the existing finance mart
 
 `backend/app/mart/schema.sql` (schema `fin`, proposed, frozen with the backend branch) uses an idempotent *upsert with tombstones* model (decision D-12). The Creditors pilot needs the opposite: immutable, versioned runs that can be compared and rolled back. So:

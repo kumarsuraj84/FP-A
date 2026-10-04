@@ -34,7 +34,7 @@ import migrate  # noqa: E402
 PG_BIN = Path(os.environ.get("PG_BIN", r"C:\Program Files\PostgreSQL\18\bin"))
 EVIDENCE_FILE = HERE.parents[2] / "docs" / "creditors_pilot" / "MART_SCRATCH_UAT_EVIDENCE.md"
 TEMPLATE = "fpa_pilot_scratch"
-ROLES = ["cred_owner", "cred_loader", "cred_verifier", "cred_api_reader", "cred_finance_reader"]
+ROLES = ["cred_owner", "cred_loader", "cred_verifier", "cred_promoter", "cred_api_reader", "cred_finance_reader"]
 
 pytestmark = pytest.mark.skipif(not (PG_BIN / "initdb.exe").exists() and not shutil.which("initdb"), reason="PostgreSQL server binaries not found")
 
@@ -117,6 +117,9 @@ def db(cluster):
     with cluster.connect("postgres") as a:
         a.execute(f"CREATE DATABASE {name} TEMPLATE {TEMPLATE}")
     conn = cluster.connect(name)
+    # database-level grants are not copied by CREATE DATABASE ... TEMPLATE; the real migration makes them on the target database
+    conn.execute(f"GRANT CONNECT, CREATE ON DATABASE {name} TO cred_owner")
+    conn.execute(f"GRANT CONNECT ON DATABASE {name} TO cred_loader, cred_verifier, cred_promoter, cred_api_reader, cred_finance_reader")
     yield conn
     conn.close()
     with cluster.connect("postgres") as a:
@@ -229,7 +232,7 @@ def to_api_verified(conn, run_id, as_of="2026-10-04"):
 
 
 def promote(conn, run_id, reason="uat"):
-    with role(conn, "cred_owner"):
+    with role(conn, "cred_promoter"):
         conn.execute("SELECT cred.promote_run(%s,%s)", (run_id, reason))
 
 
@@ -464,7 +467,7 @@ def test_u09_promotion_requires_every_layer(db):
     with role(db, "cred_loader"):
         insert_run(db, r)
         load_rows(db, r)
-    with role(db, "cred_owner"):
+    with role(db, "cred_promoter"):
         with pytest.raises(E.RaiseException) as e1:
             db.execute("SELECT cred.promote_run(%s,'x')", (r,))
     steps["loaded_only"] = "refused: " + str(e1.value).splitlines()[0]
@@ -482,7 +485,7 @@ def test_u09_promotion_requires_every_layer(db):
     assert as_loader_load(db, r2)["ok"] is True
     assert states(db, r2) == ("verified", "unpublished")
     steps["clean_run_verified"] = "recon_state verified, still unpublished"
-    with role(db, "cred_owner"):
+    with role(db, "cred_promoter"):
         with pytest.raises(E.RaiseException) as e2:
             db.execute("SELECT cred.promote_run(%s,'x')", (r2,))
     assert "requires api_verified" in str(e2.value)
@@ -496,9 +499,9 @@ def test_u09_promotion_requires_every_layer(db):
     steps["api_controls_with_a_failure"] = "not api_verified"
     r3 = "run_20261004_814"
     to_api_verified(db, r3)
-    for who in ("cred_loader", "cred_verifier", "cred_api_reader", "cred_finance_reader"):
+    for who in ("cred_loader", "cred_verifier", "cred_api_reader", "cred_finance_reader", "cred_owner"):
         denied(db, who, "SELECT cred.promote_run(%s,'x')", (r3,))
-    steps["non_owner_roles_cannot_promote"] = "loader, verifier, api_reader, finance_reader all refused"
+    steps["only_the_promoter_can_promote"] = "loader, verifier, api_reader, finance_reader and even the owner are refused"
     promote(db, r3)
     assert states(db, r3) == ("api_verified", "live") and db.execute("SELECT extraction_run_id FROM cred.live_run").fetchone()[0] == r3
     steps["fully_verified_run_promoted"] = "live"
@@ -507,7 +510,7 @@ def test_u09_promotion_requires_every_layer(db):
         db.execute("SELECT cred.set_policy(true, true, 'UI connected')")
     r4 = "run_20261004_815"
     to_api_verified(db, r4)
-    with role(db, "cred_owner"):
+    with role(db, "cred_promoter"):
         with pytest.raises(E.RaiseException) as e3:
             db.execute("SELECT cred.promote_run(%s,'x')", (r4,))
     assert "requires ui_verified" in str(e3.value)
@@ -526,7 +529,7 @@ def test_u09_promotion_requires_every_layer(db):
     with role(db, "cred_verifier"):
         record(db, r5, "mart", "api"); db.execute("SELECT cred.api_verify_run(%s)", (r5,))
         record(db, r5, "api", "ui"); db.execute("SELECT cred.ui_verify_run(%s)", (r5,))
-    with role(db, "cred_owner"):
+    with role(db, "cred_promoter"):
         with pytest.raises(E.RaiseException) as e4:
             db.execute("SELECT cred.promote_run(%s,'x')", (r5,))
     assert "older" in str(e4.value)
@@ -551,7 +554,7 @@ def test_u10_demotion_does_not_delete_or_re_label_data(db):
     promote(db, b, "second live run")
     assert states(db, a) == ("api_verified", "superseded") and states(db, b) == ("api_verified", "live")
     snap = {t: (count(db, t, a), count(db, t, b)) for t in ("open_item", "vendor_snapshot", "identity_snapshot", "control_result")}
-    with role(db, "cred_owner"):
+    with role(db, "cred_promoter"):
         db.execute("SELECT cred.demote_to(%s,'found a presentation problem in the later run')", (a,))
     snap_after = {t: (count(db, t, a), count(db, t, b)) for t in snap}
     assert snap == snap_after
@@ -560,7 +563,7 @@ def test_u10_demotion_does_not_delete_or_re_label_data(db):
     assert states(db, b) == ("api_verified", "withdrawn")      # reconciliation state untouched; only publication changed
     log = db.execute("SELECT action, extraction_run_id, previous_run_id FROM cred.promotion ORDER BY promotion_id").fetchall()
     assert log == [("promote", a, None), ("promote", b, a), ("demote", a, b)]
-    with role(db, "cred_owner"):
+    with role(db, "cred_promoter"):
         with pytest.raises(E.RaiseException):
             db.execute("SELECT cred.promote_run(%s,'again')", (b,))       # a withdrawn run is not silently re-promoted
         with pytest.raises(E.RaiseException):
@@ -603,7 +606,7 @@ def test_u11_live_run_cannot_be_purged(db):
     assert count(db, "control_result", c) == before_meta[0] and db.execute("SELECT count(*) FROM cred.run WHERE extraction_run_id=%s", (c,)).fetchone()[0] == 1
     refused = db.execute("SELECT detail->>'why' FROM cred.run_event WHERE event='purge_refused' ORDER BY event_id").fetchall()
     assert [x[0] for x in refused] == ["live run", "rollback target"]
-    with role(db, "cred_owner"):
+    with role(db, "cred_promoter"):
         with pytest.raises(E.RaiseException):
             db.execute("SELECT cred.promote_run(%s,'x')", (c,))
     ev("U11", "live run cannot be purged", live_run=res["live"], rollback_target=res["rollback_target"], purged_unpublished_run=res["unpublished"],
@@ -645,6 +648,103 @@ def test_u12_vendor_names_are_restricted(db):
     assert not any(leaks.values()), leaks
     ev("U12", "vendor names restricted to Finance", results=results, masked_view_columns=cols, names_found_in_other_tables="none", tables_scanned=sorted(leaks))
     ev("U12b", "pseudonymous vendor_ref", stable_across_runs=True, note="keyed hash created by the loader; same vendor gives the same ref in every run (test fixture)")
+
+
+# ───────────── U15: the promoter role ─────────────
+
+
+def test_u15_promoter_role_separation(db):
+    a, b, c, d = "run_20261004_850", "run_20261004_851", "run_20261004_852", "run_20261004_853"
+    got = {}
+    to_api_verified(db, a)
+    as_loader_load(db, c, "2026-10-03")                                  # verified only (no API layer)
+    with role(db, "cred_loader"):                                        # loaded only
+        insert_run(db, d, "2026-10-03")
+        load_rows(db, d, "2026-10-03")
+    # the promoter can read what a decision needs, and nothing else
+    with role(db, "cred_promoter"):
+        status = db.execute("SELECT recon_state, publication_state, expected_rows, loaded_rows, controls_failed, api_controls, is_live FROM cred.v_run_status WHERE extraction_run_id=%s", (a,)).fetchone()
+        for v in ("v_run_status", "v_promotion_history", "v_control_result_any_run", "v_live_run"):
+            db.execute(f"SELECT * FROM cred.{v}").fetchall()
+    assert status == ("api_verified", "unpublished", 6, 6, 0, 3, False)
+    got["promoter_reads_decision_metadata"] = {"v_run_status": list(status)}
+    for obj in ("cred.open_item", "cred.vendor_snapshot", "cred.identity_snapshot", "cred.run", "cred.control_result", "cred.v_open_item_any_run", "cred.v_open_item_named", "cred.v_open_item"):
+        got[f"promoter_read_{obj}"] = denied(db, "cred_promoter", f"SELECT * FROM {obj}", contains="permission denied")
+    # eligibility is still decided by the database: the promoter cannot bypass the layers
+    with role(db, "cred_promoter"):
+        for run_id, why in ((d, "loaded only"), (c, "verified but no API layer")):
+            with pytest.raises(E.RaiseException) as ei:
+                db.execute("SELECT cred.promote_run(%s,'x')", (run_id,))
+            got[f"promote_{why.replace(' ', '_')}"] = "refused: " + str(ei.value).splitlines()[0]
+    got["promoter_forges_state"] = denied(db, "cred_promoter", "UPDATE cred.run SET recon_state = 'ui_verified', publication_state = 'live'", contains="permission denied")
+    got["promoter_forges_control"] = denied(db, "cred_promoter", "INSERT INTO cred.control_result (extraction_run_id, control_id, dimension, left_layer, left_value, right_layer, right_value) VALUES (%s,'X','x','mart',1,'api',1)", (c,), contains="permission denied")
+    got["promoter_record_control_function"] = denied(db, "cred_promoter", "SELECT cred.record_control(%s,'X','x','mart',1,'api',1)", (c,), contains="permission denied for function")
+    got["promoter_sets_policy"] = denied(db, "cred_promoter", "SELECT cred.set_policy(false,false,'weaken')", contains="permission denied for function")
+    got["promoter_verifies"] = denied(db, "cred_promoter", "SELECT cred.verify_run(%s)", (d,), contains="permission denied for function")
+    # the fully eligible run is promoted by the promoter
+    with role(db, "cred_promoter"):
+        db.execute("SELECT cred.promote_run(%s,'first publication')", (a,))
+    assert states(db, a) == ("api_verified", "live")
+    got["promoter_promotes_eligible_run"] = "live"
+    # promote a second eligible run and roll back
+    to_api_verified(db, b, "2026-10-05")
+    with role(db, "cred_promoter"):
+        db.execute("SELECT cred.promote_run(%s,'newer snapshot')", (b,))
+        db.execute("SELECT cred.demote_to(%s,'roll back to the earlier snapshot')", (a,))
+    assert states(db, a) == ("api_verified", "live") and states(db, b) == ("api_verified", "withdrawn")
+    assert count(db, "open_item", a) == 6 and count(db, "open_item", b) == 6
+    got["promoter_demotes_and_nothing_is_deleted"] = {"live": a, "withdrawn": b, "rows_kept": 12}
+    # everything else is refused
+    got["promoter_purge"] = denied(db, "cred_promoter", "SELECT cred.purge_run(%s,'x')", (c,), contains="permission denied for function")
+    ddl = {"create_table": "CREATE TABLE cred.evil (x int)", "drop_table": "DROP TABLE cred.run", "alter_table": "ALTER TABLE cred.run ADD COLUMN x int",
+           "create_function": "CREATE FUNCTION cred.evil() RETURNS int LANGUAGE sql AS 'SELECT 1'", "drop_function": "DROP FUNCTION cred.promote_run(text, text)",
+           "create_view": "CREATE VIEW cred.evil AS SELECT 1", "create_schema": "CREATE SCHEMA evil", "drop_trigger": "DROP TRIGGER no_mutation ON cred.open_item",
+           "disable_trigger": "ALTER TABLE cred.open_item DISABLE TRIGGER ALL", "grant": "GRANT SELECT ON cred.open_item TO PUBLIC"}
+    for name, stmt in ddl.items():
+        got[f"promoter_ddl_{name}"] = denied(db, "cred_promoter", stmt, expect=(E.InsufficientPrivilege,))
+    for name, stmt in (("insert_run", "INSERT INTO cred.run (extraction_run_id) VALUES ('run_20261004_899')"), ("insert_vendor", "INSERT INTO cred.vendor_snapshot (extraction_run_id) VALUES ('x')"),
+                       ("insert_item", "INSERT INTO cred.open_item (extraction_run_id) VALUES ('x')"), ("update_item", "UPDATE cred.open_item SET pending = pending"),
+                       ("delete_item", "DELETE FROM cred.open_item"), ("update_vendor", "UPDATE cred.vendor_snapshot SET vendor_name = 'x'"),
+                       ("delete_identity", "DELETE FROM cred.identity_snapshot"), ("update_live_pointer", "UPDATE cred.live_run SET extraction_run_id = 'x'"),
+                       ("delete_history", "DELETE FROM cred.promotion")):
+        got[f"promoter_facts_{name}"] = denied(db, "cred_promoter", stmt, contains="permission denied")
+    # vendor names stay with Finance only
+    got["promoter_vendor_names"] = denied(db, "cred_promoter", "SELECT vendor_name FROM cred.v_open_item_named", contains="permission denied")
+    # the owner is a maintenance identity: it purges and sets policy, but it does not publish
+    with role(db, "cred_owner"):
+        purged = db.execute("SELECT cred.purge_run(%s,'retention')", (d,)).fetchone()[0]
+        db.execute("SELECT cred.set_policy(true, false, 'unchanged policy, owner maintenance check')")
+    assert purged["purged"] is True
+    got["owner_still_does_controlled_maintenance"] = {"purge_run": purged, "set_policy": "allowed"}
+    got["owner_cannot_publish"] = denied(db, "cred_owner", "SELECT cred.promote_run(%s,'x')", (c,), contains="only the promoter")
+    got["owner_cannot_roll_back"] = denied(db, "cred_owner", "SELECT cred.demote_to(%s,'x')", (b,), contains="only the promoter")
+    ev("U15", "cred_promoter role", checks=len(got), results=got)
+
+
+# ───────────── U16: the install verifier ─────────────
+
+
+def test_u16_install_verifier_passes_a_clean_install_and_catches_drift(db):
+    import verify_install
+
+    results = verify_install.verify(db)
+    failed = [r for r in results if not r[1]]
+    assert not failed, failed
+    assert len(results) >= 30
+    # drift must be caught: an extra grant, a public grant and a disabled trigger each turn a check red
+    drift = {}
+    db.execute("GRANT SELECT ON cred.open_item TO cred_api_reader")
+    drift["extra_grant_to_api_reader"] = [r[0] for r in verify_install.verify(db) if not r[1]]
+    db.execute("REVOKE SELECT ON cred.open_item FROM cred_api_reader")
+    db.execute("GRANT SELECT ON cred.v_open_item_named TO PUBLIC")
+    drift["public_grant_on_named_view"] = [r[0] for r in verify_install.verify(db) if not r[1]]
+    db.execute("REVOKE SELECT ON cred.v_open_item_named FROM PUBLIC")
+    db.execute("ALTER TABLE cred.open_item DISABLE TRIGGER no_mutation")
+    drift["disabled_immutability_trigger"] = [r[0] for r in verify_install.verify(db) if not r[1]]
+    db.execute("ALTER TABLE cred.open_item ENABLE TRIGGER no_mutation")
+    assert all(v for v in drift.values()), drift
+    assert not [r for r in verify_install.verify(db) if not r[1]]
+    ev("U16", "install verifier", checks_on_clean_install=len(results), failures=0, drift_detected={k: v[:2] for k, v in drift.items()})
 
 
 # ───────────── evidence ─────────────

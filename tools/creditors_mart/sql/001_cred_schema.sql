@@ -11,7 +11,7 @@ BEGIN
     RAISE EXCEPTION 'schema cred already exists: migrations are not re-runnable';
   END IF;
   EXECUTE format('GRANT CONNECT, CREATE ON DATABASE %I TO cred_owner', current_database());
-  EXECUTE format('GRANT CONNECT ON DATABASE %I TO cred_loader, cred_verifier, cred_api_reader, cred_finance_reader', current_database());
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO cred_loader, cred_verifier, cred_promoter, cred_api_reader, cred_finance_reader', current_database());
 END
 $pre$;
 
@@ -373,7 +373,7 @@ CREATE FUNCTION cred.promote_run(p_run text, p_reason text) RETURNS void LANGUAG
 $$
 DECLARE r cred.run%ROWTYPE; pol cred.policy_change; prev text; prev_asof date; fails int; n bigint; need text;
 BEGIN
-  IF NOT cred.caller_is('cred_owner') THEN RAISE EXCEPTION 'only the owner/operator promotes runs' USING ERRCODE = 'insufficient_privilege'; END IF;
+  IF NOT cred.caller_is('cred_promoter') THEN RAISE EXCEPTION 'only the promoter publishes runs' USING ERRCODE = 'insufficient_privilege'; END IF;
   SELECT * INTO r FROM cred.run WHERE extraction_run_id = p_run FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'run % does not exist', p_run; END IF;
   IF r.publication_state <> 'unpublished' THEN RAISE EXCEPTION 'run % is % and cannot be promoted here', p_run, r.publication_state; END IF;
@@ -409,7 +409,7 @@ CREATE FUNCTION cred.demote_to(p_target text, p_reason text) RETURNS void LANGUA
 $$
 DECLARE t cred.run%ROWTYPE; cur text;
 BEGIN
-  IF NOT cred.caller_is('cred_owner') THEN RAISE EXCEPTION 'only the owner/operator rolls back' USING ERRCODE = 'insufficient_privilege'; END IF;
+  IF NOT cred.caller_is('cred_promoter') THEN RAISE EXCEPTION 'only the promoter rolls back' USING ERRCODE = 'insufficient_privilege'; END IF;
   SELECT * INTO t FROM cred.run WHERE extraction_run_id = p_target FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'run % does not exist', p_target; END IF;
   IF t.publication_state <> 'superseded' THEN RAISE EXCEPTION 'run % is % : only a previously live (superseded) run can be reinstated', p_target, t.publication_state; END IF;
@@ -502,6 +502,18 @@ CREATE VIEW cred.v_open_item_named_any_run AS
 SELECT i.*, v.vendor_ref, v.slid, v.vendor_name, v.party_class, v.party_class_type, v.credit_days, v.vendor_extinct
 FROM cred.open_item i JOIN cred.vendor_snapshot v USING (extraction_run_id, sub_ledger_code);
 
+-- the minimum a promotion decision needs: states, counts and control tallies per run; no item rows, no vendor data
+CREATE VIEW cred.v_run_status AS
+SELECT r.extraction_run_id, r.as_of_date, r.recon_state, r.publication_state, r.expected_rows, r.expected_identity_rows,
+       (SELECT count(*) FROM cred.open_item i WHERE i.extraction_run_id = r.extraction_run_id) AS loaded_rows,
+       (SELECT count(*) FROM cred.control_result c WHERE c.extraction_run_id = r.extraction_run_id) AS controls_recorded,
+       (SELECT count(*) FROM cred.control_result c WHERE c.extraction_run_id = r.extraction_run_id AND c.verdict <> 'PASS') AS controls_failed,
+       (SELECT count(*) FROM cred.control_result c WHERE c.extraction_run_id = r.extraction_run_id AND c.left_layer = 'mart' AND c.right_layer = 'api') AS api_controls,
+       (SELECT count(*) FROM cred.control_result c WHERE c.extraction_run_id = r.extraction_run_id AND c.left_layer = 'api' AND c.right_layer = 'ui') AS ui_controls,
+       r.data_purged_at, (l.extraction_run_id IS NOT NULL) AS is_live
+FROM cred.run r LEFT JOIN cred.live_run l USING (extraction_run_id);
+CREATE VIEW cred.v_promotion_history AS SELECT promotion_id, action, extraction_run_id, previous_run_id, reason, at, by FROM cred.promotion;
+
 CREATE VIEW cred.v_live_run AS
 SELECT r.extraction_run_id, r.as_of_date, r.contract_version, r.rules_version, r.expected_rows, r.recon_state, r.publication_state, l.since AS live_since
 FROM cred.run r JOIN cred.live_run l USING (extraction_run_id);
@@ -527,7 +539,7 @@ CREATE INDEX ON cred.promotion (extraction_run_id, at DESC);
 REVOKE ALL ON ALL TABLES IN SCHEMA cred FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA cred FROM PUBLIC;
 
-GRANT USAGE ON SCHEMA cred TO cred_loader, cred_verifier, cred_api_reader, cred_finance_reader;
+GRANT USAGE ON SCHEMA cred TO cred_loader, cred_verifier, cred_promoter, cred_api_reader, cred_finance_reader;
 
 -- loader: bulk insert of one run; reads what it needs to compute its own controls; cannot update, delete, promote or change schema
 GRANT INSERT ON cred.run, cred.vendor_snapshot, cred.open_item, cred.identity_snapshot, cred.load_rejection TO cred_loader;
@@ -545,9 +557,12 @@ GRANT SELECT ON cred.v_live_run, cred.v_open_item, cred.v_exposure_summary, cred
 -- Finance / CFO (and an Admin application role mapped here): the same plus the named view
 GRANT SELECT ON cred.v_live_run, cred.v_open_item, cred.v_exposure_summary, cred.v_vendor_counts, cred.v_live_controls, cred.v_open_item_named TO cred_finance_reader;
 
--- operator functions: the owner only
-GRANT EXECUTE ON FUNCTION cred.promote_run(text, text), cred.demote_to(text, text), cred.purge_run(text, text), cred.set_policy(boolean, boolean, text),
-                           cred.verify_run(text), cred.mart_checks(text) TO cred_owner;
+-- promoter: the publication decision, and nothing else. It reads run/control metadata only (no item rows, no vendor data).
+GRANT SELECT ON cred.v_run_status, cred.v_promotion_history, cred.v_control_result_any_run, cred.v_live_run TO cred_promoter;
+GRANT EXECUTE ON FUNCTION cred.promote_run(text, text), cred.demote_to(text, text) TO cred_promoter;
+
+-- owner: schema, migration and retention administration (purge, policy). It does not publish.
+GRANT EXECUTE ON FUNCTION cred.purge_run(text, text), cred.set_policy(boolean, boolean, text), cred.verify_run(text), cred.mart_checks(text) TO cred_owner;
 -- harmless read-only helpers used inside the guard triggers, which run with the caller's rights
 GRANT EXECUTE ON FUNCTION cred.caller_role(), cred.caller_is(name), cred.maintenance_on() TO PUBLIC;
 

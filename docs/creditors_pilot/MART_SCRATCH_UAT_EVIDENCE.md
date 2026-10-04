@@ -20,6 +20,8 @@ No application database, no pilot database, no Oracle, no frontend and no real r
 | U12b | pseudonymous vendor_ref: PASS |
 | U13 | automated database tests: PASS |
 | U14 | scratch instance dropped: PASS |
+| U15 | cred_promoter role: PASS |
+| U16 | install verifier: PASS |
 
 ## U01: scratch database created
 ```json
@@ -35,12 +37,13 @@ No application database, no pilot database, no Oracle, no frontend and no real r
 {
   "schema_owner": "cred_owner",
   "tables": 10,
-  "views": 11,
+  "views": 13,
   "roles_nologin_nosuper": [
     "cred_api_reader",
     "cred_finance_reader",
     "cred_loader",
     "cred_owner",
+    "cred_promoter",
     "cred_verifier"
   ],
   "initial_policy": "require_api_layer=true, require_ui_layer=false",
@@ -183,7 +186,7 @@ No application database, no pilot database, no Oracle, no frontend and no real r
     "clean_run_verified": "recon_state verified, still unpublished",
     "verified_without_api_layer": "refused: run run_20261004_813 is verified but policy requires api_verified",
     "api_controls_with_a_failure": "not api_verified",
-    "non_owner_roles_cannot_promote": "loader, verifier, api_reader, finance_reader all refused",
+    "only_the_promoter_can_promote": "loader, verifier, api_reader, finance_reader and even the owner are refused",
     "fully_verified_run_promoted": "live",
     "ui_layer_required_by_policy": "refused until ui_verified, then promoted",
     "older_as_of_refused": "refused: run run_20261004_816 is older (as_of 2026-10-01) than the live run (as_of 2026-10-04): use demote_to",
@@ -329,7 +332,7 @@ No application database, no pilot database, no Oracle, no frontend and no real r
 ```json
 {
   "suite": "tools/creditors_mart/tests/test_cred_mart_db.py",
-  "tests_collected": 11,
+  "tests_collected": 13,
   "failures_so_far": 0,
   "isolation": "every test runs in a fresh database cloned from the migrated template"
 }
@@ -340,5 +343,98 @@ No application database, no pilot database, no Oracle, no frontend and no real r
 {
   "instance_stopped": true,
   "data_directory_removed": true
+}
+```
+
+## U15: cred_promoter role
+```json
+{
+  "checks": 42,
+  "results": {
+    "promoter_reads_decision_metadata": {
+      "v_run_status": [
+        "api_verified",
+        "unpublished",
+        6,
+        6,
+        0,
+        3,
+        false
+      ]
+    },
+    "promoter_read_cred.open_item": "permission denied for table open_item",
+    "promoter_read_cred.vendor_snapshot": "permission denied for table vendor_snapshot",
+    "promoter_read_cred.identity_snapshot": "permission denied for table identity_snapshot",
+    "promoter_read_cred.run": "permission denied for table run",
+    "promoter_read_cred.control_result": "permission denied for table control_result",
+    "promoter_read_cred.v_open_item_any_run": "permission denied for view v_open_item_any_run",
+    "promoter_read_cred.v_open_item_named": "permission denied for view v_open_item_named",
+    "promoter_read_cred.v_open_item": "permission denied for view v_open_item",
+    "promote_loaded_only": "refused: run run_20261004_853 is loaded but policy requires api_verified",
+    "promote_verified_but_no_API_layer": "refused: run run_20261004_852 is verified but policy requires api_verified",
+    "promoter_forges_state": "permission denied for table run",
+    "promoter_forges_control": "permission denied for table control_result",
+    "promoter_record_control_function": "permission denied for function record_control",
+    "promoter_sets_policy": "permission denied for function set_policy",
+    "promoter_verifies": "permission denied for function verify_run",
+    "promoter_promotes_eligible_run": "live",
+    "promoter_demotes_and_nothing_is_deleted": {
+      "live": "run_20261004_850",
+      "withdrawn": "run_20261004_851",
+      "rows_kept": 12
+    },
+    "promoter_purge": "permission denied for function purge_run",
+    "promoter_ddl_create_table": "permission denied for schema cred",
+    "promoter_ddl_drop_table": "must be owner of table run",
+    "promoter_ddl_alter_table": "must be owner of table run",
+    "promoter_ddl_create_function": "permission denied for schema cred",
+    "promoter_ddl_drop_function": "must be owner of function cred.promote_run",
+    "promoter_ddl_create_view": "permission denied for schema cred",
+    "promoter_ddl_create_schema": "permission denied for database uat_012",
+    "promoter_ddl_drop_trigger": "must be owner of relation open_item",
+    "promoter_ddl_disable_trigger": "must be owner of table open_item",
+    "promoter_ddl_grant": "permission denied for table open_item",
+    "promoter_facts_insert_run": "permission denied for table run",
+    "promoter_facts_insert_vendor": "permission denied for table vendor_snapshot",
+    "promoter_facts_insert_item": "permission denied for table open_item",
+    "promoter_facts_update_item": "permission denied for table open_item",
+    "promoter_facts_delete_item": "permission denied for table open_item",
+    "promoter_facts_update_vendor": "permission denied for table vendor_snapshot",
+    "promoter_facts_delete_identity": "permission denied for table identity_snapshot",
+    "promoter_facts_update_live_pointer": "permission denied for table live_run",
+    "promoter_facts_delete_history": "permission denied for table promotion",
+    "promoter_vendor_names": "permission denied for view v_open_item_named",
+    "owner_still_does_controlled_maintenance": {
+      "purge_run": {
+        "items": 6,
+        "purged": true,
+        "vendors": 3,
+        "identity_rows": 8
+      },
+      "set_policy": "allowed"
+    },
+    "owner_cannot_publish": "only the promoter publishes runs",
+    "owner_cannot_roll_back": "only the promoter rolls back"
+  }
+}
+```
+
+## U16: install verifier
+```json
+{
+  "checks_on_clean_install": 34,
+  "failures": 0,
+  "drift_detected": {
+    "extra_grant_to_api_reader": [
+      "table privilege matrix matches the design"
+    ],
+    "public_grant_on_named_view": [
+      "view privilege matrix matches the design (names only for Finance)",
+      "no PUBLIC privilege on any table or view"
+    ],
+    "disabled_immutability_trigger": [
+      "no trigger is disabled"
+    ]
+  }
 }
 ```
