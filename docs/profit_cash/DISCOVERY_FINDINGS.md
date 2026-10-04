@@ -76,12 +76,12 @@ Convention check: **passes.** The FY25-26 closing at 31 Mar 2026 (Opening + post
 
 | As of | Opening 1 Apr | Posted Dr | Posted Cr | **Posted closing** | Unposted Dr | Unposted Cr | **Including unposted** |
 |---|---|---|---|---|---|---|---|
-| 4 Oct 2026 (site register) | 3.44 Cr | 755.87 Cr | 839.15 Cr | **−79.84 Cr** | 134.1 Cr | 50.2 Cr | **−5.07 Cr** |
-| 3 Oct 2026 (GL register) | 3.44 Cr | 755.87 Cr | 839.15 Cr | −79.84 Cr | 121.6 Cr | 49.1 Cr | −16.57 Cr |
+| 4 Oct 2026 (site register) | 3.44 Cr | 755.87 Cr | 839.15 Cr | **−79.84 Cr** | 125.0 Cr | 50.2 Cr | **−5.07 Cr** |
+| 3 Oct 2026 (GL register) | 3.44 Cr | 755.87 Cr | 839.15 Cr | −79.84 Cr | 112.5 Cr | 49.2 Cr | −16.57 Cr |
 
 One ledger drives it: **AXIS BANK-8218 (CKSPL)**: opening +2.36 Cr, posted closing **−83.45 Cr**, including unposted −5.64 Cr (4 Oct). Last posted entry 30 Sep, last entry date 31 Dec (future-dated). AXIS BANK-7647: +0.70 Cr posted, +0.43 Cr including unposted. Omni card pool: +2.91 Cr posted, +0.11 Cr including unposted. The rest are nil or negligible. Store cash in hand (ledger): 0.02 Cr.
 
-**Verdict: not defensible as "Bank balance as of 4 Oct 2026".** Posted-only is minus 79.84 Cr, because about 134 Cr of receipts are still unposted; adding them gives minus 5.07 Cr, still negative, and no bank statement or reconciliation (BRS) is available to say whether that is a real overdraft or a posting lag. The two figures differ by 75 Cr, so neither can be headlined. What can be stated: a ledger book position with the posted and unposted figures side by side, labelled provisional.
+**Verdict: not defensible as "Bank balance as of 4 Oct 2026".** Posted-only is minus 79.84 Cr, because about 125 Cr of net debits (mainly receipts) are still unposted; adding them gives minus 5.07 Cr, still negative, and no bank statement or reconciliation (BRS) is available to say whether that is a real overdraft or a posting lag. The two figures differ by 75 Cr, so neither can be headlined. What can be stated: a ledger book position with the posted and unposted figures side by side, labelled provisional.
 
 Finance questions: is AXIS 8218 an overdraft or collection account that is expected to run negative; what is the usual posting lag for bank receipts; are Omni and Haeywa pool accounts cash or receivables; is a bank reconciliation available and from where.
 
