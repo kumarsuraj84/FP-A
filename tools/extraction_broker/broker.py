@@ -332,6 +332,8 @@ def cmd_verify(path: str) -> int:
 
 
 def main(argv: list[str]) -> int:
+    for stream in (sys.stdout, sys.stderr):  # an Oracle error text can hold characters the Windows console cannot encode: never let printing kill a run
+        stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("plan", "run"):

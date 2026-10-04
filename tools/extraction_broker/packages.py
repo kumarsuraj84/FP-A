@@ -899,10 +899,13 @@ RECEIVABLES_PROBE_01: tuple[Dataset, ...] = (
     Dataset("d3_due_date_validity", "extract", "Due dates inside the technical window 2000-2100, before the document date, and the stored due-date basis, by Dr/Cr.",
             sql=(f"SELECT o.drcr, o.due_date_basis, COUNT(*) AS open_rows, COUNT(CASE WHEN o.due_date >= DATE '2000-01-01' AND o.due_date <= DATE '2100-12-31' THEN 1 END) AS due_in_window, "
                  f"COUNT(CASE WHEN o.due_date < o.document_date THEN 1 END) AS due_before_document FROM {_O} o WHERE {_RB} GROUP BY o.drcr, o.due_date_basis FETCH FIRST 40 ROWS ONLY")),
-    Dataset("d4_amount_semantics", "extract", "AMOUNT, ADJUSTED, PENDING sums by Dr/Cr and whether PENDING = AMOUNT - ADJUSTED, in signed and absolute form (the sign convention).",
-            sql=(f"SELECT o.drcr, COUNT(*) AS open_rows, {_TM9('SUM(o.amount)', 'sum_amount')}, {_TM9('SUM(o.adjusted)', 'sum_adjusted')}, {_TM9('SUM(o.pending)', 'sum_pending')}, {_TM9('SUM(ABS(o.pending))', 'sum_abs_pending')}, "
-                 "COUNT(CASE WHEN o.pending = o.amount - o.adjusted THEN 1 END) AS pending_eq_amount_minus_adjusted, COUNT(CASE WHEN ABS(o.pending) = ABS(o.amount) - ABS(o.adjusted) THEN 1 END) AS abs_pending_eq_abs_diff, "
-                 f"COUNT(CASE WHEN o.amount < 0 THEN 1 END) AS negative_amount_rows, COUNT(CASE WHEN o.pending < 0 THEN 1 END) AS negative_pending_rows FROM {_O} o WHERE {_RB} GROUP BY o.drcr FETCH FIRST 10 ROWS ONLY")),
+    Dataset("d4_amount_semantics", "extract", "AMOUNT, ADJUSTED, PENDING by Dr/Cr, and which formula reconciles them (same tolerance form as the creditors probe), plus the sign of each field.",
+            sql=(f"SELECT o.drcr, COUNT(*) AS open_rows, {_TM9('SUM(o.amount)', 'sum_amount')}, {_TM9('SUM(NVL(o.adjusted, 0))', 'sum_adjusted')}, {_TM9('SUM(o.pending)', 'sum_pending')}, {_TM9('SUM(ABS(o.pending))', 'sum_abs_pending')}, "
+                 "SUM(CASE WHEN ABS(o.pending - (o.amount - NVL(o.adjusted, 0))) <= 0.01 THEN 1 ELSE 0 END) AS p_eq_amount_minus_adj, "
+                 "SUM(CASE WHEN ABS(o.pending - (o.amount + NVL(o.adjusted, 0))) <= 0.01 THEN 1 ELSE 0 END) AS p_eq_amount_plus_adj, "
+                 "SUM(CASE WHEN ABS(o.pending - SIGN(o.amount) * (ABS(o.amount) - ABS(NVL(o.adjusted, 0)))) <= 0.01 THEN 1 ELSE 0 END) AS p_eq_abs_difference, "
+                 "SUM(CASE WHEN o.amount < 0 THEN 1 ELSE 0 END) AS negative_amount_rows, SUM(CASE WHEN o.pending < 0 THEN 1 ELSE 0 END) AS negative_pending_rows, "
+                 f"SUM(CASE WHEN o.adjusted IS NULL THEN 1 ELSE 0 END) AS adjusted_null FROM {_O} o WHERE {_RB} GROUP BY o.drcr FETCH FIRST 10 ROWS ONLY")),
     Dataset("d5_candidate_key", "extract", "Duplicate counts for the creditors identity key (document code + sub-ledger) and the sub-ledger-free key on open debtor rows (scalars).",
             sql=(f"SELECT 'doc_sub' AS key_name, COUNT(*) AS total_rows, COUNT(DISTINCT o.document_code || '|' || o.sub_ledger_code) AS distinct_keys FROM {_O} o WHERE {_RB} "
                  f"UNION ALL SELECT 'doc_sub_drcr', COUNT(*), COUNT(DISTINCT o.document_code || '|' || o.sub_ledger_code || '|' || o.drcr) FROM {_O} o WHERE {_RB} "
