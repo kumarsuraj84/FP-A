@@ -29,3 +29,37 @@ Package `profit_cash_probe_01`, MISRETAIL only, through the Inventory Automation
 2. Dashboard sales view: ADMSITE_CODE against site codes in the store map and the GL register; sales gross vs net of tax and returns.
 3. Bank and cash GLs: opening-balance sources in the ledger master or prior-year registers.
 4. Inventory and receivables candidates (stock value cube, debtor side of the outstanding cube).
+
+---
+
+# Follow-up probe results (run_20261004_008, profit_cash_probe_02)
+
+11 datasets, 10 loaded. One failed (`i1_stock_movement_by_period`: the view raised an ODBC error). Aggregates only, MISRETAIL only.
+
+## Profitability
+
+| Question | Answer |
+|---|---|
+| Is the finance P&L base stale? | **Yes, confirmed.** It holds only FY23-24 and FY24-25; the last month is Feb 2025 (last prepared 6 Feb 2025). No nulls: it simply stops. Do not use it for FY26-27. |
+| What is one `ADMSITE_CODE`? | A real site code. One row per site per day (196 to 207 sites a day); every code is in the GL register's site list. Only 120 of them are in the store map, and only 143 of the register's 312 sites are in the store map, so the store map is incomplete for current trading sites. |
+| What does dashboard `SL_V` measure? | **Net bill amount: after returns, promotions and discounts, and including GST.** For May, Jun, Jul, Aug and Sep 2026 it equals the POS cube `NETAMT` to the paisa (e.g. Aug 135.16 Cr). Net = taxable + tax (May: 129.53 + 7.90). |
+| What is the ex-tax revenue? | POS `TAXABLE` equals the GL ledger "Sales - POS" (credit minus debit) to the paisa for May to Aug (129.53, 129.06, 96.94, 127.32 Cr). Revenue for P&L should be ex-GST taxable value, which the GL confirms. |
+| Where does it not tie? | **April 2026**: POS net 144.15 Cr vs dashboard 137.09 Cr (7.06 Cr apart), and POS taxable 135.74 Cr vs GL 129.11 Cr (6.6 Cr apart). Needs Finance's explanation (late bills, restatement, or a stale dashboard month). September ties within 0.03 Cr (GL still unposted). |
+| Posting status | The current month is **unposted** in the GL (Sep and Oct "Sales - POS" are Unposted). A current-month P&L from the GL is provisional until posted. |
+| Void bills | Negligible (about 0.01 Cr a month). |
+| Other sales ledgers | Sales - Customer is small (0.1 to 1.4 Cr a month). No postings on Online Sales, Sales Return, Sales Manual, Sales - Service this FY. Returns sit inside the POS bills. |
+| The 12 unmatched P&L ledger names | 3 naming differences (Bond Retention, Auditor remuneration, Office Expense_), 3 near-aliases to confirm (Advertisement Expenses, Foreign Travelling Expense (E) and (T)), 4 not in the GL master (AMC CHARGES_AIR-CONDITIONER, Annual Maintenance Charges, Laptop Repair, Subscription Fee (Software)), 2 that are group labels rather than ledgers ("02-COGS(Correction)", "02-COGS(Product)"). The ledger map's group labels also differ from the budget table's. |
+| Payment-mode (tender) sales view | Returned 0 rows from April 2026: stale, not usable as a cross-check. |
+
+**Profitability read:** revenue is now well defined (ex-GST taxable, tied to the books). COGS is usable. The blockers are the unexplained April gap, the incomplete store map, the missing FY26-27 plan, and the ledger-to-group mapping gaps. Closer to a contract than before, but not yet.
+
+## Cash and working capital
+
+| Component | Finding |
+|---|---|
+| Store cash held | `V_FINANCE_CASH_CUMLATIVE_BLNC`: 209 stores, **1.49 Cr in total on 4 Oct 2026**, no negative stores, largest store 0.04 Cr. (1.94 Cr on 31 Aug, 1.36 Cr on 30 Sep.) Real and usable. |
+| Bank and cash ledgers | **A source exists after all.** The FY26-27 GL register carries **Opening** entries (voucher type "Opening") plus movements for the bank and cash ledgers, so balance = opening + Dr − Cr is derivable inside one register. Only 10 of the 35 bank/cash ledgers have entries. Caveats: the probe did not split Posted/Unposted or cap the date, entry types include contra (net zero), one account is a cash-credit facility (AXIS CC A/C 1797), and there is no bank statement here to reconcile. Raw FY26-27 bank/cash net is Cr 16.6 Cr, which must not be read as a position until posted-only and as-of rules are applied. **Needs one bounded probe**: per-ledger opening, posted movement to the as-of date, and unposted share; and the FY25-26 closing against the FY26-27 opening. |
+| Receivables | Sundry Debtors (ledger 1000000014) in the outstanding cube, as of 4 Oct 2026: **687 open Dr items, 103.21 Cr**; 2,405 open Cr items, 67.15 Cr (customer credits/advances; not netted). The subsidiary debtor ledger has no open items. A real candidate. |
+| Inventory | Not found yet. The stock-movement view errored; the stock value cube returned no rows for September 2026 onward. Next: the stock ledgers in the GL register and the stock cube's actual report date. |
+| Creditors | Real (mart). |
+| Payroll, statutory, vendor advances, capex | No source probed. Stay explicitly unavailable. |

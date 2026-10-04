@@ -726,4 +726,68 @@ PROFIT_CASH_PROBE_01: tuple[Dataset, ...] = (
                  "GROUP BY TRUNC(budget_date, 'MM') FETCH FIRST 100 ROWS ONLY")),
 )
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01}
+# ───────────── profit_cash_probe_02: bounded follow-ups (aggregates only) ─────────────
+# Profitability: is the finance P&L base stale, what does one ADMSITE_CODE represent, is "sales" gross / net of returns / net of tax, and does it tie to the
+# POS bills, the sales GLs and the payment-mode (tender) totals. Cash: bank / cash GL registers and opening balances, store cash drawer balances, stock value,
+# debtors. Nothing row-level; sums leave as exact text.
+_POS = f"{OWNER}.CUBE$POSBILLSUMM"
+_SALES_GL = "1000000037, 174, 175, 1114928254, 1000000649, 1114927094"  # Sales - POS, Sales - Customer, Online Sales, SALES RETURN, SALES MANUAL, Sales - Service
+_CASHBANK = f'(SELECT glcode FROM {OWNER}."MAS$FINGL" WHERE nature IN (\'Bank\', \'Cash\'))'
+_REG = {"901": f'{OWNER}."T$FINREG_901"', "886": f'{OWNER}."T$FINREG_886"'}  # GL REG 26-27 and 25-26
+
+PROFIT_CASH_PROBE_02: tuple[Dataset, ...] = (
+    Dataset("q1_pnl_base_range", "extract", "Finance P&L base store table: row counts, null counts and date ranges per FY (is it stale, or is EXP_MTH null?).",
+            sql=("SELECT fy_year, COUNT(*) AS entry_rows, COUNT(exp_mth) AS n_exp_mth, COUNT(entry_date) AS n_entry_date, COUNT(balance) AS n_balance, "
+                 "TO_CHAR(MIN(exp_mth), 'YYYY-MM-DD') AS exp_mth_min, TO_CHAR(MAX(exp_mth), 'YYYY-MM-DD') AS exp_mth_max, TO_CHAR(MIN(entry_date), 'YYYY-MM-DD') AS entry_date_min, "
+                 "TO_CHAR(MAX(entry_date), 'YYYY-MM-DD') AS entry_date_max, TO_CHAR(MAX(end_date), 'YYYY-MM-DD') AS end_date_max, TO_CHAR(MAX(prepared_on), 'YYYY-MM-DD') AS prepared_on_max "
+                 f"FROM {_PB} WHERE (entry_date >= DATE '2000-01-01' OR entry_date IS NULL) GROUP BY fy_year FETCH FIRST 200 ROWS ONLY")),
+    Dataset("q2_dashboard_site_code", "extract", "What one ADMSITE_CODE is: rows and distinct codes on single days, membership in the store map and in the GL-register site list, code ranges.",
+            sql=("SELECT TO_CHAR(billdate, 'YYYY-MM-DD') AS bill_date, COUNT(*) AS view_rows, COUNT(DISTINCT admsite_code) AS distinct_codes, MIN(admsite_code) AS code_min, MAX(admsite_code) AS code_max, "
+                 f"COUNT(CASE WHEN admsite_code IN (SELECT site_code FROM {OWNER}.T_FINANCE_P_AND_L_STORE_MAP) THEN 1 END) AS rows_in_store_map, "
+                 f"COUNT(CASE WHEN admsite_code IN (SELECT sitecode FROM {_SITEREG} WHERE entry_date >= DATE '2026-04-01') THEN 1 END) AS rows_in_gl_register_sites, "
+                 f"{_TM9('SUM(sl_v)', 'sum_sl_v')}, {_TM9('SUM(bill_count)', 'bills')} FROM {OWNER}.V_CFO_DASHBOARD_SL_V "
+                 "WHERE billdate IN (DATE '2026-08-15', DATE '2026-09-15', DATE '2026-09-30') GROUP BY billdate FETCH FIRST 10 ROWS ONLY")),
+    Dataset("q3_pos_sales_semantics", "extract", "POS bill summary cube: MRP, sale, returns, gross, discounts, net, taxable and tax by month and void flag, to establish what the dashboard SL_V measures.",
+            sql=("SELECT TO_CHAR(TRUNC(billdate, 'MM'), 'YYYY-MM-DD') AS bill_month, isvoid, COUNT(*) AS bills, COUNT(DISTINCT sitecode) AS sites, "
+                 f"{_TM9('SUM(billqty)', 'qty')}, {_TM9('SUM(mrpamt)', 'mrp')}, {_TM9('SUM(basicamt)', 'basic')}, {_TM9('SUM(promoamt)', 'promo')}, {_TM9('SUM(saleamt)', 'sale')}, "
+                 f"{_TM9('SUM(returnamt)', 'returns')}, {_TM9('SUM(grossamt)', 'gross')}, {_TM9('SUM(totaldiscountamt)', 'discount')}, {_TM9('SUM(netamt)', 'net')}, "
+                 f"{_TM9('SUM(taxableamt)', 'taxable')}, {_TM9('SUM(taxamt)', 'tax')} FROM {_POS} WHERE billdate >= DATE '2026-04-01' GROUP BY TRUNC(billdate, 'MM'), isvoid FETCH FIRST 100 ROWS ONLY")),
+    Dataset("q4_sales_gl_by_month", "extract", "Sales ledgers in the site GL register by month and release status (a third, accounting-side sales figure).",
+            sql=("SELECT entry_glcode, TO_CHAR(TRUNC(entry_date, 'MM'), 'YYYY-MM-DD') AS entry_month, release_status, COUNT(*) AS entry_rows, COUNT(DISTINCT sitecode) AS sites, "
+                 f"{_TM9('SUM(debit)', 'sum_debit')}, {_TM9('SUM(credit)', 'sum_credit')} FROM {_SITEREG} WHERE entry_date >= DATE '2026-04-01' AND entry_glcode IN ({_SALES_GL}) "
+                 "GROUP BY entry_glcode, TRUNC(entry_date, 'MM'), release_status FETCH FIRST 2000 ROWS ONLY")),
+    Dataset("q5_mop_sales_by_month", "extract", "Payment-mode (tender) sales view: totals by mode and month (collection-side sales figure).",
+            sql=("SELECT TO_CHAR(TRUNC(billdate, 'MM'), 'YYYY-MM-DD') AS bill_month, billtype, COUNT(*) AS rows_in_month, COUNT(DISTINCT sitecode) AS sites, "
+                 f"{_TM9('SUM(mop_cash_sales)', 'cash')}, {_TM9('SUM(mop_credit_card)', 'credit_card')}, {_TM9('SUM(mop_credit_note)', 'credit_note')}, {_TM9('SUM(mop_e_com)', 'e_com')}, "
+                 f"{_TM9('SUM(mop_gv)', 'gv')}, {_TM9('SUM(mop_phonepe)', 'wallet_pp')}, {_TM9('SUM(mop_paytm)', 'paytm')}, {_TM9('SUM(mop_rewards)', 'rewards')}, "
+                 f"{_TM9('SUM(mop_razorpay)', 'razorpay')}, {_TM9('SUM(mop_other)', 'other')} FROM {OWNER}.V_FINANCE_MOP_SALES WHERE billdate >= DATE '2026-04-01' "
+                 "GROUP BY TRUNC(billdate, 'MM'), billtype FETCH FIRST 200 ROWS ONLY")),
+    Dataset("q6_register_sites", "extract", "Sites in the GL register (current FY): entries and whether each site code is in the store map.",
+            sql=("SELECT sitecode, COUNT(*) AS entry_rows, COUNT(DISTINCT entry_glcode) AS gl_codes, "
+                 f"MAX(CASE WHEN sitecode IN (SELECT site_code FROM {OWNER}.T_FINANCE_P_AND_L_STORE_MAP) THEN 1 ELSE 0 END) AS in_store_map FROM {_SITEREG} "
+                 "WHERE entry_date >= DATE '2026-04-01' GROUP BY sitecode FETCH FIRST 1000 ROWS ONLY")),
+    Dataset("b1_bank_cash_register_types", "extract", "Bank and cash GLs in the FY26-27 and FY25-26 GL registers: entry types, counts, Dr/Cr and first/last entry (is an opening-balance entry present?).",
+            sql=" UNION ALL ".join(
+                (f"SELECT '{fy}' AS register_fy, entry_glcode, entry_type_long, COUNT(*) AS entry_rows, {_TM9('SUM(debit)', 'sum_debit')}, {_TM9('SUM(credit)', 'sum_credit')}, "
+                 f"TO_CHAR(MIN(entry_date), 'YYYY-MM-DD') AS first_entry, TO_CHAR(MAX(entry_date), 'YYYY-MM-DD') AS last_entry FROM {tbl} "
+                 f"WHERE entry_date >= DATE '{since}' AND entry_glcode IN {_CASHBANK} GROUP BY entry_glcode, entry_type_long")
+                for fy, tbl, since in (("26-27", _REG["901"], "2026-04-01"), ("25-26", _REG["886"], "2025-04-01"))) + " FETCH FIRST 5000 ROWS ONLY"),
+    Dataset("b2_store_cash_balance_dates", "extract", "Store cash drawer cumulative balance on month-end and recent dates: stores, total, min, max, negative balances.",
+            sql=("SELECT TO_CHAR(bill_date, 'YYYY-MM-DD') AS bill_date, COUNT(*) AS stores, " + _TM9("SUM(cumlative_balance)", "sum_cumulative") + ", "
+                 f"{_TM9('MIN(cumlative_balance)', 'min_cumulative')}, {_TM9('MAX(cumlative_balance)', 'max_cumulative')}, COUNT(CASE WHEN cumlative_balance < 0 THEN 1 END) AS negative_stores "
+                 f"FROM {OWNER}.V_FINANCE_CASH_CUMLATIVE_BLNC WHERE bill_date >= DATE '2026-03-31' AND bill_date IN (DATE '2026-03-31', DATE '2026-08-31', DATE '2026-09-30', DATE '2026-10-03', DATE '2026-10-04') "
+                 "GROUP BY bill_date FETCH FIRST 20 ROWS ONLY")),
+    Dataset("i1_stock_movement_by_period", "extract", "Finance stock movement view: opening, closing, sales, COGS and tax values per period (inventory value candidate, and a fourth sales / COGS figure).",
+            sql=(f"SELECT TO_CHAR(start_date, 'YYYY-MM-DD') AS start_date, TO_CHAR(end_date, 'YYYY-MM-DD') AS end_date, COUNT(*) AS rows_in_period, COUNT(DISTINCT admsite_code) AS sites, "
+                 f"{_TM9('SUM(opn_v)', 'opening_value')}, {_TM9('SUM(cls_stk_v)', 'closing_value')}, {_TM9('SUM(sl_v)', 'sales_value')}, {_TM9('SUM(sl_tax_v)', 'sales_tax')}, "
+                 f"{_TM9('SUM(cogs_v)', 'cogs')} FROM {OWNER}.V_FINANCE_STOCK_MOVEMENT WHERE end_date >= DATE '2026-03-01' GROUP BY start_date, end_date FETCH FIRST 100 ROWS ONLY")),
+    Dataset("i2_stock_value_snapshot", "extract", "Stock value cube: snapshot dates, sites and closing value by stock type.",
+            sql=(f"SELECT TO_CHAR(report_date, 'YYYY-MM-DD') AS report_date, stock_type, COUNT(DISTINCT sitecode) AS sites, COUNT(*) AS stock_rows, {_TM9('SUM(closing_stock_qty)', 'closing_qty')}, "
+                 f"{_TM9('SUM(closing_stock_amount)', 'closing_value')} FROM {OWNER}.CUBE$STKVAL WHERE report_date >= DATE '2026-09-01' GROUP BY report_date, stock_type FETCH FIRST 100 ROWS ONLY")),
+    Dataset("r1_debtors_outstanding", "extract", "Debtor ledgers in the outstanding cube (Sundry Debtors and Subsidiary): open items and exact PENDING by Dr/Cr.",
+            sql=(f"SELECT o.ledger_code, o.drcr, TO_CHAR(MAX(o.report_date), 'YYYY-MM-DD') AS report_date, COUNT(*) AS open_items, {_TM9('SUM(o.pending)', 'sum_pending')}, "
+                 f"{_TM9('SUM(ABS(o.pending))', 'sum_abs_pending')} FROM {_T} o WHERE o.report_date >= DATE '2026-01-01' AND o.ledger_code IN (1000000014, 1114925832) AND o.pending <> 0 "
+                 "GROUP BY o.ledger_code, o.drcr FETCH FIRST 20 ROWS ONLY")),
+)
+
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02}

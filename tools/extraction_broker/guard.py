@@ -34,6 +34,8 @@ _PII = re.compile(
     r"\b(\w*addr\w*|\w*phone\w*|ph\d|\w*email\w*|\w*mobile\w*|pan_no|\w*contact\w*|\w*fax\w*|\w*billing_\w+|pin|\w*gstin\w*|\w*customername\w*)\b",
     re.I,
 )
+# Exact payment-mode column names that merely contain a flagged word ("PhonePe" is a tender type, not a phone number). Exact names only, never a pattern.
+_PII_ALLOWED = re.compile(r"(?<![\w])mop_phonepe(?![\w])", re.I)
 _STARTS = re.compile(r"(?is)^\s*(select|with)\b")
 _TRAILING_CAP = re.compile(r"\bfetch\s+first\s+(\d+)\s+rows?\s+only\s*$", re.I)
 ALLOWED_OWNER = "MISRETAIL"
@@ -122,7 +124,7 @@ def check(sql: str, kind: str) -> Checked:
     if kind != "metadata" and dictionary_only:
         raise GuardError("a data query must read data objects, not only dictionary views")
     if kind != "metadata":
-        pii = _PII.search(no_lit)
+        pii = _PII.search(_PII_ALLOWED.sub("", no_lit))
         if pii:
             raise GuardError(f"personal / contact data is not extracted (column '{pii.group(0)}')")
     if kind == "extract" and not _DATE_BOUND.search(no_lit):
