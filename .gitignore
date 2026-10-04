@@ -18,3 +18,9 @@ discovery_run_01_state.json
 local_entries.json
 registry_overlay.json
 !config/source_registry_seed.csv
+# extraction broker output: real data, never committed
+data/inbox/
+*.parquet
+
+# local secrets (loader login, vendor pseudonym key): never committed
+.secrets/
