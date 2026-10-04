@@ -338,6 +338,40 @@ def test_a12_cors_is_limited_and_the_server_degrades_cleanly_without_a_database(
     ev("A12", "cors and degradation", allowed_origin="http://localhost:5180 only", other_origin="no CORS header", no_database="503", writes="405 (read-only)")
 
 
+def test_a13_install_api_creates_a_noinherit_login_that_can_only_assume_the_three_read_roles(env, tmp_path, monkeypatch, capsys):
+    import install_api
+    from setup_loader import read_env
+
+    verify(env)
+    admin, cluster = env["admin"], env["cluster"]
+    secret = tmp_path / ".secrets" / "cred_api.env"
+    facts = install_api.provision(admin, secret, "127.0.0.1", str(cluster.port), env["name"])
+    cfg = read_env(secret)
+    assert facts["created"] and set(cfg) == {"host", "port", "dbname", "user", "password", "finance_token"} and cfg["user"] == "cred_api_login"
+    assert len(cfg["password"]) >= 40 and len(cfg["finance_token"]) >= 40
+    checks = install_api.check_role(admin)
+    assert all(ok for _, ok in checks), [n for n, ok in checks if not ok]
+    info = f"host={cfg['host']} port={cfg['port']} dbname={cfg['dbname']} user={cfg['user']} password={cfg['password']}"
+    login = install_api.check_login(info)
+    assert all(ok for _, ok in login), [n for n, ok in login if not ok]
+    # the real thing end to end: settings read from the secrets file, the API served through that login, mart = API still zero variance
+    monkeypatch.setenv("FPA_CRED_API_ENV", str(secret))
+    monkeypatch.delenv("FPA_CRED_API_URL", raising=False)
+    monkeypatch.delenv("FPA_CRED_FINANCE_TOKEN", raising=False)
+    settings = ApiSettings.load()
+    client = TestClient(create_app(settings, Db(settings.conninfo)))
+    assert client.get(base("/summary")).json()["item_rows"] == 48
+    assert client.get(base("/finance/vendors"), headers={"Authorization": f"Bearer {cfg['finance_token']}"}).status_code == 200
+    assert client.get(base("/finance/vendors")).status_code == 401
+    assert all(c.ok for c in rec.reconcile(client, Db(settings.conninfo), RUN, settings.finance_token))
+    again = install_api.provision(admin, secret, "127.0.0.1", str(cluster.port), env["name"])
+    cfg2 = read_env(secret)
+    assert again["token_kept"] and cfg2["finance_token"] == cfg["finance_token"] and cfg2["password"] != cfg["password"]
+    out = capsys.readouterr().out
+    assert cfg["password"] not in out and cfg["finance_token"] not in out
+    ev("A13", "install_api login", role_checks=len(checks), login_checks=len(login), api_served_through_the_login=True, rerun="keeps the Finance token, re-keys the password", secrets_in_output="none")
+
+
 def write_evidence():
     EVIDENCE_FILE.parent.mkdir(parents=True, exist_ok=True)
     order = sorted(EVIDENCE, key=lambda e: e["id"])
