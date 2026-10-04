@@ -513,8 +513,13 @@ def render_report(r: dict) -> str:
 def main(argv: list[str]) -> int:
     import psycopg
 
+    for stream in (sys.stdout, sys.stderr):                 # a Windows console may be cp1252, which cannot print the rupee sign
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            pass
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    if len(argv) != 3 or argv[1] not in ("load", "verify"):
+    if len(argv) != 3 or argv[1] not in ("load", "verify", "report"):
         print(__doc__)
         return 2
     info = loader_conninfo()
@@ -529,6 +534,17 @@ def main(argv: list[str]) -> int:
                 return 3
             if argv[1] == "verify":
                 print(json.dumps(verify_loaded(conn, argv[2]), indent=2))
+                return 0
+            if argv[1] == "report":                           # numbers read from the mart itself for a run that is already loaded
+                from types import SimpleNamespace
+
+                assert_loader_identity(conn)
+                row = conn.execute("SELECT as_of_date FROM cred.run WHERE extraction_run_id = %s", (argv[2],)).fetchone()
+                if not row:
+                    print("that run is not in the mart")
+                    return 1
+                res = summarize(conn, SimpleNamespace(run_id=argv[2], as_of=row[0].isoformat()), conn.execute("SELECT current_user").fetchone()[0], 0.0)
+                print(render_report(res))
                 return 0
             plan = preflight(Path(argv[2]), vendor_ref_salt())
             res = load_run(conn, plan)
