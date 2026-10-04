@@ -432,4 +432,42 @@ PAYABLES_PROBE_01: tuple[Dataset, ...] = (
     ),
 )
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01}
+# ───────────── payables_probe_02: how much creditor exposure is affected by missing due dates? ─────────────
+# Scoped to the four Sundry Creditors control ledgers (the agreed creditor family). Open rows only. TDS Payable, Sundry
+# Debtors and Inter-Company are deliberately outside this scope.
+CREDITOR_LEDGERS = (1000000026, 1000000024, 1000000092, 1000000025)  # Apparels, for Expenses, GM, Non Trading
+_LEDGER_IN = ", ".join(str(c) for c in CREDITOR_LEDGERS)
+
+_DUE_INNER = (
+    "SELECT l.glname AS ledger_name, s.sl_class AS party_class, o.drcr AS drcr, "
+    "CASE WHEN s.credit_days IS NULL THEN 'credit_days_null' WHEN s.credit_days = 0 THEN 'credit_days_zero' ELSE 'credit_days_positive' END AS credit_days_state, "
+    "CASE WHEN o.due_date IS NULL THEN 'due_missing' WHEN o.due_date > o.report_date THEN 'due_present_not_yet_due' ELSE 'due_present_due_or_past' END AS due_state, "
+    "o.pending AS pending "
+    f"FROM {_T} o LEFT JOIN {_G} l ON l.glcode = o.ledger_code LEFT JOIN {_S} s ON s.slcode = o.sub_ledger_code "
+    f"WHERE {_BO} AND o.pending <> 0 AND o.ledger_code IN ({_LEDGER_IN})"
+)
+
+PAYABLES_PROBE_02: tuple[Dataset, ...] = (
+    Dataset(
+        "r1_creditor_due_by_ledger",
+        "extract",
+        "Open creditor rows by ledger, Dr/Cr, credit-days state and due-date state: row count, absolute and signed pending.",
+        sql=(
+            "SELECT ledger_name, drcr, credit_days_state, due_state, COUNT(*) AS open_rows, SUM(ABS(pending)) AS abs_pending, "
+            f"SUM(pending) AS signed_pending FROM ({_DUE_INNER}) GROUP BY ledger_name, drcr, credit_days_state, due_state "
+            "ORDER BY ledger_name, drcr, credit_days_state, due_state FETCH FIRST 500 ROWS ONLY"
+        ),
+    ),
+    Dataset(
+        "r2_creditor_due_by_party_class",
+        "extract",
+        "The same exposure split by party class (no party names or codes), to see which classes carry the missing due dates.",
+        sql=(
+            "SELECT party_class, drcr, credit_days_state, due_state, COUNT(*) AS open_rows, SUM(ABS(pending)) AS abs_pending, "
+            f"SUM(pending) AS signed_pending FROM ({_DUE_INNER}) GROUP BY party_class, drcr, credit_days_state, due_state "
+            "ORDER BY party_class, drcr, credit_days_state, due_state FETCH FIRST 500 ROWS ONLY"
+        ),
+    ),
+)
+
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02}
