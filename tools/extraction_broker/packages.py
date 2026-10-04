@@ -661,4 +661,69 @@ PACKAGE_META: dict[str, dict] = {
     }
 }
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01}
+# ───────────── profit_cash_probe_01: source discovery for Store Profitability and Cash (evidence only, aggregates and small masters) ─────────────
+# The finance team's own P&L model lives in MISRETAIL: T_FINANCE_P_AND_L_BASE_1_STORE (ledger entries tagged with SK_GRP / SK_MAJ_GRP and a location),
+# T_FINANCE_P_AND_L_BUDGET, the store map and the ledger->group map. Discovery asks: how complete and how consistent are they, do they tie to the
+# site-wise GL register, what are the sales / COGS / cash candidates. No row-level transaction data leaves Oracle; sums leave as exact text.
+# Nothing here decides a definition: it produces evidence for the Profitability and Cash contracts.
+_PB = f"{OWNER}.T_FINANCE_P_AND_L_BASE_1_STORE"
+_PBUD = f"{OWNER}.T_FINANCE_P_AND_L_BUDGET"
+_SITEREG = f'{OWNER}."T$FINREGSITE_844"'  # SITE_REG_26-27, report date = current snapshot
+_TM9 = lambda e, a: f"TO_CHAR({e}, 'TM9') AS {a}"  # noqa: E731  exact numeric text
+
+PROFIT_CASH_PROBE_01: tuple[Dataset, ...] = (
+    Dataset("m1_store_map", "master", "Store map: site code, name, state, status, same-store flag (143 expected).",
+            sql=f"SELECT site_code, store_name, state, store_status, same_store_filter FROM {OWNER}.T_FINANCE_P_AND_L_STORE_MAP FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("m2_group_map", "master", "SK_GRP -> SK_MAJ_GRP grouping used by the finance P&L.",
+            sql=f"SELECT sk_grp, sk_maj_grp FROM {OWNER}.T_FINANCE_RAJEEV_GROUPING FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("m3_ledger_to_group", "master", "Ledger -> SK_GRP mapping used by the finance P&L.",
+            sql=f"SELECT ledger, sk_grp FROM {OWNER}.T_FINANCE_RAJEEV_P_N_L FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("m4_location_map", "master", "Location code -> location -> location filter (hierarchy candidate).",
+            sql=f"SELECT new_code, location, location_filter FROM {OWNER}.T_FINANCE_RAJEEV_LOCATION_DATA FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("m5_gl_master", "master", "GL master (code, name, group, type, nature): no address or contact columns.",
+            sql=f'SELECT glcode, glname, grpcode, type, nature, extinct FROM {OWNER}."MAS$FINGL" FETCH FIRST 5000 ROWS ONLY'),
+    Dataset("e1_pnl_by_group_month", "extract", "Finance P&L base (store level): row count and exact sums by FY, month, major group, group and Dr/Cr.",
+            sql=("SELECT fy_year, TO_CHAR(exp_mth, 'YYYY-MM-DD') AS exp_mth, sk_maj_grp, sk_grp, dr_cr, COUNT(*) AS entry_rows, COUNT(DISTINCT location) AS locations, "
+                 f"{_TM9('SUM(balance)', 'sum_balance')}, {_TM9('SUM(val_in_lacs)', 'sum_val_in_lacs')} FROM {_PB} WHERE exp_mth >= DATE '2025-04-01' "
+                 "GROUP BY fy_year, exp_mth, sk_maj_grp, sk_grp, dr_cr FETCH FIRST 60000 ROWS ONLY")),
+    Dataset("e2_pnl_coverage", "extract", "Finance P&L base: what the FILTER / LOCATION_FILTER / SOURCE_SHORT_NAME columns separate, per FY.",
+            sql=("SELECT fy_year, filter, location_filter, source_short_name, COUNT(*) AS entry_rows, COUNT(DISTINCT location) AS locations, "
+                 f"TO_CHAR(MIN(exp_mth), 'YYYY-MM-DD') AS first_month, TO_CHAR(MAX(exp_mth), 'YYYY-MM-DD') AS last_month, {_TM9('SUM(balance)', 'sum_balance')} "
+                 f"FROM {_PB} WHERE exp_mth >= DATE '2025-04-01' GROUP BY fy_year, filter, location_filter, source_short_name FETCH FIRST 5000 ROWS ONLY")),
+    Dataset("e3_pnl_amount_semantics", "extract", "Finance P&L base: do BALANCE, BALANCE_SUM and VAL_IN_LACS agree (VAL_IN_LACS x 100000 vs BALANCE), nulls and Dr/Cr signs, per FY.",
+            sql=("SELECT fy_year, dr_cr, COUNT(*) AS entry_rows, COUNT(balance) AS n_balance, COUNT(balance_sum) AS n_balance_sum, COUNT(val_in_lacs) AS n_val_in_lacs, "
+                 f"{_TM9('SUM(balance)', 'sum_balance')}, {_TM9('SUM(balance_sum)', 'sum_balance_sum')}, {_TM9('SUM(val_in_lacs) * 100000', 'sum_lacs_x_1e5')}, "
+                 f"{_TM9('SUM(ABS(balance))', 'sum_abs_balance')}, COUNT(CASE WHEN balance < 0 THEN 1 END) AS negative_rows "
+                 f"FROM {_PB} WHERE exp_mth >= DATE '2025-04-01' GROUP BY fy_year, dr_cr FETCH FIRST 200 ROWS ONLY")),
+    Dataset("e4_budget_by_group_month", "extract", "Budget table: exact sums and store counts by FY, month, AOP group, major group and group.",
+            sql=("SELECT fy, TO_CHAR(month, 'YYYY-MM-DD') AS budget_month, aop_group, maj_grp, sk_grp, COUNT(*) AS budget_rows, COUNT(DISTINCT store_nm) AS stores, "
+                 f"{_TM9('SUM(budget_amt)', 'sum_budget')} FROM {_PBUD} WHERE month >= DATE '2025-04-01' GROUP BY fy, month, aop_group, maj_grp, sk_grp FETCH FIRST 60000 ROWS ONLY")),
+    Dataset("e5_cogs_by_month", "extract", "Finance COGS view: exact cost by bill month and store count.",
+            sql=(f"SELECT TO_CHAR(billmonth, 'YYYY-MM-DD') AS bill_month, COUNT(*) AS rows_in_month, COUNT(DISTINCT store_name) AS stores, {_TM9('SUM(costamount)', 'sum_cost')} "
+                 f"FROM {OWNER}.V_FINANCE_P_AND_L_COGS_DATA WHERE billmonth >= DATE '2025-04-01' GROUP BY billmonth FETCH FIRST 100 ROWS ONLY")),
+    Dataset("e6_sales_dashboard_by_month", "extract", "CFO dashboard sales view: sales value, tax, COGS, bills and store counts by bill month.",
+            sql=(f"SELECT TO_CHAR(TRUNC(billdate, 'MM'), 'YYYY-MM-DD') AS bill_month, COUNT(*) AS rows_in_month, COUNT(DISTINCT admsite_code) AS stores, {_TM9('SUM(bill_count)', 'bills')}, "
+                 f"{_TM9('SUM(sl_v)', 'sum_sales_value')}, {_TM9('SUM(tax_v)', 'sum_tax_value')}, {_TM9('SUM(cogs_v)', 'sum_cogs_value')}, {_TM9('SUM(sl_q)', 'sum_sales_qty')} "
+                 f"FROM {OWNER}.V_CFO_DASHBOARD_SL_V WHERE billdate >= DATE '2025-04-01' GROUP BY TRUNC(billdate, 'MM') FETCH FIRST 100 ROWS ONLY")),
+    Dataset("e7_site_register_by_gl_month", "extract", "Site-wise GL register (current FY): exact Dr/Cr by GL code, month and release status, with distinct site counts (ties the finance P&L to the books).",
+            sql=("SELECT entry_glcode, TO_CHAR(TRUNC(entry_date, 'MM'), 'YYYY-MM-DD') AS entry_month, release_status, COUNT(*) AS entry_rows, COUNT(DISTINCT sitecode) AS sites, "
+                 f"{_TM9('SUM(debit)', 'sum_debit')}, {_TM9('SUM(credit)', 'sum_credit')} FROM {_SITEREG} WHERE entry_date >= DATE '2026-04-01' "
+                 "GROUP BY entry_glcode, TRUNC(entry_date, 'MM'), release_status FETCH FIRST 60000 ROWS ONLY")),
+    Dataset("e8_site_register_snapshot", "extract", "Site-wise GL register: row count, report date, entry date range, distinct sites and GL codes (scalars).",
+            sql=("SELECT COUNT(*) AS entry_rows, TO_CHAR(MIN(report_date), 'YYYY-MM-DD') AS report_date_min, TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS report_date_max, "
+                 "TO_CHAR(MIN(entry_date), 'YYYY-MM-DD') AS entry_date_min, TO_CHAR(MAX(entry_date), 'YYYY-MM-DD') AS entry_date_max, COUNT(DISTINCT sitecode) AS sites, "
+                 f"COUNT(DISTINCT entry_glcode) AS gl_codes FROM {_SITEREG} WHERE entry_date >= DATE '2026-04-01' FETCH FIRST 1 ROWS ONLY")),
+    Dataset("e9_store_cash_by_month", "extract", "Store cash balance view: Dr/Cr by month and store count; the last cumulative balance date.",
+            sql=(f"SELECT TO_CHAR(TRUNC(bill_date, 'MM'), 'YYYY-MM-DD') AS bill_month, COUNT(*) AS rows_in_month, COUNT(DISTINCT site_code) AS stores, {_TM9('SUM(debit)', 'sum_debit')}, "
+                 f"{_TM9('SUM(credit)', 'sum_credit')}, TO_CHAR(MAX(bill_date), 'YYYY-MM-DD') AS last_date FROM {OWNER}.V_FINANCE_CASH_CUMLATIVE_BLNC WHERE bill_date >= DATE '2025-04-01' "
+                 "GROUP BY TRUNC(bill_date, 'MM') FETCH FIRST 100 ROWS ONLY")),
+    Dataset("e10_cash_flow_by_cube_month", "extract", "Finance cash-flow view: Dr/Cr by cube and month (bank / cash register candidate).",
+            sql=(f"SELECT cubename, TO_CHAR(TRUNC(entry_date, 'MM'), 'YYYY-MM-DD') AS entry_month, COUNT(*) AS entry_rows, COUNT(DISTINCT ledger) AS ledgers, {_TM9('SUM(debit)', 'sum_debit')}, "
+                 f"{_TM9('SUM(credit)', 'sum_credit')} FROM {OWNER}.V_FINANCE_CASH_FLOW WHERE entry_date >= DATE '2025-04-01' GROUP BY cubename, TRUNC(entry_date, 'MM') FETCH FIRST 2000 ROWS ONLY")),
+    Dataset("e11_budget_cube_by_month", "extract", "Budget analysis cube (system budget vs actual): month, entries, exact budget and actual totals.",
+            sql=(f"SELECT TO_CHAR(TRUNC(budget_date, 'MM'), 'YYYY-MM-DD') AS budget_month, COUNT(*) AS rows_in_month, COUNT(DISTINCT admsite_code) AS sites, COUNT(DISTINCT glcode) AS gl_codes, "
+                 f"{_TM9('SUM(budgeted_total)', 'sum_budget')}, {_TM9('SUM(actual_total)', 'sum_actual')} FROM {OWNER}.CUBE$BUDGETANALYSIS WHERE budget_date >= DATE '2025-04-01' "
+                 "GROUP BY TRUNC(budget_date, 'MM') FETCH FIRST 100 ROWS ONLY")),
+)
+
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01}
