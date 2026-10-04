@@ -2,6 +2,9 @@ import type { CfoApi, ComparisonId, DataStateId, DrillNode, DrillOrigin, Horizon
 import { originFromBridgeItem, originFromLiquidity, originFromWcRow } from "@/lib/origins";
 import { CREDITORS_ORIGIN, abnormalNode, ageNode, flowNode, isCreditors, vendorNode } from "@/lib/creditorNodes";
 import { AGE_FILTER_LABELS, type AgeFilter, type Lens } from "@/types/creditors";
+import { CASH_ORIGIN, cashNode, isCashKey, isCashRoom, type CashKey } from "@/lib/cashNodes";
+import { PROFIT_ORIGIN, isProfitability, movementNode, quadrantNode, storeIdOf, storeNode } from "@/lib/profitNodes";
+import { QUADRANT_ORDER, type QuadrantId } from "@/types/profitability";
 import { initialState, routeFor, type CfoState } from "./cfoState";
 
 /**
@@ -79,9 +82,28 @@ export function segmentsFor(state: Pick<CfoState, "origin" | "nodes">): string[]
   return segs;
 }
 
+/** The workspaces that own a path of their own. Their bare form is implied by the path, so it needs no drill param. */
+export function roomOriginForPath(path: string): DrillOrigin | null {
+  if (path.startsWith("/creditors")) return CREDITORS_ORIGIN;
+  if (path.startsWith("/profitability")) return PROFIT_ORIGIN;
+  if (path === "/cash") return CASH_ORIGIN;
+  return null;
+}
+
+export const ROOM_PATHS = ["/creditors", "/profitability", "/cash"];
+
+/** Which workspace a (possibly stale) drill value belongs to, and where its home is. */
+export function roomForDrill(drill: string): { origin: DrillOrigin; path: string } | null {
+  if (drill.startsWith("creditors.room")) return { origin: CREDITORS_ORIGIN, path: "/creditors" };
+  if (drill.startsWith("profitability.portfolio")) return { origin: PROFIT_ORIGIN, path: "/profitability" };
+  if (drill.startsWith("cashroom.room")) return { origin: CASH_ORIGIN, path: "/cash" };
+  return null;
+}
+
+export const isRoomOrigin = (o: DrillOrigin | null | undefined): boolean => isCreditors(o) || isProfitability(o) || isCashRoom(o);
+
 export function encodeDrill(state: Pick<CfoState, "origin" | "nodes">): string | undefined {
-  // the bare Creditors room is implied by the /creditors path, so it needs no drill param
-  if (isCreditors(state.origin) && state.nodes.length === 0) return undefined;
+  if (isRoomOrigin(state.origin) && state.nodes.length === 0) return undefined;
   const segs = segmentsFor(state);
   return segs.length ? segs.join("/") : undefined;
 }
@@ -130,6 +152,10 @@ async function resolveOrigin(api: CfoApi, ctx: QueryCtx, horizon: Horizon, scope
   switch (scope) {
     case "creditors":
       return id === "room" ? { origin: CREDITORS_ORIGIN } : null;
+    case "profitability":
+      return id === "portfolio" ? { origin: PROFIT_ORIGIN } : null;
+    case "cashroom":
+      return id === "room" ? { origin: CASH_ORIGIN } : null;
     case "forecast": {
       const f = ok(await api.getForecast(ctx));
       const item = f?.bridge.items.find((i) => i.id === id);
@@ -186,6 +212,38 @@ async function resolveCreditorNode(api: CfoApi, ctx: QueryCtx, seg: string): Pro
   return null;
 }
 
+/** Rebuilds one Profitability node (quadrant filter, store, store movement) from its URL segment. */
+async function resolveProfitNode(api: CfoApi, ctx: QueryCtx, seg: string, filters: DrillNode[]): Promise<DrillNode | null> {
+  if (seg.startsWith("Quadrant:")) {
+    const q = seg.slice("Quadrant:".length) as QuadrantId;
+    return QUADRANT_ORDER.includes(q) ? quadrantNode(q) : null;
+  }
+  if (seg.startsWith("Store:")) {
+    const ws = ok(await api.getStoreWorkspace(ctx, seg.slice("Store:".length)));
+    return ws ? storeNode(ws.store) : null;
+  }
+  if (seg.startsWith("Movement:")) {
+    const sid = storeIdOf(filters.find((n) => n.dim === "Store"));
+    const ws = sid ? ok(await api.getStoreWorkspace(ctx, sid)) : null;
+    const m = ws?.movements.find((x) => x.id === seg.slice("Movement:".length));
+    return m ? movementNode(m) : null;
+  }
+  return null;
+}
+
+/** Rebuilds the cash driver node that starts an investigation in the Cash & Working Capital workspace. */
+async function resolveCashNode(api: CfoApi, ctx: QueryCtx, horizon: Horizon, seg: string): Promise<DrillNode | null> {
+  if (!seg.startsWith("CashDriver:")) return null;
+  const key = seg.slice("CashDriver:".length);
+  if (!isCashKey(key)) return null;
+  const room = ok(await api.getCashRoom(ctx, horizon));
+  if (!room) return null;
+  const item = room.bridge.items.find((i) => i.id === key);
+  if (item) return cashNode(key as CashKey, item.label, item.value);
+  const drv = room.drivers.find((d) => d.id === key);
+  return drv ? cashNode(key as CashKey, drv.label, drv.cashImpact) : null;
+}
+
 /**
  * Rebuilds the origin and nodes for a `drill` value by replaying it through the API.
  * Returns null if any step no longer exists (e.g. scenario changed), so the caller can fall back safely.
@@ -225,6 +283,16 @@ export async function resolveDrill(api: CfoApi, ctx: QueryCtx, horizon: Horizon,
         } else {
           return null;
         }
+      } else if (isProfitability(origin) && /^(Quadrant|Store|Movement):/.test(seg)) {
+        const node = await resolveProfitNode(api, ctx, seg, filters);
+        if (!node) return null;
+        nodes.push(node);
+        filters.push(node);
+      } else if (isCashRoom(origin) && filters.length === 0) {
+        const node = await resolveCashNode(api, ctx, horizon, seg);
+        if (!node) return null;
+        nodes.push(node);
+        filters.push(node);
       } else if (isCreditors(origin)) {
         const node = await resolveCreditorNode(api, ctx, seg);
         if (!node) return null;

@@ -10,15 +10,23 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VoucherRouteImport } from './routes/voucher'
+import { Route as ProfitabilityRouteImport } from './routes/profitability'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as LedgerRouteImport } from './routes/ledger'
 import { Route as CreditorsRouteImport } from './routes/creditors'
+import { Route as CashRouteImport } from './routes/cash'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ProfitabilityStoreRouteImport } from './routes/profitability_.store'
 import { Route as CreditorsVendorRouteImport } from './routes/creditors_.vendor'
 
 const VoucherRoute = VoucherRouteImport.update({
   id: '/voucher',
   path: '/voucher',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfitabilityRoute = ProfitabilityRouteImport.update({
+  id: '/profitability',
+  path: '/profitability',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfileRoute = ProfileRouteImport.update({
@@ -36,9 +44,19 @@ const CreditorsRoute = CreditorsRouteImport.update({
   path: '/creditors',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CashRoute = CashRouteImport.update({
+  id: '/cash',
+  path: '/cash',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfitabilityStoreRoute = ProfitabilityStoreRouteImport.update({
+  id: '/profitability_/store',
+  path: '/profitability/store',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CreditorsVendorRoute = CreditorsVendorRouteImport.update({
@@ -49,63 +67,84 @@ const CreditorsVendorRoute = CreditorsVendorRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/cash': typeof CashRoute
   '/creditors': typeof CreditorsRoute
   '/ledger': typeof LedgerRoute
   '/profile': typeof ProfileRoute
+  '/profitability': typeof ProfitabilityRoute
   '/voucher': typeof VoucherRoute
   '/creditors/vendor': typeof CreditorsVendorRoute
+  '/profitability/store': typeof ProfitabilityStoreRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/cash': typeof CashRoute
   '/creditors': typeof CreditorsRoute
   '/ledger': typeof LedgerRoute
   '/profile': typeof ProfileRoute
+  '/profitability': typeof ProfitabilityRoute
   '/voucher': typeof VoucherRoute
   '/creditors/vendor': typeof CreditorsVendorRoute
+  '/profitability/store': typeof ProfitabilityStoreRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/cash': typeof CashRoute
   '/creditors': typeof CreditorsRoute
   '/ledger': typeof LedgerRoute
   '/profile': typeof ProfileRoute
+  '/profitability': typeof ProfitabilityRoute
   '/voucher': typeof VoucherRoute
   '/creditors_/vendor': typeof CreditorsVendorRoute
+  '/profitability_/store': typeof ProfitabilityStoreRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/cash'
     | '/creditors'
     | '/ledger'
     | '/profile'
+    | '/profitability'
     | '/voucher'
     | '/creditors/vendor'
+    | '/profitability/store'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/cash'
     | '/creditors'
     | '/ledger'
     | '/profile'
+    | '/profitability'
     | '/voucher'
     | '/creditors/vendor'
+    | '/profitability/store'
   id:
     | '__root__'
     | '/'
+    | '/cash'
     | '/creditors'
     | '/ledger'
     | '/profile'
+    | '/profitability'
     | '/voucher'
     | '/creditors_/vendor'
+    | '/profitability_/store'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CashRoute: typeof CashRoute
   CreditorsRoute: typeof CreditorsRoute
   LedgerRoute: typeof LedgerRoute
   ProfileRoute: typeof ProfileRoute
+  ProfitabilityRoute: typeof ProfitabilityRoute
   VoucherRoute: typeof VoucherRoute
   CreditorsVendorRoute: typeof CreditorsVendorRoute
+  ProfitabilityStoreRoute: typeof ProfitabilityStoreRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -115,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/voucher'
       fullPath: '/voucher'
       preLoaderRoute: typeof VoucherRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profitability': {
+      id: '/profitability'
+      path: '/profitability'
+      fullPath: '/profitability'
+      preLoaderRoute: typeof ProfitabilityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profile': {
@@ -138,11 +184,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CreditorsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cash': {
+      id: '/cash'
+      path: '/cash'
+      fullPath: '/cash'
+      preLoaderRoute: typeof CashRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profitability_/store': {
+      id: '/profitability_/store'
+      path: '/profitability/store'
+      fullPath: '/profitability/store'
+      preLoaderRoute: typeof ProfitabilityStoreRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/creditors_/vendor': {
@@ -157,11 +217,14 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CashRoute: CashRoute,
   CreditorsRoute: CreditorsRoute,
   LedgerRoute: LedgerRoute,
   ProfileRoute: ProfileRoute,
+  ProfitabilityRoute: ProfitabilityRoute,
   VoucherRoute: VoucherRoute,
   CreditorsVendorRoute: CreditorsVendorRoute,
+  ProfitabilityStoreRoute: ProfitabilityStoreRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

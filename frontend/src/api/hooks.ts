@@ -128,3 +128,25 @@ export const useVendorProfile = (vendorId: string | null) => {
     retry: false,
   });
 };
+
+/* ───────────── Stage 3 / 4: Profitability and Cash & Working Capital ───────────── */
+
+export const useProfitPortfolio = () => {
+  const { ctx, ready } = useBase();
+  return useQuery({ queryKey: ["profit", ctx], queryFn: () => cfoApi.getProfitPortfolio(ctx), enabled: ready, retry: false });
+};
+
+export const useStoreWorkspace = (storeId: string | null) => {
+  const { ctx, ready } = useBase();
+  return useQuery({
+    queryKey: ["store", storeId, ctx],
+    queryFn: () => cfoApi.getStoreWorkspace(ctx, storeId as string),
+    enabled: ready && storeId !== null,
+    retry: false,
+  });
+};
+
+export const useCashRoom = (horizon: Horizon) => {
+  const { ctx, ready } = useBase();
+  return useQuery({ queryKey: ["cashroom", horizon, ctx], queryFn: () => cfoApi.getCashRoom(ctx, horizon), enabled: ready, retry: false });
+};

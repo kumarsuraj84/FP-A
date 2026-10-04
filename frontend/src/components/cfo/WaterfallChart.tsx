@@ -8,6 +8,8 @@ interface Props {
   onSelect: (item: BridgeItem) => void;
   height?: number;
   ariaLabel: string;
+  /** "cr" (default) or "lakh" for store-level figures; values are always ₹ Cr, only the display changes */
+  unit?: "cr" | "lakh";
 }
 
 const M = { l: 54, r: 14, t: 34, b: 50 };
@@ -28,7 +30,10 @@ function wrap(label: string, max = 13): string[] {
   return lines.slice(0, 3);
 }
 
-export function WaterfallChart({ items, selectedId, onSelect, height = 340, ariaLabel }: Props) {
+const num = (v: number, unit: "cr" | "lakh") => (unit === "lakh" ? (v * 100).toFixed(1) : v.toFixed(2));
+const money = (v: number, unit: "cr" | "lakh") => (unit === "lakh" ? `₹${Math.abs(v * 100).toFixed(1)} L` : `₹${Math.abs(v).toFixed(2)} Cr`);
+
+export function WaterfallChart({ items, selectedId, onSelect, height = 340, ariaLabel, unit = "cr" }: Props) {
   const [ref, size] = useElementSize<HTMLDivElement>(900);
   const [hover, setHover] = useState<string | null>(null);
   const W = Math.max(320, size.width);
@@ -75,7 +80,7 @@ export function WaterfallChart({ items, selectedId, onSelect, height = 340, aria
           <g key={i}>
             <line x1={M.l} x2={W - M.r} y1={y(t)} y2={y(t)} stroke="oklch(0.92 0.01 260)" strokeDasharray={i === 0 ? undefined : "2 4"} />
             <text x={M.l - 8} y={y(t) + 3.5} textAnchor="end" fontSize={10.5} fill="oklch(0.55 0.02 260)" className="num">
-              {t.toFixed(t > 20 ? 0 : 1)}
+              {unit === "lakh" ? (t * 100).toFixed(Math.abs(t * 100) > 20 ? 0 : 1) : t.toFixed(t > 20 ? 0 : 1)}
             </text>
           </g>
         ))}
@@ -90,7 +95,7 @@ export function WaterfallChart({ items, selectedId, onSelect, height = 340, aria
           const dim = selectedId !== null && !selected;
           const isHover = hover === s.it.id;
           const neg = !isTotal && s.it.value < 0;
-          const label = isTotal ? s.it.value.toFixed(2) : `${s.it.value < 0 ? "−" : "+"}${Math.abs(s.it.value).toFixed(2)}`;
+          const label = isTotal ? num(s.it.value, unit) : `${s.it.value < 0 ? "−" : "+"}${num(Math.abs(s.it.value), unit)}`;
           const next = geo.spans[i + 1];
           const endLevel = isTotal ? s.it.value : (s.from ?? 0) + s.it.value;
           return (
@@ -99,7 +104,7 @@ export function WaterfallChart({ items, selectedId, onSelect, height = 340, aria
               role="button"
               tabIndex={0}
               aria-pressed={selected}
-              aria-label={`${s.it.label} ${s.it.value.toFixed(2)} crore. Click to investigate.`}
+              aria-label={`${s.it.label} ${num(s.it.value, unit)} ${unit === "lakh" ? "lakh" : "crore"}. Click to investigate.`}
               data-testid={`bar-${s.it.id}`}
               onClick={() => onSelect(s.it)}
               onKeyDown={(e) => {
@@ -168,7 +173,7 @@ export function WaterfallChart({ items, selectedId, onSelect, height = 340, aria
         >
           <div className="font-semibold text-foreground">{hovered.it.label}</div>
           <div className="num mt-0.5 text-[15px] font-bold" style={{ color: hovered.it.kind === "total" ? NAVY : hovered.it.value < 0 ? "oklch(0.5 0.2 25)" : "oklch(0.42 0.14 155)" }}>
-            {`${hovered.it.value < 0 ? "−" : hovered.it.kind === "delta" ? "+" : ""}₹${Math.abs(hovered.it.value).toFixed(2)} Cr`}
+            {`${hovered.it.value < 0 ? "−" : hovered.it.kind === "delta" ? "+" : ""}${money(hovered.it.value, unit)}`}
           </div>
           {hovered.it.kind === "delta" && <div className="text-muted-foreground">{((hovered.it.value / startTotal) * 100).toFixed(1)}% of opening level</div>}
           <div className="mt-1 text-[11px] font-medium text-primary">Click to investigate →</div>

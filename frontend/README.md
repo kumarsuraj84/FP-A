@@ -1,4 +1,4 @@
-# CityKart CFO Operating System — frontend (Stage 1: CFO Command Center · Stage 2: Creditors Control Room)
+# CityKart CFO Operating System — frontend (Command Center · Creditors · Store Profitability · Cash & Working Capital)
 
 Demo data only. The banner reads **"Demo data — financial source reconciliation pending"**; nothing here is labelled live.
 
@@ -92,3 +92,21 @@ npm test                              # 143 tests incl. reconciliation contracts
 node scripts/creditors-e2e.mjs        # 40 real-browser checks at 1920x1080 and 1440x900
 node scripts/screenshots-creditors.mjs
 ```
+
+## Stage 3 and 4 — Store Profitability, Cash & Working Capital Control (demo data)
+
+Navigation: **Command** (CFO Command Center) · **Performance** (Profitability) · **Liquidity** (Cash & Working Capital) · **Exposure** (Creditors). Budget & Forecast, Vendor Advances, Reconciliation and Balance Sheet are visibly disabled (planned).
+
+Every workspace is a drill *origin* (`profitability.portfolio`, `cashroom.room`, `creditors.room`), so breadcrumbs, shareable `drill=` URLs, Back and the push drawer work the same everywhere:
+
+```
+Profitability:  portfolio → [Quadrant:x] → Store:<id> → Movement:<id> → driver → Account:<GL> → ledger → voucher
+Cash:           room → CashDriver:<key> → (same chains as the Command Center) → ledger → voucher
+```
+
+- **Profitability** (`/profitability`, `/profitability/store`): growth × contribution-margin quadrant (dot = store, size = revenue), quadrant filter, store workspace with header strip, P&L bridge (every bar clickable), "why underperforming", expense pressure, monthly trajectory (actual / budget / forecast), network comparison (company, zone, region, cluster, comparable stores).
+- **Cash & Working Capital** (`/cash`): cash today and at 7 / 15 / 30 days against the operating minimum, what moves cash over the selected horizon, obligations approaching, absorbed / released working-capital drivers. Capex commitments have no source yet and show as missing, never zero.
+- **Reconciliation to the Command Center** (tested in `src/mocks/workspaces.test.ts`): store contribution variances add up to the Command Center operating-profit bridge in every scenario / period / comparison; Rohini carries the same share of the North GM gap; the cash 30-day step equals the Command Center projection.
+- A store reached through a Command Center drill offers **Open store profitability**; the Creditors driver in the cash workspace links to Creditors Control.
+
+Review gate: `node scripts/screenshots-stage34.mjs` (dev server on :5180) writes the eight screens at 1920×1080 and 1440×900 plus two recorded end-to-end journeys to `docs/review/`.

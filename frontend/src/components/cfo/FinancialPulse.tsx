@@ -35,7 +35,7 @@ function Cell({ m, active, onClick }: { m: PulseMetric; active: boolean; onClick
         {mvText}
         <span className="font-normal text-muted-foreground @max-[1500px]:hidden">{m.comparisonLabel}</span>
       </span>
-      <span className="w-full truncate text-[11px] text-muted-foreground @max-[1000px]:hidden" title={m.status}>
+      <span className="line-clamp-2 min-h-[30px] w-full text-[11px] leading-snug text-muted-foreground @max-[1000px]:hidden" title={m.status}>
         {m.status}
       </span>
     </button>

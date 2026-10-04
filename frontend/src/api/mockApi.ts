@@ -11,6 +11,8 @@ import {
   workingCapitalBridge,
 } from "@/mocks/builders";
 import { buildDrill, buildLedger, buildProfile, buildVoucher } from "@/mocks/drill";
+import { buildCashRoom } from "@/mocks/cash";
+import { buildProfitPortfolio, buildStoreWorkspace } from "@/mocks/profitability";
 import { buildAbnormal, buildConcentration, buildCreditorsOverview, buildMigration, buildVendorProfile } from "@/mocks/creditors";
 
 export class ApiError extends Error {
@@ -74,4 +76,12 @@ export const mockApi: CfoApi = {
       if (!p) throw new ApiError(`Vendor ${vendorId} not found`, 404);
       return p;
     }),
+  getProfitPortfolio: (ctx) => respond(ctx, () => buildProfitPortfolio(ctx)),
+  getStoreWorkspace: (ctx, storeId) =>
+    respond(ctx, () => {
+      const w = buildStoreWorkspace(ctx, storeId);
+      if (!w) throw new ApiError(`Store ${storeId} not found`, 404);
+      return w;
+    }),
+  getCashRoom: (ctx, horizon) => respond(ctx, () => buildCashRoom(ctx, horizon)),
 };

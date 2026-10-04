@@ -1,7 +1,12 @@
 import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ChevronRight, CircleDot, Landmark, LayoutDashboard, Lock, PiggyBank, Scale, Store, Truck, Wallet } from "lucide-react";
+import { Banknote, ChevronRight, CircleDot, Landmark, LayoutDashboard, Lock, PiggyBank, Scale, Store, Truck, Wallet } from "lucide-react";
 import { useCfo } from "@/context/CfoContext";
+import { searchFromState } from "@/context/drillUrl";
+import { CREDITORS_ORIGIN } from "@/lib/creditorNodes";
+import { PROFIT_ORIGIN } from "@/lib/profitNodes";
+import { CASH_ORIGIN } from "@/lib/cashNodes";
+import type { DrillOrigin } from "@/types/cfo";
 import { useFreshness } from "@/api/hooks";
 import { COMPARISON_ORDER, COMPARISONS, PERIOD_ORDER, PERIODS, SCENARIOS, SCENARIO_ORDER } from "@/mocks/scenarios";
 import type { ComparisonId, DataStateId, PeriodId, ScenarioId } from "@/types/cfo";
@@ -100,46 +105,74 @@ export function TopBar() {
 }
 
 const FUTURE = [
+  { label: "Budget & Forecast", icon: PiggyBank },
   { label: "Vendor Advances", icon: Wallet },
-  { label: "Store Profitability", icon: Store },
   { label: "Reconciliation", icon: Scale },
   { label: "Balance Sheet", icon: Landmark },
-  { label: "Budget", icon: PiggyBank },
 ];
 
+type NavId = "command" | "profitability" | "cash" | "creditors";
+
+const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: "/" | "/profitability" | "/cash" | "/creditors"; testId: string; icon: typeof Truck }[] }[] = [
+  { group: "Command", items: [{ id: "command", label: "CFO Command Center", title: "CFO Command Center", to: "/", testId: "nav-command-center", icon: LayoutDashboard }] },
+  { group: "Performance", items: [{ id: "profitability", label: "Profitability", title: "Store Profitability", to: "/profitability", testId: "nav-profitability", icon: Store }] },
+  { group: "Liquidity", items: [{ id: "cash", label: "Cash & Working Capital", title: "Cash & Working Capital", to: "/cash", testId: "nav-cash", icon: Banknote }] },
+  { group: "Exposure", items: [{ id: "creditors", label: "Creditors", title: "Creditors Control", to: "/creditors", testId: "nav-creditors", icon: Truck }] },
+];
+
+const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN };
+
+/** The destination the current investigation belongs to, so a ledger or voucher still highlights its own area. */
+function activeNav(scope: string | undefined, path: string): NavId {
+  if (scope === "creditors" || path.startsWith("/creditors")) return "creditors";
+  if (scope === "profitability" || path.startsWith("/profitability")) return "profitability";
+  if (scope === "cashroom" || path === "/cash") return "cash";
+  return "command";
+}
+
 export function SideNav() {
-  const { dispatch, enterCreditors } = useCfo();
+  const { state, dispatch, enterCreditors, enterRoom } = useCfo();
   const path = useRouterState({ select: (x) => x.location.pathname });
-  const inCreditors = path.startsWith("/creditors");
+  const active = activeNav(state.origin?.scope, path);
+  const go: Record<NavId, () => void> = {
+    command: () => dispatch({ type: "home" }),
+    profitability: () => enterRoom("profitability"),
+    cash: () => enterRoom("cashroom"),
+    creditors: () => enterCreditors(),
+  };
   return (
-    <nav aria-label="Primary" className="hidden w-14 shrink-0 flex-col border-r bg-card py-3 md:flex min-[1700px]:w-[204px]">
-      <Link
-        to="/"
-        onClick={() => dispatch({ type: "home" })}
-        data-testid="nav-command-center"
-        title="Command Center" className={`press mx-2 flex items-center justify-center gap-2 rounded px-2.5 py-2 text-[13px] font-semibold min-[1700px]:justify-start ${inCreditors ? "text-muted-foreground hover:bg-muted hover:text-foreground" : "bg-[oklch(0.95_0.025_265)] text-[oklch(0.28_0.09_265)]"}`}
-        aria-current={inCreditors ? undefined : "page"}
-      >
-        <LayoutDashboard className="h-4 w-4 shrink-0" /> <span className="hidden min-[1700px]:inline">Command Center</span>
-      </Link>
-      <Link
-        to="/creditors"
-        onClick={() => enterCreditors()}
-        data-testid="nav-creditors"
-        title="Creditors Control"
-        aria-current={inCreditors ? "page" : undefined}
-        className={`press mx-2 mt-1 flex items-center justify-center gap-2 rounded px-2.5 py-2 text-[13px] font-semibold min-[1700px]:justify-start ${inCreditors ? "bg-[oklch(0.95_0.025_265)] text-[oklch(0.28_0.09_265)]" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-      >
-        <Truck className="h-4 w-4 shrink-0" /> <span className="hidden min-[1700px]:inline">Creditors Control</span>
-      </Link>
-      <div className="eyebrow mt-5 hidden px-4 min-[1700px]:block">Coming next</div>
-      <ul className="mt-3 space-y-0.5 px-2 min-[1700px]:mt-1.5">
+    <nav aria-label="Primary" className="hidden w-14 shrink-0 flex-col border-r bg-card py-3 md:flex min-[1360px]:w-[196px]">
+      {NAV_GROUPS.map(({ group, items }) => (
+        <div key={group} className="mb-1">
+          <div className="eyebrow mt-3 hidden px-4 first:mt-0 min-[1360px]:block">{group}</div>
+          {items.map(({ id, label, title, to, testId, icon: Icon }) => (
+            <Link
+              key={id}
+              to={to}
+              // carry period / comparison / scenario / horizon into the destination, so the address is complete and shareable
+              search={searchFromState({ ...state, origin: ORIGIN_FOR[id], nodes: [], drawerOpen: false }) as never}
+              onClick={go[id]}
+              data-testid={testId}
+              title={title}
+              aria-current={active === id ? "page" : undefined}
+              className={cn(
+                "press mx-2 mt-1 flex items-center justify-center gap-2 rounded px-2.5 py-2 text-[13px] font-semibold min-[1360px]:justify-start",
+                active === id ? "bg-[oklch(0.95_0.025_265)] text-[oklch(0.28_0.09_265)]" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" /> <span className="hidden whitespace-nowrap min-[1360px]:inline">{label}</span>
+            </Link>
+          ))}
+        </div>
+      ))}
+      <div className="eyebrow mt-4 hidden px-4 min-[1360px]:block">Upcoming</div>
+      <ul className="mt-3 space-y-0.5 px-2 min-[1360px]:mt-1.5">
         {FUTURE.map(({ label, icon: Icon }) => (
           <li key={label}>
-            <div aria-disabled="true" title={`${label} — planned for a later stage`} className="flex cursor-not-allowed items-center justify-center gap-2 rounded px-2.5 py-1.5 text-[12.5px] text-muted-foreground/70 min-[1700px]:justify-start">
+            <div aria-disabled="true" title={`${label} — planned for a later stage`} className="flex cursor-not-allowed items-center justify-center gap-2 rounded px-2.5 py-1.5 text-[12.5px] text-muted-foreground/70 min-[1360px]:justify-start">
               <Icon className="h-4 w-4 shrink-0" />
-              <span className="hidden flex-1 whitespace-nowrap min-[1700px]:inline">{label}</span>
-              <Lock className="hidden h-3 w-3 opacity-60 min-[1700px]:block" />
+              <span className="hidden flex-1 whitespace-nowrap min-[1360px]:inline">{label}</span>
+              <Lock className="hidden h-3 w-3 opacity-60 min-[1360px]:block" />
             </div>
           </li>
         ))}

@@ -13,6 +13,8 @@ import type {
   VoucherEvidence,
 } from "@/types/cfo";
 import { buildCreditorDrill, buildCreditorLedger } from "./creditors";
+import { buildProfitDrill, buildProfitLedger } from "./profitability";
+import { cashEffectiveOrigin, isCashNode } from "@/lib/cashNodes";
 import { COMPARISONS } from "./scenarios";
 import { AGEING_BUCKETS, ALL_STORES, DEPARTMENTS, REGIONS, STORES, VENDORS, rng, splitAmount, weightedSplit } from "./seed";
 
@@ -21,7 +23,7 @@ const r4 = (n: number) => Math.round(n * 1e4) / 1e4;
 
 /** Dimensions that end the drill: an entity worth a deep page. */
 const TERMINAL_DIMS = new Set(["Store", "Vendor", "Account"]);
-const DRIVER_DIMS = new Set(["Department", "Ageing bucket", "Driver", "Payroll head", "Occupancy head", "Power head", "Inflow source", "Obligation", "Settlement channel", "Source system"]);
+const DRIVER_DIMS = new Set(["Department", "Ageing bucket", "Driver", "Payroll head", "Occupancy head", "Power head", "Inflow source", "Obligation", "Settlement channel", "Source system", "Statutory head"]);
 
 export function levelForDim(dim: string): DrillNode["level"] {
   return DRIVER_DIMS.has(dim) ? "driver" : "entity";
@@ -48,6 +50,16 @@ export function chainFor(origin: DrillOrigin): string[] {
       return ["Settlement channel", "Store"];
     case "other_wc":
       return ["Account"];
+    case "obl_vendor":
+      return ["Ageing bucket", "Vendor"];
+    case "obl_payroll":
+      return ["Payroll head", "Region", "Store"];
+    case "obl_statutory":
+      return ["Statutory head", "Account"];
+    case "obl_other":
+      return ["Occupancy head", "Account"];
+    case "inflows":
+      return ["Inflow source", "Account"];
   }
   const byFamily: Record<Family, string[]> = {
     margin: ["Department", "Region", "Store"],
@@ -73,6 +85,7 @@ const POOLS: Record<string, string[]> = {
   "Inflow source": ["Store collections", "Card settlements", "UPI settlements", "Franchise receipts"],
   Obligation: ["Vendor payment run", "Payroll", "GST & statutory", "Rent & CAM"],
   "Settlement channel": ["Card acquirer", "UPI", "Franchise", "B2B"],
+  "Statutory head": ["GST payable", "TDS & TCS", "PF & ESI", "Professional tax"],
   "Source system": ["Ginesys POS", "Bank statements", "Card settlements", "Vendor ledger"],
   Account: ["Bank – HDFC Current", "Bank – ICICI Collection", "Card settlement clearing", "GST input credit", "Security deposits", "Prepaid expenses"],
   Driver: [],
@@ -251,6 +264,12 @@ function explain(origin: DrillOrigin, label: string, amount: number, variance: n
 
 export function buildDrill(ctx: QueryCtx, origin: DrillOrigin, allNodes: DrillNode[]): DrillView {
   if (origin.scope === "creditors") return buildCreditorDrill(ctx, origin, filterNodes(allNodes));
+  if (origin.scope === "profitability") return buildProfitDrill(ctx, origin, filterNodes(allNodes));
+  if (origin.scope === "cashroom") {
+    // the first node is the cash driver; from there it is the same investigation the Command Center runs
+    const [first, ...tail] = filterNodes(allNodes);
+    if (first && isCashNode(first)) return buildDrill(ctx, cashEffectiveOrigin(first), tail);
+  }
   const nodes = filterNodes(allNodes);
   const last = nodes[nodes.length - 1];
   const amount = last?.amount ?? origin.amount ?? 0;
@@ -352,6 +371,8 @@ const VTYPES = [
 
 export function buildLedger(ctx: QueryCtx, origin: DrillOrigin, allNodes: DrillNode[]): LedgerView {
   const nodes = filterNodes(allNodes);
+  if (origin.scope === "profitability") return buildProfitLedger(ctx, nodes);
+  if (origin.scope === "cashroom" && nodes[0] && isCashNode(nodes[0])) return buildLedger(ctx, cashEffectiveOrigin(nodes[0]), nodes.slice(1));
   if (origin.scope === "creditors") {
     const cl = buildCreditorLedger(ctx, nodes);
     if (cl) return cl;
@@ -407,10 +428,23 @@ export function buildLedger(ctx: QueryCtx, origin: DrillOrigin, allNodes: DrillN
 export function buildVoucher(ctx: QueryCtx, voucherId: string, amount: number | null): VoucherEvidence {
   const r = rng(`${ctx.scenario}|v|${voucherId}`);
   const prefix = voucherId.split("-")[0];
-  const vt = prefix === "PI" ? { p: "PI", name: "Purchase Invoice", src: "Ginesys AP" } : (VTYPES.find((v) => v.p === prefix) ?? VTYPES[0]);
+  const vt = prefix === "PI" ? { p: "PI", name: "Purchase Invoice", src: "Ginesys AP" } : prefix === "EJ" ? { p: "EJ", name: "Expense Journal", src: "Ginesys Finance" } : (VTYPES.find((v) => v.p === prefix) ?? VTYPES[0]);
   const total = Math.round(amount !== null ? Math.abs(amount) : 50000 + r() * 3e6);
   const split1 = Math.round(total * (0.55 + r() * 0.2));
   const lines =
+    prefix === "EJ"
+      ? [
+          { account: "6xxx", accountName: "Store operating expense", costCenter: "Store", debit: split1, credit: 0 },
+          { account: "2150", accountName: "GST Input Credit", costCenter: "Statutory", debit: total - split1, credit: 0 },
+          { account: "2200", accountName: "Accrued expenses", costCenter: "Accounts Payable", debit: 0, credit: total },
+        ]
+      : prefix === "SV"
+        ? [
+            { account: "1900", accountName: "Card & UPI settlement clearing", costCenter: "Treasury", debit: total, credit: 0 },
+            { account: "4100", accountName: "Sales – Retail", costCenter: "Store", debit: 0, credit: split1 },
+            { account: "2160", accountName: "GST Output", costCenter: "Statutory", debit: 0, credit: total - split1 },
+          ]
+        :
     prefix === "PV"
       ? [
           { account: "2100", accountName: "Trade Creditors", costCenter: "Accounts Payable", debit: total, credit: 0 },
@@ -459,6 +493,10 @@ export function buildVoucher(ctx: QueryCtx, voucherId: string, amount: number | 
 }
 
 export function buildProfile(ctx: QueryCtx, origin: DrillOrigin, allNodes: DrillNode[]): EntityProfile {
+  if (origin.scope === "cashroom") {
+    const [first, ...tail] = filterNodes(allNodes);
+    if (first && isCashNode(first)) return buildProfile(ctx, cashEffectiveOrigin(first), tail);
+  }
   const nodes = filterNodes(allNodes);
   const last = nodes[nodes.length - 1];
   const r = rng(seedKey(ctx, origin, nodes, "profile"));

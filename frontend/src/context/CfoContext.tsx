@@ -2,7 +2,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { cfoApi } from "@/api";
 import type { DrillNode, DrillOrigin, HeroTab, QueryCtx } from "@/types/cfo";
-import { CREDITORS_ORIGIN } from "@/lib/creditorNodes";
 import type { CreditorsTarget } from "@/types/creditors";
 import { crumbsFor, drawerAllowed, initialState, reducer, routeFor, toQueryCtx, type CfoAction, type CfoState, type Crumb } from "./cfoState";
 import {
@@ -12,6 +11,9 @@ import {
   resolveDrill,
   searchFromState,
   searchIsComplete,
+  roomForDrill,
+  roomOriginForPath,
+  ROOM_PATHS,
   stateKey,
   urlKey,
   type CfoSearch,
@@ -29,6 +31,14 @@ interface CfoContextValue {
   openOrigin: (origin: DrillOrigin, heroTab?: HeroTab) => void;
   /** hand-off into the Creditors room, carrying an age filter and lens */
   enterCreditors: (target?: CreditorsTarget) => void;
+  /** hand-off into the Profitability or Cash & Working Capital workspace */
+  enterRoom: (room: "profitability" | "cashroom") => void;
+  /** open a store's workspace from anywhere */
+  enterStore: (node: DrillNode) => void;
+  /** investigate a store movement (bridge bar, expense, driver) */
+  openMovement: (node: DrillNode) => void;
+  /** investigate a cash driver */
+  openCashDriver: (node: DrillNode) => void;
   /** select / clear the room's age, flow or abnormal filter */
   selectFilter: (node: DrillNode | null) => void;
   pushNodes: (nodes: DrillNode[]) => void;
@@ -39,13 +49,14 @@ interface CfoContextValue {
 }
 
 const Ctx = createContext<CfoContextValue | null>(null);
-const APP_PATHS = ["/", "/ledger", "/voucher", "/profile", "/creditors", "/creditors/vendor"];
+const APP_PATHS = ["/", "/ledger", "/voucher", "/profile", "/creditors", "/creditors/vendor", "/profitability", "/profitability/store", "/cash"];
 
-/** The drill value looks like a single room-level age selection (or none): these swaps replace history. */
-function isAgeSelectionOnly(drill: string): boolean {
+/** The drill value looks like a single room-level filter (age bucket or quadrant), or none: these swaps replace history. */
+function isFilterSelectionOnly(drill: string): boolean {
   if (!drill) return true;
   const segs = drill.split("/");
-  return segs[0] === "creditors.room" && (segs.length === 1 || (segs.length === 2 && segs[1].startsWith("Ageing bucket:")));
+  if (!roomForDrill(segs[0])) return false;
+  return segs.length === 1 || (segs.length === 2 && (segs[1].startsWith("Ageing bucket:") || segs[1].startsWith("Quadrant:")));
 }
 
 export function CfoProvider({ children, initial }: { children: ReactNode; initial?: Partial<CfoState> }) {
@@ -54,8 +65,8 @@ export function CfoProvider({ children, initial }: { children: ReactNode; initia
   const [state, dispatch] = useReducer(reducer, undefined, () => ({
     ...initialState,
     ...filtersFromSearch(loc.search),
-    // /creditors implies the creditors room even with no drill param
-    ...(loc.path.startsWith("/creditors") && !loc.search.drill ? { origin: CREDITORS_ORIGIN, nodes: [] } : {}),
+    // a workspace path implies its room even with no drill param
+    ...(roomOriginForPath(loc.path) && !loc.search.drill ? { origin: roomOriginForPath(loc.path), nodes: [] } : {}),
     ...initial,
   }));
   // drill in the first URL has to be replayed before we may write the URL from state
@@ -86,8 +97,7 @@ export function CfoProvider({ children, initial }: { children: ReactNode; initia
     if (!drill) {
       applying.current = false;
       setResolving(false);
-      const room = loc.path.startsWith("/creditors");
-      dispatch({ type: "hydrate", state: { ...filters, origin: room ? CREDITORS_ORIGIN : null, nodes: [], drawerOpen: false } });
+      dispatch({ type: "hydrate", state: { ...filters, origin: roomOriginForPath(loc.path), nodes: [], drawerOpen: false } });
       return;
     }
     // Back / breadcrumb: the new path is a prefix of the current one, no refetch needed
@@ -109,10 +119,10 @@ export function CfoProvider({ children, initial }: { children: ReactNode; initia
         dispatch({ type: "hydrate", state: { origin: r.origin, nodes: r.nodes, heroTab: r.heroTab ?? filters.heroTab, drawerOpen: drawerAllowed(r) } });
       } else {
         // the linked investigation no longer exists: land on its home (room or command center), same filters
-        const room = drill.startsWith("creditors.room");
-        const origin = room ? CREDITORS_ORIGIN : null;
+        const room = roomForDrill(drill);
+        const origin = room?.origin ?? null;
         dispatch({ type: "hydrate", state: { origin, nodes: [], drawerOpen: false } });
-        navigate({ to: room ? "/creditors" : "/", search: searchFromState({ ...stateRef.current, origin, nodes: [] }) as never, replace: true });
+        navigate({ to: room?.path ?? "/", search: searchFromState({ ...stateRef.current, origin, nodes: [] }) as never, replace: true });
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,11 +135,13 @@ export function CfoProvider({ children, initial }: { children: ReactNode; initia
     if (!APP_PATHS.includes(path)) return;
     const want = routeFor(state);
     const same = urlKey(path, search, state) === stateKey(state);
-    if (same && searchIsComplete(search)) return;
+    // the horizon is part of what a shared link must reproduce, so a bare horizon change is written to the URL too
+    const horizonSynced = (search.horizon ?? initialState.horizon) === state.horizon;
+    if (same && horizonSynced && searchIsComplete(search)) return;
     const prevDrill = search.drill ?? "";
     const nextDrill = encodeDrill(state) ?? "";
-    // selecting an age bucket in the room is a filter, not a step: replace instead of stacking history
-    const ageOnly = want === "/creditors" && path === "/creditors" && isAgeSelectionOnly(prevDrill) && isAgeSelectionOnly(nextDrill);
+    // selecting an age bucket or quadrant in a room is a filter, not a step: replace instead of stacking history
+    const ageOnly = want === path && ROOM_PATHS.includes(path) && isFilterSelectionOnly(prevDrill) && isFilterSelectionOnly(nextDrill);
     const push = !ageOnly && (path !== want || prevDrill !== nextDrill);
     navigate({ to: want, search: searchFromState(state) as never, replace: !push });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -139,6 +151,10 @@ export function CfoProvider({ children, initial }: { children: ReactNode; initia
   const pushNode = useCallback((node: DrillNode) => dispatch({ type: "pushNode", node }), []);
   const closeDrawer = useCallback(() => dispatch({ type: "closeDrawer" }), []);
   const enterCreditors = useCallback((t?: CreditorsTarget) => dispatch({ type: "enterCreditors", age: t?.age, lens: t?.lens }), []);
+  const enterRoom = useCallback((room: "profitability" | "cashroom") => dispatch({ type: "enterRoom", room }), []);
+  const enterStore = useCallback((node: DrillNode) => dispatch({ type: "enterStore", node }), []);
+  const openMovement = useCallback((node: DrillNode) => dispatch({ type: "openMovement", node }), []);
+  const openCashDriver = useCallback((node: DrillNode) => dispatch({ type: "openCashDriver", node }), []);
   const selectFilter = useCallback((node: DrillNode | null) => dispatch({ type: "selectFilter", node }), []);
   const pushNodes = useCallback((nodes: DrillNode[]) => dispatch({ type: "pushNodes", nodes }), []);
   const goToCrumb = useCallback((c: Crumb) => dispatch(c.keep < 0 ? { type: "home" } : { type: "truncate", keep: c.keep }), []);
@@ -151,8 +167,8 @@ export function CfoProvider({ children, initial }: { children: ReactNode; initia
   const crumbs = useMemo(() => crumbsFor(state), [state.origin, state.nodes]);
 
   const value = useMemo<CfoContextValue>(
-    () => ({ state, ready: true, resolving, queryCtx, crumbs, dispatch, openOrigin, enterCreditors, selectFilter, pushNodes, pushNode, goToCrumb, back, closeDrawer }),
-    [state, resolving, queryCtx, crumbs, openOrigin, enterCreditors, selectFilter, pushNodes, pushNode, goToCrumb, back, closeDrawer],
+    () => ({ state, ready: true, resolving, queryCtx, crumbs, dispatch, openOrigin, enterCreditors, enterRoom, enterStore, openMovement, openCashDriver, selectFilter, pushNodes, pushNode, goToCrumb, back, closeDrawer }),
+    [state, resolving, queryCtx, crumbs, openOrigin, enterCreditors, enterRoom, enterStore, openMovement, openCashDriver, selectFilter, pushNodes, pushNode, goToCrumb, back, closeDrawer],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

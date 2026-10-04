@@ -48,5 +48,8 @@ export function createHttpApi(baseUrl: string): CfoApi {
     getVendorConcentration: (ctx, filter) => get("cfo/creditors/concentration", ctx, { age: filter }),
     getAbnormalBalances: (ctx) => get("cfo/creditors/abnormal", ctx),
     getVendorProfile: (ctx, vendorId) => get("cfo/creditors/vendor", ctx, { vendorId }),
+    getProfitPortfolio: (ctx) => get("cfo/profitability", ctx),
+    getStoreWorkspace: (ctx, storeId) => get("cfo/profitability/store", ctx, { storeId }),
+    getCashRoom: (ctx, horizon) => get("cfo/cash", ctx, { horizon }),
   };
 }

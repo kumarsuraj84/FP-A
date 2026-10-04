@@ -257,10 +257,10 @@ export function buildPulse(ctx: QueryCtx): PulseMetric[] {
 
 /* ───────────── liquidity ───────────── */
 
-const HORIZON_DAYS: Record<Horizon, number> = { today: 1, "7d": 7, "15d": 15, "30d": 30 };
+export const HORIZON_DAYS: Record<Horizon, number> = { today: 1, "7d": 7, "15d": 15, "30d": 30 };
 const MONTH = ["Oct", "Oct", "Oct"];
 
-function dayLabel(offset: number): string {
+export function dayLabel(offset: number): string {
   const d = new Date(Date.UTC(2026, 9, 3 + offset));
   return `${d.getUTCDate()} ${d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" })}`;
 }

@@ -133,7 +133,7 @@ describe("CFO Command Center journey", () => {
     mount();
     const nav = await screen.findByRole("navigation", { name: "Primary" }, T);
     const disabled = nav.querySelectorAll('[aria-disabled="true"]');
-    expect(disabled.length).toBe(5); // Creditors Control is now a live destination
+    expect(disabled.length).toBe(4); // Profitability, Cash and Creditors are live destinations
   });
 });
 

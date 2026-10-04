@@ -1,6 +1,8 @@
 import type { ComparisonId, DataStateId, DrillNode, DrillOrigin, Horizon, HeroTab, PeriodId, QueryCtx, ScenarioId } from "@/types/cfo";
 import type { AgeFilter, Lens } from "@/types/creditors";
 import { CREDITORS_ORIGIN, ageNode } from "@/lib/creditorNodes";
+import { PROFIT_ORIGIN } from "@/lib/profitNodes";
+import { CASH_ORIGIN } from "@/lib/cashNodes";
 
 /**
  * Pure state for the CFO Command Center. Filters (period, comparison, scenario, data state) are
@@ -43,6 +45,13 @@ export type CfoAction =
   | { type: "setHorizon"; value: Horizon }
   | { type: "setLens"; value: Lens }
   | { type: "enterCreditors"; age?: AgeFilter; lens?: Lens }
+  | { type: "enterRoom"; room: "profitability" | "cashroom" }
+  /** open one store's workspace (keeps a quadrant filter when already in Profitability) */
+  | { type: "enterStore"; node: DrillNode }
+  /** investigate a movement on the store page: replaces anything after the store node */
+  | { type: "openMovement"; node: DrillNode }
+  /** investigate a cash driver: replaces the whole path inside the cash workspace */
+  | { type: "openCashDriver"; node: DrillNode }
   | { type: "selectFilter"; node: DrillNode | null }
   | { type: "pushNodes"; nodes: DrillNode[] }
   | { type: "openOrigin"; origin: DrillOrigin; heroTab?: HeroTab }
@@ -54,7 +63,7 @@ export type CfoAction =
   | { type: "syncRoute"; path: string }
   | { type: "hydrate"; state: Partial<CfoState> };
 
-export type AppRoute = "/" | "/ledger" | "/voucher" | "/profile" | "/creditors" | "/creditors/vendor";
+export type AppRoute = "/" | "/ledger" | "/voucher" | "/profile" | "/creditors" | "/creditors/vendor" | "/profitability" | "/profitability/store" | "/cash";
 
 const DEEP_LEVELS = new Set(["ledger", "voucher", "profile"]);
 
@@ -72,6 +81,8 @@ export function routeFor(state: Pick<CfoState, "nodes" | "origin">): AppRoute {
     return last && last.level === "entity" && last.dim === "Vendor" ? "/creditors/vendor" : "/creditors";
   }
   if (last?.level === "profile") return "/profile";
+  if (origin.scope === "profitability") return nodes.some((n) => n.dim === "Store") ? "/profitability/store" : "/profitability";
+  if (origin.scope === "cashroom") return "/cash";
   return "/";
 }
 
@@ -79,8 +90,11 @@ export function routeFor(state: Pick<CfoState, "nodes" | "origin">): AppRoute {
 export function drawerAllowed(state: Pick<CfoState, "nodes" | "origin">): boolean {
   const page = routeFor(state);
   if (page === "/") return true;
-  if (page !== "/creditors") return false;
   const last = state.nodes[state.nodes.length - 1];
+  // the store workspace is the page itself: the drawer is for a movement chosen on it
+  if (page === "/profitability/store") return last !== undefined && last.dim !== "Store" && last.dim !== "Quadrant";
+  if (page === "/cash") return state.nodes.length > 0;
+  if (page !== "/creditors") return false;
   return last?.dim === "Migration" || last?.dim === "Abnormal";
 }
 
@@ -115,9 +129,23 @@ export function reducer(state: CfoState, a: CfoAction): CfoState {
         lens: a.lens ?? state.lens,
         drawerOpen: false,
       };
+    case "enterRoom":
+      return { ...state, origin: a.room === "profitability" ? PROFIT_ORIGIN : CASH_ORIGIN, nodes: [], drawerOpen: false };
+    case "enterStore": {
+      const keep = state.origin?.scope === "profitability" ? state.nodes.filter((n) => n.dim === "Quadrant") : [];
+      return { ...state, origin: PROFIT_ORIGIN, nodes: [...keep, a.node], drawerOpen: false };
+    }
+    case "openMovement": {
+      if (state.origin?.scope !== "profitability") return state;
+      const at = state.nodes.findIndex((n) => n.dim === "Store");
+      if (at < 0) return state;
+      return { ...state, nodes: [...state.nodes.slice(0, at + 1), a.node], drawerOpen: true };
+    }
+    case "openCashDriver":
+      return { ...state, origin: CASH_ORIGIN, nodes: [a.node], drawerOpen: true };
     case "selectFilter":
-      if (state.origin?.scope !== "creditors") return state;
-      return { ...state, nodes: a.node ? [a.node] : [], drawerOpen: a.node ? a.node.dim !== "Ageing bucket" : false };
+      if (state.origin?.scope !== "creditors" && state.origin?.scope !== "profitability") return state;
+      return { ...state, nodes: a.node ? [a.node] : [], drawerOpen: a.node ? a.node.dim !== "Ageing bucket" && a.node.dim !== "Quadrant" : false };
     case "pushNodes":
       return { ...state, nodes: [...state.nodes, ...a.nodes], drawerOpen: true };
     case "pushNode": {

@@ -4,6 +4,8 @@
  * every number, tone and sign below is supplied by the (mock, later HTTP) service.
  */
 
+import type { CashRoom } from "./cash";
+import type { ProfitPortfolio, StoreWorkspace } from "./profitability";
 import type { AbnormalControl, AgeFilter, AgeingMigration, CreditorsOverview, CreditorsTarget, VendorConcentration, VendorProfile } from "./creditors";
 
 export type ScenarioId =
@@ -327,4 +329,9 @@ export interface CfoApi {
   getVendorConcentration(ctx: QueryCtx, filter: AgeFilter): Promise<Envelope<VendorConcentration>>;
   getAbnormalBalances(ctx: QueryCtx): Promise<Envelope<AbnormalControl>>;
   getVendorProfile(ctx: QueryCtx, vendorId: string): Promise<Envelope<VendorProfile>>;
+  /* Stage 3: Store Profitability */
+  getProfitPortfolio(ctx: QueryCtx): Promise<Envelope<ProfitPortfolio>>;
+  getStoreWorkspace(ctx: QueryCtx, storeId: string): Promise<Envelope<StoreWorkspace>>;
+  /* Stage 4: Cash & Working Capital Control */
+  getCashRoom(ctx: QueryCtx, horizon: Horizon): Promise<Envelope<CashRoom>>;
 }
