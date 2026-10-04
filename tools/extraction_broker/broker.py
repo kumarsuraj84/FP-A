@@ -32,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import guard  # noqa: E402
 import manifest as mf  # noqa: E402
-from packages import PACKAGES, Dataset  # noqa: E402
+from packages import PACKAGE_META, PACKAGES, Dataset  # noqa: E402
 
 BROKER_VERSION = "1"
 REPO = Path(__file__).resolve().parents[2]
@@ -248,6 +248,11 @@ def cmd_run(package: str, only: set[str] | None) -> int:
         "source": "Inventory Automation extraction service (localhost); Oracle credential never read by FP&A",
         "datasets": [],
     }
+    meta = PACKAGE_META.get(package, {})
+    if meta.get("contract"):
+        m["manifest_version"] = 2
+        m["contract"] = meta["contract"]
+        m["protocol"] = {"order": [d.name for d in datasets], "halt_on_failure": bool(meta.get("halt_on_failure"))}
     mf.write_manifest(run_dir, m)
     results: dict[str, list[dict]] = {}
     failed: set[str] = set()
@@ -257,7 +262,7 @@ def cmd_run(package: str, only: set[str] | None) -> int:
             "dataset": d.name, "kind": d.kind, "source_object": None, "logical_source": None, "copy_id": None,
             "query_id": None, "query_hash": "0" * 64, "extracted_at": None, "row_count": 0, "row_cap": 0,
             "min_date": None, "max_date": None, "file_name": f"{d.name}.parquet", "file_size": 0, "sha256": "0" * 64,
-            "status": "pending", "description": d.description, "error": None,
+            "status": "pending", "description": d.description, "error": None, "role": d.role,
         }
         m["datasets"].append(entry)
         try:
@@ -296,6 +301,12 @@ def cmd_run(package: str, only: set[str] | None) -> int:
             failed.add(d.name)
             print(f"  {d.name:<28} FAILED  {entry['error']}")
         mf.write_manifest(run_dir, m)
+        if meta.get("halt_on_failure") and entry["status"] in ("failed", "capped"):
+            # a pilot never carries on after a failed or truncated step: no extract after a failed control
+            for later in datasets[datasets.index(d) + 1:]:
+                m["datasets"].append({"dataset": later.name, "kind": later.kind, "role": later.role, "status": "skipped", "error": "run halted after an earlier failure", **{k: None for k in ("source_object", "logical_source", "copy_id", "query_id", "extracted_at", "min_date", "max_date")}, "query_hash": "0" * 64, "row_count": 0, "row_cap": 0, "file_name": f"{later.name}.parquet", "file_size": 0, "sha256": "0" * 64, "description": later.description})
+            print(f"\n  HALTED after {d.name}: {entry['status']}")
+            break
         time.sleep(PAUSE_BETWEEN_QUERIES_S)  # one query at a time, with a breather for the database
 
     m["finished_at"] = now_iso()

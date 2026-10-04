@@ -49,6 +49,8 @@ class Dataset:
     #: columns that hold dates in the output, used to fill min_date / max_date in the manifest
     date_columns: tuple[str, ...] = ()
     notes: tuple[str, ...] = field(default_factory=tuple)
+    #: pilot packages: control_pre | extract | identity | control_post (empty for discovery / probe packages)
+    role: str = ""
 
 
 def cube_copy_tables(prev: dict) -> list[str]:
@@ -552,4 +554,111 @@ PAYABLES_PROBE_03: tuple[Dataset, ...] = (
     ),
 )
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03}
+# ───────────── creditors_pilot_01: the first controlled real extraction (contract creditors-pilot-1.0) ─────────────
+# Oracle -> guarded broker -> Parquet + manifest -> offline staging validation (creditors_stage.py). Nothing is loaded anywhere else.
+# Numbers and dates leave Oracle as exact text so no float or timestamp conversion can alter a value; every derived field
+# (Document Age, Due Status, hashes) is computed offline, and an independent Oracle-side implementation of the Document Age
+# and Due Status rules runs inside the source control so a rule bug cannot validate itself.
+PILOT_RULES = {
+    "contract_version": "creditors-pilot-1.0",
+    "rules_version": "1",
+    "hash_spec_version": "v1",
+    # technical data-quality window for dates, NOT an accounting policy; configurable here and recorded in the manifest
+    "valid_date_min": "2000-01-01",
+    "valid_date_max": "2100-12-31",
+    "age_buckets": [("D0_30", 30), ("D31_60", 60), ("D61_90", 90), ("D91_180", 180), ("D181_365", 365)],
+}
+PILOT_E1_CAP = 50_000
+PILOT_E2_CAP = 500_000
+_PL = f"{OWNER}.LEDGER_MV"
+_PS = f"{OWNER}.SUB_LEDGER_MV"
+_P_BOUND = "o.report_date >= DATE '2026-01-01'"
+_P_LEDGERS = ", ".join(str(c) for c in CREDITOR_LEDGERS)
+_P_ALL = f"{_P_BOUND} AND o.ledger_code IN ({_P_LEDGERS})"
+_P_OPEN = f"{_P_ALL} AND o.pending <> 0"
+_VMIN = f"DATE '{PILOT_RULES['valid_date_min']}'"
+_VMAX = f"DATE '{PILOT_RULES['valid_date_max']}'"
+
+
+def _age_case() -> str:
+    days = "TRUNC(o.report_date) - TRUNC(o.document_date)"
+    whens = " ".join(f"WHEN {days} <= {edge} THEN '{name}'" for name, edge in PILOT_RULES["age_buckets"])
+    return (
+        f"CASE WHEN o.document_date IS NULL THEN 'UNCLASSIFIED_MISSING' WHEN TRUNC(o.document_date) < {_VMIN} THEN 'UNCLASSIFIED_BEFORE_MIN' "
+        f"WHEN TRUNC(o.document_date) > TRUNC(o.report_date) THEN 'UNCLASSIFIED_AFTER_AS_OF' {whens} ELSE 'D365_PLUS' END"
+    )
+
+
+def _due_case() -> str:
+    return (
+        "CASE WHEN o.due_date IS NULL THEN 'DUE_UNAVAILABLE' "
+        f"WHEN TRUNC(o.due_date) < {_VMIN} OR TRUNC(o.due_date) > {_VMAX} OR TRUNC(o.due_date) < TRUNC(o.document_date) THEN 'DUE_INVALID' "
+        "WHEN TRUNC(o.due_date) > TRUNC(o.report_date) THEN 'NOT_YET_DUE' ELSE 'PAST_DUE_OR_DUE_TODAY' END"
+    )
+
+
+_P_JOINS = f"FROM {_T} o LEFT JOIN {_PL} l ON l.glcode = o.ledger_code LEFT JOIN {_PS} s ON s.slcode = o.sub_ledger_code"
+
+PILOT_E1_SQL = (
+    "SELECT TO_CHAR(o.report_date, 'YYYY-MM-DD') AS as_of_date, o.document_code AS document_code, TO_CHAR(o.sub_ledger_code, 'TM9') AS sub_ledger_code, "
+    "TO_CHAR(o.ledger_code, 'TM9') AS ledger_code, l.glname AS ledger_name, s.slid AS slid, s.sl_name AS vendor_name, s.sl_class AS party_class, "
+    "s.sl_class_type AS party_class_type, TO_CHAR(s.credit_days, 'TM9') AS credit_days, s.is_extinct AS vendor_extinct, "
+    "o.document_no AS document_no, o.document_type AS document_type, o.document_initial AS document_initial, "
+    "TO_CHAR(o.document_date, 'YYYY-MM-DD') AS document_date, TO_CHAR(o.due_date, 'YYYY-MM-DD') AS due_date, o.due_date_basis AS due_date_basis, "
+    "o.ref_no AS ref_no, TO_CHAR(o.ref_date, 'YYYY-MM-DD') AS ref_date, TO_CHAR(o.entry_date, 'YYYY-MM-DD') AS entry_date, o.drcr AS drcr, "
+    "TO_CHAR(o.amount, 'TM9') AS amount, TO_CHAR(o.adjusted, 'TM9') AS adjusted, TO_CHAR(o.pending, 'TM9') AS pending, o.created_by_site AS created_by_site "
+    f"{_P_JOINS} WHERE {_P_OPEN} ORDER BY o.document_code, o.sub_ledger_code FETCH FIRST {PILOT_E1_CAP} ROWS ONLY"
+)
+PILOT_E2_SQL = (
+    "SELECT o.document_code AS document_code, TO_CHAR(o.sub_ledger_code, 'TM9') AS sub_ledger_code, TO_CHAR(o.ledger_code, 'TM9') AS ledger_code, o.drcr AS drcr, "
+    "TO_CHAR(o.pending, 'TM9') AS pending, TO_CHAR(o.entry_date, 'YYYY-MM-DD') AS entry_date, TO_CHAR(o.report_date, 'YYYY-MM-DD') AS as_of_date "
+    f"FROM {_T} o WHERE {_P_ALL} ORDER BY o.document_code, o.sub_ledger_code FETCH FIRST {PILOT_E2_CAP} ROWS ONLY"
+)
+PILOT_C1_SQL = (
+    "SELECT TO_CHAR(ledger_code, 'TM9') AS ledger_code, drcr, doc_age_bucket, due_status, COUNT(*) AS item_rows, "
+    "TO_CHAR(SUM(ABS(pending)), 'TM9') AS abs_pending, TO_CHAR(SUM(pending), 'TM9') AS signed_pending "
+    f"FROM (SELECT o.ledger_code AS ledger_code, o.drcr AS drcr, o.pending AS pending, {_age_case()} AS doc_age_bucket, {_due_case()} AS due_status FROM {_T} o WHERE {_P_OPEN}) "
+    "GROUP BY ledger_code, drcr, doc_age_bucket, due_status ORDER BY ledger_code, drcr, doc_age_bucket, due_status FETCH FIRST 1000 ROWS ONLY"
+)
+PILOT_C2_SQL = (
+    "SELECT GROUPING(o.ledger_code) AS g_ledger, GROUPING(o.drcr) AS g_drcr, TO_CHAR(o.ledger_code, 'TM9') AS ledger_code, o.drcr AS drcr, "
+    "COUNT(DISTINCT o.sub_ledger_code) AS vendors, COUNT(*) AS item_rows "
+    f"FROM {_T} o WHERE {_P_OPEN} GROUP BY GROUPING SETS ((), (o.ledger_code), (o.drcr), (o.ledger_code, o.drcr)) "
+    "ORDER BY g_ledger, g_drcr, ledger_code, drcr FETCH FIRST 100 ROWS ONLY"
+)
+PILOT_C3_SQL = (
+    "SELECT COUNT(*) AS item_rows, COUNT(DISTINCT o.report_date) AS report_dates, TO_CHAR(MIN(o.report_date), 'YYYY-MM-DD') AS min_as_of, "
+    "TO_CHAR(MAX(o.report_date), 'YYYY-MM-DD') AS max_as_of, "
+    "COUNT(DISTINCT o.document_code || '|' || TO_CHAR(o.sub_ledger_code)) AS distinct_identity_keys, "
+    "COUNT(DISTINCT o.document_code || '|' || TO_CHAR(o.ledger_code) || '|' || TO_CHAR(o.sub_ledger_code) || '|' || o.drcr) AS distinct_k1_keys, "
+    "SUM(CASE WHEN o.document_code IS NULL OR o.sub_ledger_code IS NULL THEN 1 ELSE 0 END) AS null_identity_rows, "
+    "SUM(CASE WHEN o.document_date IS NULL THEN 1 ELSE 0 END) AS null_document_date_rows, SUM(CASE WHEN o.due_date IS NULL THEN 1 ELSE 0 END) AS null_due_date_rows, "
+    "SUM(CASE WHEN s.slcode IS NULL THEN 1 ELSE 0 END) AS rows_without_vendor_master, SUM(CASE WHEN l.glcode IS NULL THEN 1 ELSE 0 END) AS rows_without_ledger_master "
+    f"{_P_JOINS} WHERE {_P_OPEN} FETCH FIRST 2 ROWS ONLY"
+)
+
+CREDITORS_PILOT_01: tuple[Dataset, ...] = (
+    Dataset("c1_source_control_pre", "extract", "Source control before the extract: ledger x Dr/Cr x Document Age x Due Status, computed in Oracle.", sql=PILOT_C1_SQL, role="control_pre"),
+    Dataset("c2_vendor_control_pre", "extract", "Source control before the extract: distinct vendors in total, per ledger, per Dr/Cr.", sql=PILOT_C2_SQL, role="control_pre"),
+    Dataset("c3_snapshot_control_pre", "extract", "Source control before the extract: rows, report dates, key uniqueness, nulls, join coverage.", sql=PILOT_C3_SQL, role="control_pre"),
+    Dataset("e1_open_items", "extract", "The extract: one row per open source item of the four creditor ledgers (PENDING <> 0).", sql=PILOT_E1_SQL, role="extract"),
+    Dataset("e2_identity_all_rows", "extract", "Identity and PENDING of every row in the four ledgers, open or settled (identity-stability evidence only).", sql=PILOT_E2_SQL, role="identity"),
+    Dataset("c1_source_control_post", "extract", "The same source control again after the extract.", sql=PILOT_C1_SQL, role="control_post"),
+    Dataset("c2_vendor_control_post", "extract", "The same vendor control again after the extract.", sql=PILOT_C2_SQL, role="control_post"),
+    Dataset("c3_snapshot_control_post", "extract", "The same snapshot control again after the extract.", sql=PILOT_C3_SQL, role="control_post"),
+)
+
+#: manifest-level facts for packages that carry a contract; a failed dataset halts the run (never extract after a failed control)
+PACKAGE_META: dict[str, dict] = {
+    "creditors_pilot_01": {
+        "halt_on_failure": True,
+        "contract": {
+            **PILOT_RULES,
+            "scope": {"source_object": _T, "ledger_codes": list(CREDITOR_LEDGERS), "open_predicate": "PENDING <> 0", "as_of_source": "REPORT_DATE"},
+            "identity": "sha256('v1|' + DOCUMENT_CODE + '|' + SUB_LEDGER_CODE)",
+            "caps": {"e1_open_items": PILOT_E1_CAP, "e2_identity_all_rows": PILOT_E2_CAP},
+        },
+    }
+}
+
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01}
