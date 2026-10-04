@@ -124,8 +124,8 @@ def vendor_ref_salt() -> str:
             salt = getpass.getpass("Vendor pseudonym key (hidden, keep it identical for every load): ")
         except (EOFError, KeyboardInterrupt):
             salt = None
-    if not salt or len(salt) < 16:
-        raise LoadError("precheck", "the vendor pseudonym key is missing or shorter than 16 characters")
+    if not salt or len(salt) < 32:
+        raise LoadError("precheck", "the vendor pseudonym key is missing or shorter than 32 characters")
     return salt
 
 

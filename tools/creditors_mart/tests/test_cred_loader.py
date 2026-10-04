@@ -456,6 +456,58 @@ def test_l12_no_vendor_names_or_codes_in_logs_reports_or_rejections(dbs, tmp_pat
     ev("L12", "no vendor data in logs, reports or rejections", surfaces_checked=sorted(corpus), sentinels_checked=len(SENTINELS), leaks="none", log_lines_kept=len(caplog.records))
 
 
+# ───────────── L16: one-command provisioning of the loader login ─────────────
+
+
+def test_l16_setup_loader_creates_a_restricted_login_and_replaces_a_weak_password(dbs, tmp_path, cluster, monkeypatch, capsys, caplog):
+    import setup_loader
+
+    conn, admin = dbs
+    caplog.set_level(logging.DEBUG)
+    # the situation we are really in: the role already exists with a guessable password typed into a command line
+    admin.execute("CREATE ROLE cred_loader_login LOGIN PASSWORD 'choose-your-own' IN ROLE cred_loader")
+    weak_hash = admin.execute("SELECT rolpassword FROM pg_authid WHERE rolname = 'cred_loader_login'").fetchone()[0]
+    secret = tmp_path / ".secrets" / "cred_loader.env"
+    dbname = admin.execute("SELECT current_database()").fetchone()[0]
+    facts = setup_loader.provision(admin, secret, "127.0.0.1", str(cluster.port), dbname)
+    cfg = setup_loader.read_env(secret)
+    new_hash = admin.execute("SELECT rolpassword FROM pg_authid WHERE rolname = 'cred_loader_login'").fetchone()[0]
+    assert facts["rekeyed"] and not facts["created"] and new_hash.startswith("SCRAM-SHA-256$") and new_hash != weak_hash
+    assert set(cfg) == {"host", "port", "dbname", "user", "password", "vendor_ref_salt"} and cfg["user"] == "cred_loader_login"
+    assert len(cfg["password"]) >= 40 and len(cfg["vendor_ref_salt"]) >= 64 and cfg["password"] != "choose-your-own"
+    checks = setup_loader.check_role(admin)
+    assert all(ok for _, ok in checks), [n for n, ok in checks if not ok]
+    # logging in as the account (same path the loader uses): everything outside loading is refused
+    monkeypatch.setenv("FPA_CRED_LOADER_ENV", str(secret))
+    monkeypatch.delenv("FPA_CRED_LOADER_URL", raising=False)
+    monkeypatch.delenv("FPA_VENDOR_REF_SALT", raising=False)
+    info = loader.loader_conninfo()
+    login_checks = setup_loader.check_login(info)
+    assert all(ok for _, ok in login_checks), [n for n, ok in login_checks if not ok]
+    # and the real path works end to end: a load through that login, with the key from the file
+    with psycopg.connect(info, autocommit=True) as c:
+        res = loader.load_run(c, loader.preflight(sealed(tmp_path, "run_20261004_930"), loader.vendor_ref_salt()))
+    assert res["loaded_by"] == "cred_loader_login" and (res["recon_state"], res["publication_state"]) == ("loaded", "unpublished")
+    # re-running keeps the pseudonym key (a new key would change every vendor_ref) and replaces only the password
+    first_salt, first_pw = cfg["vendor_ref_salt"], cfg["password"]
+    facts2 = setup_loader.provision(admin, secret, "127.0.0.1", str(cluster.port), dbname)
+    cfg2 = setup_loader.read_env(secret)
+    assert facts2["salt_kept"] and cfg2["vendor_ref_salt"] == first_salt and cfg2["password"] != first_pw
+    # an account that is not an administrator is refused and nothing changes
+    admin.execute("RESET ROLE")
+    admin.execute("SET ROLE cred_loader")
+    with pytest.raises(SystemExit):
+        setup_loader.provision(admin, tmp_path / "other.env", "127.0.0.1", "5432", dbname)
+    admin.execute("RESET ROLE")
+    assert not (tmp_path / "other.env").exists()
+    # no secret ever reaches the output or the logs
+    seen = capsys.readouterr().out + caplog.text
+    for value in (first_pw, cfg2["password"], first_salt):
+        assert value not in seen
+    ev("L16", "setup_loader provisioning", replaced_weak_password=True, hash_scheme="SCRAM-SHA-256", role_checks=len(checks), login_refusals=len(login_checks), end_to_end_load_through_the_login="loaded / unpublished",
+       rerun="keeps the pseudonym key, replaces only the password", non_admin="refused, nothing written", secrets_in_output="none")
+
+
 # ───────────── evidence ─────────────
 
 

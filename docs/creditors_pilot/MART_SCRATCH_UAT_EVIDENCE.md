@@ -332,7 +332,7 @@ No application database, no pilot database, no Oracle, no frontend and no real r
 ```json
 {
   "suite": "tools/creditors_mart/tests/test_cred_mart_db.py",
-  "tests_collected": 148,
+  "tests_collected": 149,
   "failures_so_far": 0,
   "isolation": "every test runs in a fresh database cloned from the migrated template"
 }

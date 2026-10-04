@@ -22,3 +22,9 @@ Run these in YOUR OWN terminal from the repository root. Each asks for the admin
 - `verify_install.py` is read-only: owners, role attributes, the whole privilege matrix, guard triggers, and that nothing is loaded. It writes `docs/creditors_pilot/MART_REAL_INSTALL_EVIDENCE.md` (database and role names only).
 - Scripted alternative: PowerShell `$env:FPA_PG_ADMIN_URL = "postgresql://<admin>:<password>@localhost:5432/postgres"` (a password containing `@ : /` must be percent-encoded in a URL, e.g. `@` as `%40`).
 - Then attach LOGIN roles or passwords to the six roles yourself. Nothing here stores a credential.
+
+## The loader login and the first load
+
+1. `python tools/creditors_mart/setup_loader.py`  (administrator, own terminal, hidden prompt). Creates or re-keys `cred_loader_login` (member of `cred_loader` only, no admin attributes) with a random password stored only as a SCRAM hash in the database and in the git-ignored `.secrets/cred_loader.env`; creates a random 64-character `vendor_ref_salt` once and keeps it for ever. It proves the restrictions by logging in as that account. Nothing secret is printed.
+2. `python tools/creditors_mart/loader.py load data/inbox/run_YYYYMMDD_NNN`  (reads `.secrets/cred_loader.env`; preflight, one transaction, controls, commit or full rollback; ends `loaded` / `unpublished`).
+3. `python tools/creditors_mart/loader.py verify run_YYYYMMDD_NNN`  (separate gate: `verified`, still unpublished).
