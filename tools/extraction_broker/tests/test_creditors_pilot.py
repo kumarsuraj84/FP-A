@@ -158,8 +158,8 @@ def synth_rows():
             dd = {0: None, 1: (AS_OF + timedelta(days=5)).isoformat(), 2: (AS_OF - timedelta(days=20)).isoformat(), 3: "2026-01-01"}[j % 4]
             row = {
                 "as_of_date": AS_OF.isoformat(), "document_code": f"DOC{n:04d}", "sub_ledger_code": str(500 + (n % 7)), "ledger_code": led, "ledger_name": NAMES[led],
-                "slid": f"SL{500 + (n % 7)}", "vendor_name": f"Vendor {n % 7}", "party_class": "Supplier-Apparels" if n % 5 else "Staff", "party_class_type": "Supplier",
-                "credit_days": "30" if n % 2 else "0", "vendor_extinct": "No", "document_no": f"N{n}", "document_type": "PI", "document_initial": "PI",
+                "slid": f"SL{500 + (n % 7)}", "vendor_name": f"Vendor {n % 7}", "party_class": "Supplier-Apparels" if (n % 7) % 5 else "Staff", "party_class_type": "Supplier",
+                "credit_days": "30" if (n % 7) % 2 else "0", "vendor_extinct": "No", "document_no": f"N{n}", "document_type": "PI", "document_initial": "PI",
                 "document_date": docd, "due_date": dd, "due_date_basis": "Document Date", "ref_no": None if n % 3 else f"R{n}", "ref_date": None,
                 "entry_date": docd, "drcr": "Cr" if cr else "Dr", "amount": str(pend), "adjusted": None, "pending": str(pend), "created_by_site": "HO",
             }
@@ -207,8 +207,8 @@ C3_COLS = ["item_rows", "report_dates", "min_as_of", "max_as_of", "distinct_iden
            "null_due_date_rows", "rows_without_vendor_master", "rows_without_ledger_master"]
 
 
-def build_run(tmp_path, rows=None, settled=3, post_tweak=None, statuses=None):
-    run = tmp_path / "run_test_001"
+def build_run(tmp_path, rows=None, settled=3, post_tweak=None, statuses=None, name="run_test_001"):
+    run = tmp_path / name
     run.mkdir()
     rows = rows or synth_rows()
     c1, c2, c3 = controls_for(rows)

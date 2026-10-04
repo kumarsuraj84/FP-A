@@ -21,3 +21,6 @@ registry_overlay.json
 # extraction broker output: real data, never committed
 data/inbox/
 *.parquet
+
+# local secrets (loader login, vendor pseudonym key): never committed
+.secrets/

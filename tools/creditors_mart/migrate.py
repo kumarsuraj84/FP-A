@@ -52,10 +52,13 @@ def admin_conninfo() -> str | None:
 
     from psycopg.conninfo import make_conninfo
 
-    host = input("PostgreSQL host [localhost]: ").strip() or "localhost"
-    port = input("Port [5432]: ").strip() or "5432"
-    user = input("Admin user [postgres]: ").strip() or "postgres"
-    password = getpass.getpass("Admin password (hidden, not stored): ")
+    try:
+        host = input("PostgreSQL host [localhost]: ").strip() or "localhost"
+        port = input("Port [5432]: ").strip() or "5432"
+        user = input("Admin user [postgres]: ").strip() or "postgres"
+        password = getpass.getpass("Admin password (hidden, not stored): ")
+    except (EOFError, KeyboardInterrupt):                 # no real terminal attached
+        return None
     return make_conninfo(host=host, port=port, user=user, password=password, dbname="postgres")
 
 
