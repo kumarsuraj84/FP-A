@@ -953,7 +953,7 @@ def _bank_totals(tbl: str, since: str, rd: str | None, gls: str) -> str:
         f"{s('debit', f'NOT ({op}) AND {posted} AND {past}', 'posted_dr')}, {s('credit', f'NOT ({op}) AND {posted} AND {past}', 'posted_cr')}, "
         f"{s('debit', f'NOT ({op}) AND {unposted} AND {past}', 'unposted_dr')}, {s('credit', f'NOT ({op}) AND {unposted} AND {past}', 'unposted_cr')}, "
         f"{n(op, 'open_rows')}, {n(f'NOT ({op}) AND {posted} AND {past}', 'posted_rows')}, {n(f'NOT ({op}) AND {unposted} AND {past}', 'unposted_rows')}, {n(fut, 'future_rows')} "
-        f"FROM {tbl} t" + ("" if rd else f", (SELECT MAX(report_date) AS rd FROM {tbl} WHERE entry_date >= DATE '{since}') r") + f" WHERE t.entry_date >= DATE '{since}' AND t.entry_glcode IN ({gls}) FETCH FIRST 1 ROWS ONLY"
+        f"FROM {tbl} t" + ("" if rd else f", (SELECT MAX(report_date) AS rd FROM {tbl} WHERE entry_date >= DATE '{since}') r") + f" WHERE t.entry_date >= DATE '{since}' AND t.entry_glcode IN ({gls}) FETCH FIRST 5 ROWS ONLY"
     )
 
 
@@ -962,7 +962,7 @@ _C1_SQL = (
     + _TM9("SUM(CASE WHEN v.bill_date = p.till THEN v.cumlative_balance ELSE 0 END)", "sum_cumulative") + ", "
     + _TM9("SUM(CASE WHEN v.bill_date >= TRUNC(p.till, 'MM') THEN v.debit ELSE 0 END)", "mtd_debit") + ", " + _TM9("SUM(CASE WHEN v.bill_date >= TRUNC(p.till, 'MM') THEN v.credit ELSE 0 END)", "mtd_credit") + ", "
     + _TM9("SUM(v.debit)", "fytd_debit") + ", " + _TM9("SUM(v.credit)", "fytd_credit")
-    + f" FROM {_TILL} v, p WHERE v.bill_date >= {_FYS} AND v.bill_date <= p.till FETCH FIRST 1 ROWS ONLY"
+    + f" FROM {_TILL} v, p WHERE v.bill_date >= {_FYS} AND v.bill_date <= p.till FETCH FIRST 5 ROWS ONLY"
 )
 _E1_SQL = (
     _TILL_CTE + "SELECT TO_CHAR(v.site_code) AS site_code, v.store_name AS store_name, TO_CHAR(MAX(p.till), 'YYYY-MM-DD') AS till_date, "
