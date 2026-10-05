@@ -5,7 +5,7 @@ export const CASH_ORIGIN: DrillOrigin = {
   source: "liquidity",
   scope: "cashroom",
   id: "room",
-  label: "Cash & Working Capital",
+  label: "Liquidity & Working Capital",
   family: "cash",
   amount: null,
   variance: null,
