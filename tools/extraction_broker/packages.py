@@ -1150,7 +1150,8 @@ def _cte() -> str:
 
 def _lines_sql(name: str, cap: int) -> str:
     reg, extra, win, key = _sel(name)
-    return (_cte() + f"SELECT {_LINE_COLS} FROM {reg} r{extra}, {OWNER}.\"MAS$FINGL\" g WHERE g.glcode = r.entry_glcode AND {win} AND {key} FETCH FIRST {cap} ROWS ONLY")
+    # ANSI joins, and a hint: the join to the key view is on an expression (NVL of the creating site); without it the first-rows plan for FETCH FIRST can nest-loop a scan of the register per key
+    return (_cte() + f"SELECT /*+ LEADING(k r) USE_HASH(r) */ {_LINE_COLS} FROM {reg} r JOIN {extra[2:]} ON {key} JOIN {OWNER}.\"MAS$FINGL\" g ON g.glcode = r.entry_glcode WHERE {win} FETCH FIRST {cap} ROWS ONLY")
 
 
 def _totals_sql() -> str:
@@ -1555,3 +1556,51 @@ SALES_PROBE_04C: tuple[Dataset, ...] = (
     Dataset("q2_cube_instance_history_days", "extract", "POS cube instances that served the five history test dates: report date, window and rows.", sql=_FRESH_HIST),
 )
 PACKAGES["sales_probe_04c"] = SALES_PROBE_04C
+
+
+# ───────────── sales_probe_05a/05c/05d: cube-only certification checks (MISRETAIL-native; the cube view depends only on eight MISRETAIL tables) ─────────────
+# 05a: April 2026 coverage per cube instance table (overlap investigation).  05c: discount / tax component columns for Aug 2026 from the single instance that serves it.
+# 05d: store 353 daily aggregates.  Instance tables are queried directly so no union of overlapping snapshots is ever summed silently. Customer columns are never named.
+_INST = lambda c: f'{OWNER}."T$POSBILLSUMM_{c}"'  # noqa: E731
+
+
+def _april(code: int) -> str:
+    return (f"SELECT cube_code, {_DT('billdate', 'bill_date')}, isvoid, COUNT(*) AS row_n, COUNT(DISTINCT sitecode) AS sites, {_DT('MAX(report_date)', 'report_date')}, {_DT('MIN(start_date)', 'window_start')}, "
+            f"{_DT('MAX(end_date)', 'window_end')}, {_TM9('SUM(netamt)', 'net')}, {_TM9('SUM(billqty)', 'qty')}, {_TM9('SUM(taxableamt)', 'taxable')}, {_TM9('SUM(taxamt)', 'tax')} FROM {_INST(code)} "
+            "WHERE billdate >= DATE '2026-04-01' AND billdate <= DATE '2026-04-30' GROUP BY cube_code, billdate, isvoid ORDER BY billdate, isvoid FETCH FIRST 200 ROWS ONLY")
+
+
+SALES_PROBE_05A: tuple[Dataset, ...] = tuple(Dataset(f"a{c}_april_by_day", "extract", f"POS summary instance {c}, April 2026: per day and void flag, rows, stores, report date, window, net, quantity, taxable, tax.", sql=_april(c)) for c in (196, 809, 750))
+PACKAGES["sales_probe_05a"] = SALES_PROBE_05A
+
+_AUG = "billdate >= DATE '2026-08-01' AND billdate <= DATE '2026-08-31'"
+_COLS = ("mrpamt", "basicamt", "saleamt", "returnamt", "promoamt", "grossamt", "itemdiscountamt", "billdiscountamt", "lpdiscountamt", "totaldiscountamt", "netamt", "taxableamt", "taxamt", "extrataxamt", "taxpercent", "billqty")
+_COUNTS = ", ".join(f"COUNT({c}) AS n_{c}" for c in _COLS)
+_SUMS = ", ".join(_TM9(f"SUM({c})", f"s_{c}") for c in _COLS if c != "taxpercent")
+
+SALES_PROBE_05C: tuple[Dataset, ...] = (
+    Dataset("c1_aug_null_counts_and_sums", "extract", "Instance 809, Aug 2026, by void flag: row count, non-null count and sum of every amount column.",
+            sql=f"SELECT isvoid, COUNT(*) AS row_n, {_COUNTS}, {_SUMS} FROM {_INST(809)} WHERE {_AUG} GROUP BY isvoid FETCH FIRST 5 ROWS ONLY"),
+    Dataset("c2_aug_by_tax_slab", "extract", "Instance 809, Aug 2026, non-void, by tax percent and description: rows and the tax and discount components.",
+            sql=(f"SELECT taxpercent, taxdescription, COUNT(*) AS row_n, {_TM9('SUM(netamt)', 'net')}, {_TM9('SUM(taxableamt)', 'taxable')}, {_TM9('SUM(taxamt)', 'tax')}, {_TM9('SUM(extrataxamt)', 'extratax')}, "
+                 f"{_TM9('SUM(grossamt)', 'gross')}, {_TM9('SUM(totaldiscountamt)', 'totaldisc')}, {_TM9('SUM(itemdiscountamt)', 'itemdisc')}, {_TM9('SUM(billdiscountamt)', 'billdisc')}, {_TM9('SUM(lpdiscountamt)', 'lpdisc')} "
+                 f"FROM {_INST(809)} WHERE {_AUG} AND isvoid = 'No' GROUP BY taxpercent, taxdescription FETCH FIRST 200 ROWS ONLY")),
+    Dataset("c3_aug_store_day_components", "extract", "Instance 809, Aug 2026, non-void, store-day: every amount component needed to recompute the identities.",
+            sql=(f"SELECT TO_CHAR(sitecode) AS site_code, {_DT('billdate', 'bill_date')}, {_TM9('SUM(mrpamt)', 'mrp')}, {_TM9('SUM(basicamt)', 'basic')}, {_TM9('SUM(saleamt)', 'sale')}, {_TM9('SUM(returnamt)', 'returns')}, "
+                 f"{_TM9('SUM(promoamt)', 'promo')}, {_TM9('SUM(grossamt)', 'gross')}, {_TM9('SUM(itemdiscountamt)', 'itemdisc')}, {_TM9('SUM(billdiscountamt)', 'billdisc')}, {_TM9('SUM(lpdiscountamt)', 'lpdisc')}, "
+                 f"{_TM9('SUM(totaldiscountamt)', 'totaldisc')}, {_TM9('SUM(netamt)', 'net')}, {_TM9('SUM(taxableamt)', 'taxable')}, {_TM9('SUM(taxamt)', 'tax')}, {_TM9('SUM(extrataxamt)', 'extratax')}, {_TM9('SUM(billqty)', 'qty')} "
+                 f"FROM {_INST(809)} WHERE {_AUG} AND isvoid = 'No' GROUP BY sitecode, billdate FETCH FIRST 20000 ROWS ONLY")),
+)
+PACKAGES["sales_probe_05c"] = SALES_PROBE_05C
+
+_D353 = "((billdate >= DATE '2026-08-06' AND billdate <= DATE '2026-08-06') OR (billdate >= DATE '2026-08-22' AND billdate <= DATE '2026-08-22') OR (billdate >= DATE '2026-08-27' AND billdate <= DATE '2026-08-27'))"
+SALES_PROBE_05D: tuple[Dataset, ...] = (
+    Dataset("d1_store353_aug_daily", "extract", "Store 353, instance 809, Aug 2026, non-void, daily: tax and discount components.",
+            sql=(f"SELECT {_DT('billdate', 'bill_date')}, COUNT(*) AS row_n, {_TM9('SUM(netamt)', 'net')}, {_TM9('SUM(taxableamt)', 'taxable')}, {_TM9('SUM(taxamt)', 'tax')}, {_TM9('SUM(extrataxamt)', 'extratax')}, "
+                 f"{_TM9('SUM(grossamt)', 'gross')}, {_TM9('SUM(totaldiscountamt)', 'totaldisc')}, {_TM9('SUM(returnamt)', 'returns')}, {_TM9('SUM(billqty)', 'qty')} FROM {_INST(809)} "
+                 f"WHERE {_AUG} AND isvoid = 'No' AND sitecode = 353 GROUP BY billdate ORDER BY billdate FETCH FIRST 40 ROWS ONLY")),
+    Dataset("d2_store353_exception_days_by_slab", "extract", "Store 353, the three exception days, non-void, by tax percent and description.",
+            sql=(f"SELECT {_DT('billdate', 'bill_date')}, taxpercent, taxdescription, COUNT(*) AS row_n, {_TM9('SUM(netamt)', 'net')}, {_TM9('SUM(taxableamt)', 'taxable')}, {_TM9('SUM(taxamt)', 'tax')}, {_TM9('SUM(extrataxamt)', 'extratax')}, "
+                 f"{_TM9('SUM(billqty)', 'qty')} FROM {_INST(809)} WHERE {_D353} AND isvoid = 'No' AND sitecode = 353 GROUP BY billdate, taxpercent, taxdescription ORDER BY billdate, taxpercent FETCH FIRST 200 ROWS ONLY")),
+)
+PACKAGES["sales_probe_05d"] = SALES_PROBE_05D
