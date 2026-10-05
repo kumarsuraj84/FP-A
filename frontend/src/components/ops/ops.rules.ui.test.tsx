@@ -45,8 +45,10 @@ describe("Sales Comparison: rules, detail and states", () => {
     expect(screen.queryByTestId("kpi-sales-note")).toBeNull();
     fireEvent.click(screen.getByTestId("mode-custom"));
     fireEvent.click(screen.getByTestId("cohort-all"));
-    expect(screen.getByTestId("kpi-sales-note")).toHaveTextContent(/Per store-day with data/);
-    expect(screen.getByTestId("kpi-sales-note")).toHaveTextContent(/store-days\)/);
+    const note = screen.getByTestId("kpi-sales").textContent ?? "";
+    expect(note).toMatch(/Per store-day with data/);
+    expect(note).toMatch(/Coverage: current [\d,]+ of [\d,]+, reference [\d,]+ of [\d,]+ store-days/);
+    expect(note).toMatch(/not comparable-store growth/);
     expect(screen.getByTestId("plan-note")).toHaveTextContent(/not like-for-like/);
   });
 

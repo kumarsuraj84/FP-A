@@ -404,7 +404,7 @@ export function SalesComparison() {
       {plan.valid && viewState === "normal" && (
         <div className="space-y-4 p-4">
           {/* KPI strip */}
-          <section aria-label="Headline measures" data-testid="kpi-strip" className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))" }}>
+          <section aria-label="Headline measures" data-testid="kpi-strip" className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
             <Kpi
               id="sales"
               label="Sales (incl. GST)"
@@ -415,7 +415,11 @@ export function SalesComparison() {
               provisional
               notes={
                 showPerStoreDay
-                  ? [`Per store-day with data: ${fmtInr(totals.curPerStoreDay)} vs ${fmtInr(totals.refPerStoreDay)} (${totals.curStoreDays.toLocaleString("en-IN")} vs ${totals.refStoreDays.toLocaleString("en-IN")} store-days)`]
+                  ? [
+                      `Per store-day with data: ${fmtInr(totals.curPerStoreDay)} vs ${fmtInr(totals.refPerStoreDay)}.`,
+                      `Coverage: current ${coverage.curPresent.toLocaleString("en-IN")} of ${coverage.curExpected.toLocaleString("en-IN")}, reference ${coverage.refPresent.toLocaleString("en-IN")} of ${coverage.refExpected.toLocaleString("en-IN")} store-days.`,
+                      "This average moves when coverage changes. It is not comparable-store growth.",
+                    ]
                   : undefined
               }
             />
@@ -554,10 +558,10 @@ export function SalesComparison() {
             <div className="border-b px-3 py-2"><h2 className="text-[14px] font-semibold">What is real and what is not yet</h2><div className="text-[12px] text-muted-foreground">Status of each measure against the real source, from the Phase 0 data review.</div></div>
             <ul className="divide-y">
               {READINESS.map((r) => (
-                <li key={r.metric} className="flex items-start gap-3 px-3 py-1.5 text-[12px]">
+                <li key={r.metric} className="flex flex-col gap-1 px-3 py-1.5 text-[12px] sm:flex-row sm:items-start sm:gap-3">
                   <span className={cn(chip, "mt-0.5 w-[92px] shrink-0 justify-center", r.status === "conditional" ? AMBER : "bg-secondary text-secondary-foreground")}>{r.status === "conditional" ? "Conditional" : "Unavailable"}</span>
-                  <span className="w-[230px] shrink-0 font-semibold">{r.metric}</span>
-                  <span className="text-muted-foreground">{r.note}</span>
+                  <span className="shrink-0 font-semibold sm:w-[230px]">{r.metric}</span>
+                  <span className="min-w-0 text-muted-foreground">{r.note}</span>
                 </li>
               ))}
             </ul>

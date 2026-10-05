@@ -277,16 +277,16 @@ export const isPortalPath = (p: string) => PORTAL_PREFIXES.some((x) => p === x |
 function PortalHeader({ path }: { path: string }) {
   const link = (active: boolean) => cn("press rounded px-2.5 py-1 text-[12.5px] font-semibold", active ? "bg-[oklch(0.95_0.025_265)] text-[oklch(0.28_0.09_265)]" : "text-muted-foreground hover:bg-muted hover:text-foreground");
   return (
-    <header data-testid="portal-header" className="flex h-12 items-center gap-4 border-b bg-card px-4">
+    <header data-testid="portal-header" className="flex h-12 items-center gap-2 border-b bg-card px-3 sm:gap-4 sm:px-4">
       <Link to="/home" className="flex items-center gap-2.5" aria-label="CityKart Analytics home">
         <span className="flex h-7 w-7 items-center justify-center rounded bg-[oklch(0.24_0.07_255)] text-[11px] font-bold tracking-tight text-white">CK</span>
-        <span className="leading-none">
+        <span className="hidden leading-none sm:block">
           <span className="block text-[13px] font-bold tracking-tight text-foreground">CityKart Analytics</span>
-          <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Finance · Operations · Merchandising</span>
+          <span className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground md:block">Finance · Operations · Merchandising</span>
         </span>
       </Link>
-      <div className="mx-1 h-6 w-px bg-border" />
-      <nav aria-label="Areas" className="flex items-center gap-1">
+      <div className="mx-1 hidden h-6 w-px bg-border sm:block" />
+      <nav aria-label="Areas" className="flex items-center gap-0.5 sm:gap-1">
         <Link to="/home" data-testid="portal-nav-home" className={link(path === "/home")}>Home</Link>
         <Link to="/" data-testid="portal-nav-finance" className={link(false)}>Finance</Link>
         <Link to="/operations/sales" data-testid="portal-nav-operations" className={link(path.startsWith("/operations"))}>Operations</Link>

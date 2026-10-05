@@ -90,6 +90,46 @@ await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
 await settle();
 report.checks.root = { title: await page.title(), financeShell: await has("demo-banner") };
 
+// wide screen and narrow mobile: layout, overflow and clipping checks
+report.viewports = {};
+for (const [tag, w, h] of [["1920", 1920, 1080], ["mobile390", 390, 844]]) {
+  const vctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1 });
+  const vp = await vctx.newPage();
+  const errs = [];
+  vp.on("pageerror", (e) => errs.push(String(e).slice(0, 200)));
+  const out = {};
+  for (const [name, path] of [["home", "/home"], ["sales", "/operations/sales"]]) {
+    await vp.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
+    await vp.waitForTimeout(700);
+    const m = await vp.evaluate(() => {
+      const de = document.documentElement;
+      const clipped = [];
+      for (const el of document.querySelectorAll("main *")) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.right > window.innerWidth + 1 && !el.closest("[class*=overflow-x-auto]")) clipped.push(`${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)}`);
+        if (clipped.length >= 6) break;
+      }
+      const main = document.querySelector("main")?.getBoundingClientRect();
+      return { horizontalOverflow: de.scrollWidth - window.innerWidth, clipped, mainLeft: main ? Math.round(main.left) : null, mainRight: main ? Math.round(window.innerWidth - main.right) : null };
+    });
+    out[name] = m;
+    await vp.screenshot({ path: `${OUT}/${tag}-${name}.png` });
+    if (name === "sales") await vp.screenshot({ path: `${OUT}/${tag}-${name}-full.png`, fullPage: true });
+  }
+  // detail view on this viewport
+  await vp.click('[data-testid="open-S03"]');
+  await vp.waitForSelector('[data-testid="store-detail"]');
+  await vp.waitForTimeout(300);
+  out.detail = await vp.evaluate(() => {
+    const r = document.querySelector('[data-testid="store-detail"]').getBoundingClientRect();
+    return { left: Math.round(r.left), width: Math.round(r.width), fitsViewport: r.right <= window.innerWidth + 1 && r.left >= -1 };
+  });
+  await vp.screenshot({ path: `${OUT}/${tag}-detail.png` });
+  out.consoleErrors = errs;
+  report.viewports[tag] = out;
+  await vctx.close();
+}
+
 writeFileSync(`${OUT}/qa-report.json`, JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report, null, 2));
 await browser.close();
