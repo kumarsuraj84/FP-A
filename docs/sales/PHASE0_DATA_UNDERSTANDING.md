@@ -97,7 +97,7 @@ The two counters agree but read the **same** bill-number field, so the agreement
 
 | Metric | Source for a trial | Evidence | Status |
 |---|---|---|---|
-| Sales (incl. GST) | `V_CFO_DASHBOARD_SL_V.SL_V`, history from 2025-04-01, reconciled to the POS cube | sample-verified | conditional |
+| Sales (incl. GST) | `V_CFO_DASHBOARD_SL_V.SL_V` (its SQL reaches 2020-07-01; tested only from 2025-04-01 by my query bound), reconciled to the POS cube | sample-verified | conditional |
 | Sales ex-GST | `SL_V − TAX_V` | sample-verified (₹99–1,107 a month) | conditional |
 | Units | `SL_Q` | sample-verified totals; quantity differs by 5 on the sample day | conditional |
 | Bills | `BILL_COUNT` / bucket view | definition-read; two counters agree on one day | **unavailable** until the bill rule is set |
@@ -107,7 +107,7 @@ The two counters agree but read the **same** bill-number field, so the agreement
 | Store contribution | Dashboard view by store-day, store attributes from the master via code | sample-verified key | conditional |
 | Department contribution | not yet identified | compare tables are one month and 120 stores | **unavailable** |
 | Comparable stores | master plus rule | rule undecided (120 vs more than 6 months vs AOP cohort) | **unavailable** |
-| Same calendar date | Our own rule from history (this date − 1 year), reference dates shown | history from 2025-04-01 | conditional |
+| Same calendar date | Our own rule from history (this date − 1 year), reference dates shown | reach per source being certified; see the plan, section 4 | conditional |
 | Same weekday | Our own 364-day rule, reference dates shown | as above | conditional |
 | Custom period | Any two periods, day counts shown | as above | conditional |
 | Festival-stage comparison | A versioned festival mapping owned by the new module | mappings disagree; business decision needed | **unavailable** |
@@ -115,7 +115,7 @@ The two counters agree but read the **same** bill-number field, so the agreement
 | Targets | `T_STORE_SALE_TARGET` | not probed | **unavailable** |
 | Gross margin | `T_CUSTOM_COGS` | out of scope; view cost is current rate | **unavailable** |
 
-**History limits:** the dashboard view reaches back to Apr 2025 as probed (the bucket view's text goes back to Sep 2023 but was not tested). So last-year comparison is supported for dates from 2026-04-01 (reference from 2025-04-01) and year-before is **not** supported for any FY26-27 date (needs 2024-04 onward). Unsupported reference dates must show **unavailable**, never zero.
+**History limits (corrected, 5 Oct evening):** earlier text here said the dashboard view starts in April 2025. That was **my own query bound**, not a limit of the view. The view's SQL reaches 1 Jul 2020, the bucket view's 1 Sep 2023, and the POS cube has year instances from FY22-23 (cube registry). What was actually tested is only April 2025 onward, so earlier reach is **untested** for every source. The reconciliation by source and measure is in `SOURCE_CERTIFICATION_PLAN.md` section 4. Unsupported reference dates must show **unavailable**, never zero.
 
 ## 8. Calculation contract (proposal, not approved)
 
@@ -155,7 +155,7 @@ The dictionary records **no compile errors** for either (`ALL_ERRORS` returned n
 | U3 | Bill identity and counting rule | Open. Cube cannot count; two MIS counters agree on one day; return bills count as bills (2.9%); terminal/session uniqueness untestable in MISRETAIL | Owner/IA ruling on (store, day, bill number) uniqueness and on return and cancelled bills; or approval to read the raw bill table | Bills, ABV, UPB, bridge |
 | U4 | Dashboard vs POS residual | Narrowed to four stores and ₹290 on the sample day (202 of 206 exact). Cause hypothesised (excluded divisions and items without master match), not measured | Measure excluded divisions and unmatched items for those four stores (needs item-level data) | Dropping "provisional" |
 | U5 | `ABV_ASP` vs `DAY_WISE` differences | Explanation supported (different sources and refresh moments), not proven | Daily comparison against `T_CUSTOM_COGS` | Using either for reconciliation |
-| U6 | History | Compare tables: October only (CONSOLIDATED Apr–Oct, 120 stores). Dashboard view from Apr 2025. Year-before unsupported for FY26-27 | Test the bucket view's longer history if needed | LY/LLY beyond the above |
+| U6 | History | Compare tables: October only (CONSOLIDATED Apr–Oct, 120 stores). Dashboard view reaches 2020-07-01 by definition but was tested only from Apr 2025 (my bound). Year-before reach is untested | Single-day reach checks per source (certification plan, stage 2 and 3) | LY/LLY beyond the above |
 | U7 | Comparable-store rule | Open. 120-store list is a fixed table; more than 6 months is a dictionary rule; AOP cohort unconfirmed | Owner decision | Comparable growth |
 | U8 | INVALID views | Not in the refresh path; cause unknown; not repaired | DBA | Confidence only |
 | U9 | Extraction account privileges | No evidence | DBA/operator statement | Governance sign-off |

@@ -10,11 +10,14 @@ Labels: **table-read** = seen in the actual table contents; **dictionary** = obj
 
 1. **The business already classifies stores by festival** (table-read). `T_STORE_OPENING_DATE.FESTIVAL_GROUPING` uses the same vocabulary you gave: DIWALI, HOLI, EID, PUJA, CHHATH, plus BIHU. Of 209 active stores, 101 carry a festival group and 108 carry none.
 2. **A festival-aligned last-year plan exists, but nothing reads it** (table-read + dependency check). `T_CALENDER_DATE_PLAN` (455 rows, Jan 2026 to Mar 2027, created 9 Jun 2026) pairs every current date with a different last-year date, one-to-one. Its shifted stretches line up with the festivals in section 4. No database object references it.
-3. **The monthly comparison tables are not festival-aware** (definition-read + table-read). For October 2026 the `ABV_ASP` and `DAY_WISE` tables compare October with October. The Diwali mapping table pairs Diwali 2026 (8 Nov) with Diwali 2025 (20 Oct), so October 2026 is pre-festival while October 2025 contains the festival. Last-year columns there are inflated for that reason, and the whole-month totals in those tables should not be read as growth.
+3. **The monthly comparison tables are not festival-aligned** (definition-read + table-read). For October 2026 the `ABV_ASP` and `DAY_WISE` tables compare October with October. The Diwali mapping table pairs Diwali 2026 (8 Nov) with Diwali 2025 (20 Oct), so the two Octobers have **different festival exposure**. That is a plausible reason for a gap between this year and last year in those tables; it is **not a measured finding**. Measuring it would need a day-by-day comparison against the festival-aligned mapping, which has not been done. Whole-month totals there should not be read as growth.
 4. **Festival windows are overwritten, not kept** (table-read). Tables named "Holi" (`T_NEW_DATE_HOLI_TY_VS_LY` / `_LLY`) currently hold the Diwali 2026 window; `T_NEW_DATE_TWO_YEAR_COMP_FEST` was last replaced 15 Sep 2026. Earlier festivals' windows (Holi 2026, Eid 2026) are not stored anywhere I can see. Festival history therefore has to be rebuilt and kept by the new module.
 5. **A naming defect in the holiday list** (table-read): in `T_FESTIVAL_DETAIL`, the column `PRIOR_DATE_15_DAYS` is **14** days before the festival in all 51 rows; `PRIOR_DATE_20_DAYS` is 20. The existing lead-time convention is therefore about 14 and 20 days, whatever the label says.
 6. **Two store classifications for festivals disagree** (table-read). `FESTIVAL_GROUPING` and `T_STORE_FESTIVAL_FILTER` (Holi and Eid with PEAK tiers) give different counts: Holi 54 vs 53 stores, Eid 67 vs 34. They serve different purposes (peak tiers), but the authoritative one must be chosen.
-7. **History depth limits which festivals can be compared** (table-read). The dashboard view starts on 1 Apr 2025. Holi 2026 (about 4 Mar) against Holi 2025 (about 14 Mar), and Eid-ul-Fitr 2026 against 2025, need Feb–Apr 2025 daily sales, which that source does not hold. The bucket view's text suggests data back to Sep 2023 but that was not tested.
+7. **History depth: corrected.** I earlier said the dashboard view "starts on 1 Apr 2025". That was **my own query bound**, not a limit of the view: its SQL reaches back to 1 Jul 2020 (definition-read), the bucket view's to 1 Sep 2023, and the POS cube has year instances from FY22-23 (cube registry). What is true is that **none of these were tested for earlier dates**, so Holi and Eid-ul-Fitr 2026 against 2025 (Feb–Apr 2025) remain unproven until checked source by source. See `SOURCE_CERTIFICATION_PLAN.md` section 4 for the reconciliation.
+8. **The current festival report is a typed-in seasonal calendar** (definition-read, probe 04a). `V_PDC_SALE_COMPARE_PART_1` (changed 16 Sep 2026, valid) splits Sep–Nov 2026 into four **contiguous** phases, all typed into the SQL: Shradh 26 Sep–10 Oct, Pooja 11–20 Oct, Diwali 21 Oct–8 Nov, Chhath 9–16 Nov. It compares 16 Sep–16 Nov 2026 with 28 Aug–28 Oct 2025 and 20 Sep–20 Nov 2023 through `T_NEW_DATE_TWO_YEAR_COMP_FEST`, for a typed list of 74 stores labelled `26_vs_23`. "PDC" fits Puja–Diwali–Chhath, though the name is not documented. Future days are not cut off (the as-of limit is commented out).
+9. **Five of the eleven festival views are INVALID** (status, probe 04a): `V_COMPARE_HOLI`, `V_COMPARE_HOLI_2019`, `V_COMPARE_TY_LY_LLY_FESTIVAL`, `V_SALE_COMPARISION_FESTIVAL` and `V_WEEKLY_SL_FESTIVAL_WISE`. The valid ones are `V_PDC_SALE_COMPARE_PART_1` / `_2`, `V_COMPARE_TY_LY_LLY_FEST_GV`, `V_FOOTFALL_HOLI_COMPARE`, `V_COMPARE_TY_LY_LLY_DAY_V1` and `V_COMPARE_TY_LY_LLY_CONSO`. Several valid ones still carry stale typed windows (the footfall view: Mar–Apr 2025; `FEST_GV`: 2022–2024 dates).
+10. **Festival reports read SSRK underneath** (dependency check): `V_COMPARE_HOLI`, `..._FESTIVAL`, `..._FEST_GV`, `..._CONSO` and `V_PDC_SALE_COMPARE_PART_2` reference `SSRK.INVSTOCK` / `INVITEM`; `V_PDC_SALE_COMPARE_PART_1` reads the bucket view, which reads the live POS tables. They are not a source of record for the new module.
 
 ## 2. Existing festival objects
 
@@ -88,12 +91,11 @@ The days between the festival blocks are filled so that **every last-year day is
 5. How far back must festival comparisons go? Spring 2026 festivals need Feb–Apr 2025 daily data that the tested source does not hold.
 6. What "GV" and "PDC" stand for, and whether those reports are still used.
 
-## 7. Proposed read-only follow-up (not run; needs your approval and an idle extraction service)
+## 7. Follow-up status
 
-Metadata and very small aggregates only, through the broker, MISRETAIL only:
-- the text and dependencies of `V_COMPARE_TY_LY_LLY_FESTIVAL`, `_FEST_GV`, `V_SALE_COMPARISION_FESTIVAL`, `V_COMPARE_HOLI`, `V_PDC_SALE_COMPARE_PART_1` / `_2` and `V_WEEKLY_SL_FESTIVAL_WISE`;
-- the distinct `FESTIVAL_TAG` values and week range in `T_WEEKLY_SL_FESTIVAL_WISE` (one small grouped query);
-- the earliest date available in the bucket view.
+- **Done (probe 04a, run `run_20261005_030`, metadata only):** status, dependencies and text of 11 festival and comparison views (findings 8 to 10 above).
+- **Still open:** the distinct `FESTIVAL_TAG` values and week range in `T_WEEKLY_SL_FESTIVAL_WISE` (one small grouped query; the view over it is INVALID, so this is low priority), and the earliest dates per source (see the plan).
+- **Design proposal** (order, anchors, D−21 to D+7 windows, equal-elapsed rule, owners and approvers, store classifications not chosen automatically) is in `SOURCE_CERTIFICATION_PLAN.md` section 10.
 
 ## 8. Effect on the prototype
 

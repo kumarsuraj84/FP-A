@@ -2,7 +2,7 @@
 
 All probes ran through the Inventory Automation broker, MISRETAIL only, sequentially, within the broker guard. Parameters are literal dates inside each SQL text (no bind variables). Durations are the broker's reported seconds (the manifest does not store them; a short query reports about 6 s because of 2 s polling plus job start). The guard hash is the query hash stored in the run manifest. Results are in the git-ignored inbox and are not committed.
 
-Service coordination: probes 03a to 03e ran between 16:18 and 16:28 IST, after the finance session's `run_20261005_022` had completed (14 of 14 datasets) and with no `broker.py` process active. No other run started during that window (the newest run folders were this work's own). Probes 01 and 02 overlapped with the finance session's runs 020 and 021, which failed with timeouts; causation is not established.
+Service coordination: probes 03a to 03e ran between 16:18 and 16:28 IST, and probes 04a to 04c between 17:55 and 18:10 IST (04b and 04c read only the MISRETAIL POS cube), after the finance session's `run_20261005_022` had completed (14 of 14 datasets) and with no `broker.py` process active. No other run started during that window (the newest run folders were this work's own). Probes 01 and 02 overlapped with the finance session's runs 020 and 021, which failed with timeouts; causation is not established.
 
 ## sales_probe_01 (run_20261005_018, created 2026-10-05T10:03:13+00:00)
 
@@ -449,6 +449,110 @@ SQL:
 
 ```sql
 SELECT referenced_name, name, type FROM all_dependencies WHERE owner = 'MISRETAIL' AND referenced_owner = 'MISRETAIL' AND referenced_name IN ('T_CALENDER_DATE_PLAN', 'T_NEW_DATE_TWO_YEAR_COMP_20', 'T_NEW_DATE_TWO_YEAR_COMP_ADHOC', 'T_NEW_DATE_TWO_YEAR_COMP_FEST', 'T_NEW_DATE_TWO_YEAR_COMP_FESTO', 'T_NEW_DATE_HOLI_TY_VS_LY', 'T_NEW_DATE_HOLI_TY_VS_LLY', 'T_STORE_COMPARE_120', 'T_STORE_COMPARE', 'T_WEEK_AUGUST') ORDER BY referenced_name, name FETCH FIRST 2000 ROWS ONLY
+```
+
+## sales_probe_04a (run_20261005_030, created 2026-10-05T12:25:08+00:00)
+
+| dataset | kind | status | rows | cap | seconds | guard hash |
+|---|---|---|---|---|---|---|
+| f1_status | metadata | ok | 11 | 100 | 6.2 | 2684d02b77 |
+| f2_dependencies | metadata | ok | 52 | 1000 | 6.1 | 9540c5708d |
+| f3_view_text | metadata | ok | 11 | 40 | 6.1 | 03a97d33b4 |
+
+Notes:
+
+SQL:
+
+### f1_status
+
+```sql
+SELECT object_name, object_type, status, TO_CHAR(created, 'YYYY-MM-DD HH24:MI') AS created, TO_CHAR(last_ddl_time, 'YYYY-MM-DD HH24:MI') AS last_ddl FROM all_objects WHERE owner = 'MISRETAIL' AND object_name IN ('V_COMPARE_TY_LY_LLY_FESTIVAL', 'V_COMPARE_TY_LY_LLY_FEST_GV', 'V_SALE_COMPARISION_FESTIVAL', 'V_COMPARE_HOLI', 'V_COMPARE_HOLI_2019', 'V_PDC_SALE_COMPARE_PART_1', 'V_PDC_SALE_COMPARE_PART_2', 'V_WEEKLY_SL_FESTIVAL_WISE', 'V_FOOTFALL_HOLI_COMPARE', 'V_COMPARE_TY_LY_LLY_DAY_V1', 'V_COMPARE_TY_LY_LLY_CONSO') FETCH FIRST 100 ROWS ONLY
+```
+
+### f2_dependencies
+
+```sql
+SELECT name, referenced_owner, referenced_name, referenced_type FROM all_dependencies WHERE owner = 'MISRETAIL' AND name IN ('V_COMPARE_TY_LY_LLY_FESTIVAL', 'V_COMPARE_TY_LY_LLY_FEST_GV', 'V_SALE_COMPARISION_FESTIVAL', 'V_COMPARE_HOLI', 'V_COMPARE_HOLI_2019', 'V_PDC_SALE_COMPARE_PART_1', 'V_PDC_SALE_COMPARE_PART_2', 'V_WEEKLY_SL_FESTIVAL_WISE', 'V_FOOTFALL_HOLI_COMPARE', 'V_COMPARE_TY_LY_LLY_DAY_V1', 'V_COMPARE_TY_LY_LLY_CONSO') ORDER BY name, referenced_name FETCH FIRST 1000 ROWS ONLY
+```
+
+### f3_view_text
+
+```sql
+SELECT view_name, text_length, text FROM all_views WHERE owner = 'MISRETAIL' AND view_name IN ('V_COMPARE_TY_LY_LLY_FESTIVAL', 'V_COMPARE_TY_LY_LLY_FEST_GV', 'V_SALE_COMPARISION_FESTIVAL', 'V_COMPARE_HOLI', 'V_COMPARE_HOLI_2019', 'V_PDC_SALE_COMPARE_PART_1', 'V_PDC_SALE_COMPARE_PART_2', 'V_WEEKLY_SL_FESTIVAL_WISE', 'V_FOOTFALL_HOLI_COMPARE', 'V_COMPARE_TY_LY_LLY_DAY_V1', 'V_COMPARE_TY_LY_LLY_CONSO') FETCH FIRST 40 ROWS ONLY
+```
+
+## sales_probe_04b (run_20261005_031, created 2026-10-05T12:28:17+00:00)
+
+| dataset | kind | status | rows | cap | seconds | guard hash |
+|---|---|---|---|---|---|---|
+| h1_2022_diwali | extract | ok | 2 | 5 | 26.7 | d946fc604b |
+| h2_2023_diwali | extract | ok | 2 | 5 | 26.3 | cd2650730e |
+| h3_2024_diwali | extract | ok | 2 | 5 | 42.5 | 5a3bf62e8c |
+| h4_2025_holi | extract | ok | 2 | 5 | 62.9 | cf62f70544 |
+| h5_2025_eid_fitr | extract | ok | 2 | 5 | 42.6 | 796333f977 |
+| m1_cube_store_day_aug26 | extract | ok | 6122 | 20000 | 50.6 | b5da41706c |
+
+Notes:
+
+SQL:
+
+### h1_2022_diwali
+
+```sql
+SELECT isvoid, COUNT(*) AS row_n, COUNT(DISTINCT sitecode) AS sites, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(taxamt), 'TM9') AS tax, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(billqty), 'TM9') AS qty, COUNT(CASE WHEN netamt < 0 THEN 1 END) AS negative_rows FROM MISRETAIL.CUBE$POSBILLSUMM WHERE billdate >= DATE '2022-10-24' AND billdate <= DATE '2022-10-24' GROUP BY isvoid FETCH FIRST 5 ROWS ONLY
+```
+
+### h2_2023_diwali
+
+```sql
+SELECT isvoid, COUNT(*) AS row_n, COUNT(DISTINCT sitecode) AS sites, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(taxamt), 'TM9') AS tax, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(billqty), 'TM9') AS qty, COUNT(CASE WHEN netamt < 0 THEN 1 END) AS negative_rows FROM MISRETAIL.CUBE$POSBILLSUMM WHERE billdate >= DATE '2023-11-12' AND billdate <= DATE '2023-11-12' GROUP BY isvoid FETCH FIRST 5 ROWS ONLY
+```
+
+### h3_2024_diwali
+
+```sql
+SELECT isvoid, COUNT(*) AS row_n, COUNT(DISTINCT sitecode) AS sites, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(taxamt), 'TM9') AS tax, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(billqty), 'TM9') AS qty, COUNT(CASE WHEN netamt < 0 THEN 1 END) AS negative_rows FROM MISRETAIL.CUBE$POSBILLSUMM WHERE billdate >= DATE '2024-11-01' AND billdate <= DATE '2024-11-01' GROUP BY isvoid FETCH FIRST 5 ROWS ONLY
+```
+
+### h4_2025_holi
+
+```sql
+SELECT isvoid, COUNT(*) AS row_n, COUNT(DISTINCT sitecode) AS sites, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(taxamt), 'TM9') AS tax, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(billqty), 'TM9') AS qty, COUNT(CASE WHEN netamt < 0 THEN 1 END) AS negative_rows FROM MISRETAIL.CUBE$POSBILLSUMM WHERE billdate >= DATE '2025-03-14' AND billdate <= DATE '2025-03-14' GROUP BY isvoid FETCH FIRST 5 ROWS ONLY
+```
+
+### h5_2025_eid_fitr
+
+```sql
+SELECT isvoid, COUNT(*) AS row_n, COUNT(DISTINCT sitecode) AS sites, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(taxamt), 'TM9') AS tax, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(billqty), 'TM9') AS qty, COUNT(CASE WHEN netamt < 0 THEN 1 END) AS negative_rows FROM MISRETAIL.CUBE$POSBILLSUMM WHERE billdate >= DATE '2025-03-31' AND billdate <= DATE '2025-03-31' GROUP BY isvoid FETCH FIRST 5 ROWS ONLY
+```
+
+### m1_cube_store_day_aug26
+
+```sql
+SELECT TO_CHAR(sitecode) AS site_code, TO_CHAR(billdate, 'YYYY-MM-DD') AS bill_date, isvoid, COUNT(*) AS row_n, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(taxamt), 'TM9') AS tax, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(billqty), 'TM9') AS qty, TO_CHAR(SUM(returnamt), 'TM9') AS returns, TO_CHAR(SUM(saleamt), 'TM9') AS sale, TO_CHAR(SUM(promoamt), 'TM9') AS promo, TO_CHAR(SUM(grossamt), 'TM9') AS gross, TO_CHAR(SUM(totaldiscountamt), 'TM9') AS discount FROM MISRETAIL.CUBE$POSBILLSUMM WHERE billdate >= DATE '2026-08-01' AND billdate <= DATE '2026-08-31' GROUP BY sitecode, billdate, isvoid FETCH FIRST 20000 ROWS ONLY
+```
+
+## sales_probe_04c (run_20261005_032, created 2026-10-05T12:34:41+00:00)
+
+| dataset | kind | status | rows | cap | seconds | guard hash |
+|---|---|---|---|---|---|---|
+| q1_cube_instance_aug26 | extract | ok | 1 | 20 | 71.1 | 5797db5c9d |
+| q2_cube_instance_history_days | extract | ok | 3 | 20 | 58.7 | 4ff76fa1c5 |
+
+Notes:
+
+SQL:
+
+### q1_cube_instance_aug26
+
+```sql
+SELECT cube_code, cubename, TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS report_date, TO_CHAR(MIN(start_date), 'YYYY-MM-DD') AS window_start, TO_CHAR(MAX(end_date), 'YYYY-MM-DD') AS window_end, COUNT(*) AS row_n, TO_CHAR(MIN(billdate), 'YYYY-MM-DD') AS first_bill_date, TO_CHAR(MAX(billdate), 'YYYY-MM-DD') AS last_bill_date FROM MISRETAIL.CUBE$POSBILLSUMM WHERE billdate >= DATE '2026-08-01' AND billdate <= DATE '2026-08-31' GROUP BY cube_code, cubename FETCH FIRST 20 ROWS ONLY
+```
+
+### q2_cube_instance_history_days
+
+```sql
+SELECT cube_code, cubename, TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS report_date, TO_CHAR(MIN(start_date), 'YYYY-MM-DD') AS window_start, TO_CHAR(MAX(end_date), 'YYYY-MM-DD') AS window_end, COUNT(*) AS row_n, TO_CHAR(MIN(billdate), 'YYYY-MM-DD') AS first_bill_date, TO_CHAR(MAX(billdate), 'YYYY-MM-DD') AS last_bill_date FROM MISRETAIL.CUBE$POSBILLSUMM WHERE (billdate >= DATE '2022-10-24' AND billdate <= DATE '2022-10-24') OR (billdate >= DATE '2023-11-12' AND billdate <= DATE '2023-11-12') OR (billdate >= DATE '2024-11-01' AND billdate <= DATE '2024-11-01') OR (billdate >= DATE '2025-03-14' AND billdate <= DATE '2025-03-14') OR (billdate >= DATE '2025-03-31' AND billdate <= DATE '2025-03-31') GROUP BY cube_code, cubename FETCH FIRST 20 ROWS ONLY
 ```
 
 ## Guard and timeout events
