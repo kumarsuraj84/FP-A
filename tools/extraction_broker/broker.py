@@ -32,6 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import guard  # noqa: E402
 import manifest as mf  # noqa: E402
+import packages  # noqa: E402
 from packages import PACKAGE_META, PACKAGES, Dataset  # noqa: E402
 
 BROKER_VERSION = "1"
@@ -339,11 +340,22 @@ def main(argv: list[str]) -> int:
     for name in ("plan", "run"):
         p = sub.add_parser(name)
         p.add_argument("package", choices=sorted(PACKAGES))
+        p.add_argument("--as-of", help="YYYY-MM-DD: REQUIRED for entry_pilot_01 (the business date the creditors and cash runs were built for); refused for any other package")
         if name == "run":
             p.add_argument("--only", help="comma-separated dataset names")
     sub.add_parser("verify").add_argument("run_dir")
     a = ap.parse_args(argv)
     try:
+        if a.cmd in ("plan", "run"):
+            if a.package == "entry_pilot_01":
+                if not a.as_of:
+                    raise BrokerError("entry_pilot_01 needs an explicit --as-of YYYY-MM-DD: there is no implicit today")
+                try:
+                    packages.configure_entry(a.as_of)
+                except ValueError as e:
+                    raise BrokerError(str(e)) from None
+            elif a.as_of:
+                raise BrokerError(f"{a.package} does not take an as-of date")
         if a.cmd == "plan":
             return cmd_plan(a.package)
         if a.cmd == "run":

@@ -6,6 +6,7 @@ no transaction data, no COUNT(*) on finance objects (row estimates come from ALL
 from __future__ import annotations
 
 import re
+from datetime import date
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -1204,10 +1205,14 @@ def _links_sql(register: str, since: str, until: str | None) -> str:
 
 _L1C_SQL = (f"SELECT document_code AS document_code, sub_ledger_code AS sub_ledger_code, TO_CHAR(ledger_code) AS ledger_code, {_TM9('amount', 'bill_amount')}, TO_CHAR(document_date, 'YYYY-MM-DD') AS document_date "
             f"FROM {_O} WHERE report_date >= DATE '2026-01-01' AND ledger_code IN ({_CRED_IN}) AND pending <> 0 AND (document_date < DATE '2023-04-01' OR document_date IS NULL) FETCH FIRST 50000 ROWS ONLY")
-_L2_SQL = (_cte() + f"SELECT TO_CHAR(v.site_code) AS site_code, TO_CHAR(v.bill_date, 'YYYY-MM-DD') AS day, {_TM9('v.debit', 'debit')}, {_TM9('v.credit', 'credit')}, {_TM9('v.cumlative_balance', 'cumulative_balance')} "
-           f"FROM {_TILL} v WHERE v.bill_date >= DATE '2026-04-01' AND v.bill_date <= {_CUT} FETCH FIRST 100000 ROWS ONLY")
+def _l2_sql() -> str:
+    return (_cte() + f"SELECT TO_CHAR(v.site_code) AS site_code, TO_CHAR(v.bill_date, 'YYYY-MM-DD') AS day, {_TM9('v.debit', 'debit')}, {_TM9('v.credit', 'credit')}, {_TM9('v.cumlative_balance', 'cumulative_balance')} "
+            f"FROM {_TILL} v WHERE v.bill_date >= DATE '2026-04-01' AND v.bill_date <= {_CUT} FETCH FIRST 100000 ROWS ONLY")
 
-ENTRY_PILOT_01: tuple[Dataset, ...] = (
+
+
+def _entry_datasets() -> tuple[Dataset, ...]:
+    return (
     Dataset("c1_totals_pre", "extract", "Source control before the extract: entries, lines and exact Dr/Cr of each selection (no per-entry grouping).", sql=_totals_sql(), role="control_pre"),
     Dataset("c2_histogram_pre", "extract", "Source control before the extract: how many entries have 1, 2, 3 ... n lines, per selection (proves multi-line vouchers are complete).", sql=_histogram_sql(), role="control_pre"),
     Dataset("c3_bills_pre", "extract", "Source control before the extract: cube and register report dates and the open creditor bills by register-coverage window.", sql=_bills_sql(), role="control_pre"),
@@ -1219,13 +1224,35 @@ ENTRY_PILOT_01: tuple[Dataset, ...] = (
     Dataset("l1a_links_current", "extract", "One row per open creditor bill dated FY26-27: the distinct register entries matched by ledger + sub-ledger + document number = entry number.", sql=_links_sql(_ENTRY_SITE, "2026-04-01", None), role="extract"),
     Dataset("l1b_links_prior", "extract", "The same for bills dated FY23-24 to FY25-26 against the all-years register.", sql=_links_sql(_ALLYEARS, "2023-04-01", "2026-03-31"), role="extract"),
     Dataset("l1c_bills_before_coverage", "extract", "Open creditor bills dated before April 2023 or without a document date: identity only (the register coverage does not reach them).", sql=_L1C_SQL, role="extract"),
-    Dataset("l2_till_day", "extract", "The till view per store per day, 1 Apr 2026 to the register report date.", sql=_L2_SQL, role="extract"),
+    Dataset("l2_till_day", "extract", "The till view per store per day, 1 Apr 2026 to the register report date.", sql=_l2_sql(), role="extract"),
     Dataset("c1_totals_post", "extract", "The same totals after the extract.", sql=_totals_sql(), role="control_post"),
     Dataset("c2_histogram_post", "extract", "The same histogram after the extract.", sql=_histogram_sql(), role="control_post"),
     Dataset("c3_bills_post", "extract", "The same bill counts after the extract.", sql=_bills_sql(), role="control_post"),
     Dataset("c4_register_post", "extract", "The same register report date after the extract.", sql=_register_sql(), role="control_post"),
 )
-ENTRY_META = {"halt_on_failure": True, "contract": {**ENTRY_RULES, "caps": {"h1_lines_creditors_cur": 400_000, "h1b_lines_creditors_old": 400_000, "h2_lines_bank": 200_000, "h3_lines_till": 1_000_000, "l2_till_day": 100_000}}}
+def _entry_meta() -> dict:
+    return {"halt_on_failure": True, "contract": {**ENTRY_RULES, "caps": {"h1_lines_creditors_cur": 400_000, "h1b_lines_creditors_old": 400_000, "h2_lines_bank": 200_000, "h3_lines_till": 1_000_000, "l2_till_day": 100_000}}}
+
+
+ENTRY_PILOT_01: tuple[Dataset, ...] = _entry_datasets()
+ENTRY_META = _entry_meta()
+
+
+def configure_entry(as_of: str) -> None:
+    """Pin the entry extract to ONE business date (the date the creditors and cash runs were built for). There is no default date in the broker: the caller must supply it."""
+    global _CUT, ENTRY_PILOT_01, ENTRY_META
+    try:
+        d = date.fromisoformat(as_of)
+    except ValueError:
+        raise ValueError("the as-of date must be a real date written YYYY-MM-DD") from None
+    if d.isoformat() != as_of:
+        raise ValueError("the as-of date must be written YYYY-MM-DD")
+    _CUT = f"DATE '{as_of}'"
+    ENTRY_RULES["as_of_cutoff"] = as_of
+    ENTRY_PILOT_01 = _entry_datasets()
+    ENTRY_META = _entry_meta()
+    PACKAGES["entry_pilot_01"] = ENTRY_PILOT_01
+    PACKAGE_META["entry_pilot_01"] = ENTRY_META
 
 def _one_total(name: str) -> str:
     reg, extra, win, key = _sel(name)
