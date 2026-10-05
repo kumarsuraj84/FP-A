@@ -1095,15 +1095,15 @@ VOUCHER_PROBE_03: tuple[Dataset, ...] = (
 # Numbers and dates leave Oracle as exact text. Source controls (entries, lines, exact Dr/Cr, lines-per-entry histogram) are computed before the extract; the totals and the report dates again after it (the refresh-race guard).
 # Narration and the other free-text / identifying fields are extracted (they are needed for the Finance-only entry view) but NEVER summarised, logged or reported by any tool.
 ENTRY_RULES = {
-    "contract": "drill-1.0",
-    "rules_version": "1",
+    "contract": "drill-1.1",
+    "rules_version": "2",
     "fy_start": "2026-04-01",
     "as_of_cutoff": "2026-10-04",
     "coverage_from": "2023-04-01",
     "register_current": '"T$FINREGSITE_844"',
     "register_all_years": '"T$FINREGSITE_877"',
-    "identity": "(site, entry type short, entry number); entry_ref = sha256('v1|site|type|number')[:32]",
-    "bridge": "ledger + sub-ledger + DOCUMENT_NO = ENTRY_NO; EXACT = one distinct entry identity AND net amount for that ledger and sub-ledger equals the bill amount",
+    "identity": "(site, entry type short, entry number, creating site or '<none>', entry date); entry_ref = sha256('v2|site|type|number|creator|date')[:32]; a line is its full row (SEQ repeats inside an entry)",
+    "bridge": "ledger + sub-ledger + DOCUMENT_NO = ENTRY_NO; EXACT = one distinct entry identity (site, type, number, creating site, date) AND net amount for that ledger and sub-ledger equals the bill amount",
 }
 _FINGL = f'{OWNER}."MAS$FINGL"'
 _CUT = "DATE '2026-10-04'"   # the cash and creditors runs' as-of date, pinned: entries after it are never extracted
@@ -1126,21 +1126,21 @@ def _sel(name: str) -> tuple[str, str, str, str]:
     cur, old = _ENTRY_SITE, _ALLYEARS
     if name == "creditors_cur":
         win = "r.entry_date >= DATE '2026-04-01'"
-        sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n FROM {cur} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
+        sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n, NVL(r2.created_by_site, '<none>') AS cr, r2.entry_date AS d FROM {cur} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
                f"AND r2.entry_glcode IN ({_CRED_IN}) AND r2.entry_date >= DATE '2026-04-01' AND o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 AND o.document_date >= DATE '2026-04-01'")
-        return cur, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n"
+        return cur, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n AND NVL(r.created_by_site, '<none>') = k.cr AND r.entry_date = k.d"
     if name == "creditors_old":
         win = "r.entry_date >= DATE '2023-04-01' AND r.entry_date <= DATE '2026-03-31'"
-        sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n FROM {old} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
+        sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n, NVL(r2.created_by_site, '<none>') AS cr, r2.entry_date AS d FROM {old} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
                f"AND r2.entry_glcode IN ({_CRED_IN}) AND r2.entry_date >= DATE '2023-04-01' AND r2.entry_date <= DATE '2026-03-31' AND o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 "
                "AND o.document_date >= DATE '2023-04-01' AND o.document_date <= DATE '2026-03-31'")
-        return old, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n"
+        return old, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n AND NVL(r.created_by_site, '<none>') = k.cr AND r.entry_date = k.d"
     if name == "bank":
         win = f"r.entry_date >= DATE '2026-04-01' AND r.entry_date <= {_CUT}"
         # a join to the ledger master, not a nested IN: the nested form could not be unnested and ran past the broker time limit
-        sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n FROM {cur} r2, {_FINGL} g2 WHERE g2.glcode = r2.entry_glcode AND g2.nature IN ('Bank', 'Cash') "
+        sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n, NVL(r2.created_by_site, '<none>') AS cr, r2.entry_date AS d FROM {cur} r2, {_FINGL} g2 WHERE g2.glcode = r2.entry_glcode AND g2.nature IN ('Bank', 'Cash') "
                f"AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_CUT}")
-        return cur, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n"
+        return cur, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n AND NVL(r.created_by_site, '<none>') = k.cr AND r.entry_date = k.d"
     raise KeyError(name)
 
 
@@ -1157,14 +1157,14 @@ def _totals_sql() -> str:
     parts = []
     for name in ("creditors_cur", "creditors_old", "bank"):
         reg, extra, win, key = _sel(name)
-        parts.append(f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
+        parts.append(f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no || '|' || NVL(r.created_by_site, '<none>') || '|' || TO_CHAR(r.entry_date, 'YYYY-MM-DD')) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
                      f"FROM {reg} r{extra} WHERE {win} AND {key}")
     return _cte() + " UNION ALL ".join(parts) + " FETCH FIRST 10 ROWS ONLY"
 
 
 def _one_total(name: str) -> str:
     reg, extra, win, key = _sel(name)
-    return (f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
+    return (f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no || '|' || NVL(r.created_by_site, '<none>') || '|' || TO_CHAR(r.entry_date, 'YYYY-MM-DD')) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
             f"FROM {reg} r{extra} WHERE {win} AND {key} FETCH FIRST 5 ROWS ONLY")
 
 
@@ -1174,14 +1174,14 @@ SEL_NAMES = ("creditors_cur", "creditors_old", "bank")   # one control query per
 def _one_histogram(name: str) -> str:
     reg, extra, win, key = _sel(name)
     return (f"SELECT '{name}' AS selection, lines_per_entry, COUNT(*) AS entries FROM (SELECT COUNT(*) AS lines_per_entry FROM {reg} r{extra} WHERE {win} AND {key} "
-            "GROUP BY r.sitecode, r.entry_type_short, r.entry_no) GROUP BY lines_per_entry ORDER BY lines_per_entry FETCH FIRST 2000 ROWS ONLY")
+            "GROUP BY r.sitecode, r.entry_type_short, r.entry_no, NVL(r.created_by_site, '<none>'), r.entry_date) GROUP BY lines_per_entry ORDER BY lines_per_entry FETCH FIRST 2000 ROWS ONLY")
 
 
 def _histogram_sql() -> str:
     parts = []
     for name in ("creditors_cur", "creditors_old", "bank"):
         reg, extra, win, key = _sel(name)
-        parts.append(f"SELECT '{name}' AS selection, lines_per_entry, COUNT(*) AS entries FROM (SELECT COUNT(*) AS lines_per_entry FROM {reg} r{extra} WHERE {win} AND {key} GROUP BY r.sitecode, r.entry_type_short, r.entry_no) GROUP BY lines_per_entry")
+        parts.append(f"SELECT '{name}' AS selection, lines_per_entry, COUNT(*) AS entries FROM (SELECT COUNT(*) AS lines_per_entry FROM {reg} r{extra} WHERE {win} AND {key} GROUP BY r.sitecode, r.entry_type_short, r.entry_no, NVL(r.created_by_site, '<none>'), r.entry_date) GROUP BY lines_per_entry")
     return _cte() + " UNION ALL ".join(parts) + " ORDER BY selection, lines_per_entry FETCH FIRST 2000 ROWS ONLY"
 
 
@@ -1201,16 +1201,21 @@ def _register_sql() -> str:
 def _links_sql(register: str, since: str, until: str | None) -> str:
     reg_until = f" AND entry_date <= DATE '{until}'" if until else ""
     o_until = f" AND document_date <= DATE '{until}'" if until else ""
-    r = (f"SELECT entry_glcode AS g, entry_slcode AS s, entry_no AS n, entry_type_short AS t, sitecode AS st, SUM(debit) AS dr, SUM(credit) AS cr FROM {register} "
-         f"WHERE entry_glcode IN ({_CRED_IN}) AND entry_date >= DATE '{since}'{reg_until} GROUP BY entry_glcode, entry_slcode, entry_no, entry_type_short, sitecode")
+    # the identity of a register entry is (site, type, number, creating site, date): the same number is reused by different warehouses and over time
+    r = (f"SELECT entry_glcode AS g, entry_slcode AS s, entry_no AS n, entry_type_short AS t, sitecode AS st, NVL(created_by_site, '<none>') AS cr, entry_date AS d, SUM(debit) AS dr, SUM(credit) AS cr_amt FROM {register} "
+         f"WHERE entry_glcode IN ({_CRED_IN}) AND entry_date >= DATE '{since}'{reg_until} GROUP BY entry_glcode, entry_slcode, entry_no, entry_type_short, sitecode, NVL(created_by_site, '<none>'), entry_date")
     o = (f"SELECT document_code AS dc, sub_ledger_code AS s, ledger_code AS g, document_no AS dn, amount AS amt FROM {_O} WHERE report_date >= DATE '2026-01-01' "
          f"AND ledger_code IN ({_CRED_IN}) AND pending <> 0 AND document_date >= DATE '{since}'{o_until}")
+    ident = "CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n || '|' || r.cr || '|' || TO_CHAR(r.d, 'YYYY-MM-DD') END"
+    one = f"COUNT(DISTINCT {ident}) = 1"
     return (f"SELECT o.dc AS document_code, o.s AS sub_ledger_code, TO_CHAR(o.g) AS ledger_code, {_TM9('o.amt', 'bill_amount')}, "
-            "COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END) AS matched_entries, "
-            "CASE WHEN COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END) = 1 THEN TO_CHAR(MIN(r.st)) END AS site_code, "
-            "CASE WHEN COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END) = 1 THEN MIN(r.t) END AS entry_type_short, "
-            "CASE WHEN COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END) = 1 THEN MIN(r.n) END AS entry_no, "
-            f"CASE WHEN COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END) = 1 THEN TO_CHAR(SUM(r.dr - r.cr), 'TM9') END AS entry_net_dr_minus_cr "
+            f"COUNT(DISTINCT {ident}) AS matched_entries, "
+            f"CASE WHEN {one} THEN TO_CHAR(MIN(r.st)) END AS site_code, "
+            f"CASE WHEN {one} THEN MIN(r.t) END AS entry_type_short, "
+            f"CASE WHEN {one} THEN MIN(r.n) END AS entry_no, "
+            f"CASE WHEN {one} THEN MIN(r.cr) END AS entry_creator, "
+            f"CASE WHEN {one} THEN TO_CHAR(MIN(r.d), 'YYYY-MM-DD') END AS entry_date, "
+            f"CASE WHEN {one} THEN TO_CHAR(SUM(r.dr - r.cr_amt), 'TM9') END AS entry_net_dr_minus_cr "
             f"FROM ({o}) o LEFT JOIN ({r}) r ON r.n = o.dn AND r.g = o.g AND r.s = o.s GROUP BY o.dc, o.s, o.g, o.amt FETCH FIRST 50000 ROWS ONLY")
 
 

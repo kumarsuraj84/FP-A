@@ -71,10 +71,19 @@ def test_a_clean_run_passes_with_every_control_green(tmp_path):
     assert max(len(v) for v in per.values()) == 4  # the synthetic multi-line voucher
     # an entry carried by two drills is stored once and tagged with both
     assert any(h["selections"] == ["bank", "creditors_cur"] for h in hdr)
-    # the identity is (site, type, number): the same number at two sites is two entries
+    # the identity is (site, type, number, creating site, date): the register reuses numbers across warehouses and days, and none of those entries may merge
     ident = pq.read_table(run / "staging" / "entry_identity.parquet").to_pylist()
-    assert len({(i["site_code"], i["entry_type_short"], i["entry_no"]) for i in ident}) == len(ident) == len(hdr)
-    assert len({i["entry_no"] for i in ident}) < len(ident)
+    hdr_by_ref = {h["entry_ref"]: h for h in hdr}
+    assert len({i["entry_ref"] for i in ident}) == len(ident) == len(hdr)
+    triples = {(i["site_code"], i["entry_type_short"], i["entry_no"]) for i in ident}
+    assert len(triples) < len(ident)                                                  # the same (site, type, number) is more than one entry
+    coll = [i for i in ident if (i["site_code"], i["entry_type_short"], i["entry_no"]) == ("010", "RCP", "COLL1")]
+    assert len(coll) == 4 and sorted((str(i["created_by_site"]), hdr_by_ref[i["entry_ref"]]["entry_date"].isoformat()) for i in coll) == [("HO", "2026-09-15"), ("HO", "2026-09-16"), ("None", "2026-09-15"), ("WH2", "2026-09-15")]
+    # the register repeats SEQ inside an entry: those lines stay distinct and are numbered 1..n
+    texts = {}
+    for ln in lines:
+        texts.setdefault(ln["entry_ref"], []).append(ln["source_seq"])
+    assert any(len(v) != len(set(v)) for v in texts.values())
 
 
 def test_sensitive_text_never_reaches_a_report_or_a_message(tmp_path):
@@ -169,3 +178,24 @@ def test_a_source_that_has_moved_past_the_pinned_cutoff_stops_the_run(tmp_path):
 
     _, _, rep = run_and_report(tmp_path, tweak=tweak)
     assert rep["verdict"] == "FAILED" and any("the source has moved on" in f for f in rep["hard_failures"])
+
+
+def test_an_entry_carried_by_two_selections_with_different_lines_is_refused(tmp_path):
+    def tweak(files, b):
+        rows, cols = files["h2_lines_bank"]
+        both = next(r for r in rows if r["glname"] == "BANK ALPHA-1" and r["debit"] == "0" and r["credit"] == "0" and r["entry_type_short"] == "PIM")
+        rows.remove(next(r for r in rows if r["entry_no"] == both["entry_no"] and r["glname"] == "Purchases"))   # the bank selection extracted the entry incompletely
+        files["h2_lines_bank"] = (rows, cols)
+
+    _, _, rep = run_and_report(tmp_path, tweak=tweak)
+    assert rep["verdict"] == "FAILED" and any("conflicting duplicate" in f for f in rep["hard_failures"])
+
+
+def test_an_identical_line_twice_in_one_dataset_is_refused_not_deduplicated(tmp_path):
+    def tweak(files, b):
+        rows, cols = files["h2_lines_bank"]
+        rows.append(dict(rows[0]))
+        files["h2_lines_bank"] = (rows, cols)
+
+    _, _, rep = run_and_report(tmp_path, tweak=tweak)
+    assert rep["verdict"] == "FAILED" and any("identical line appears twice" in f for f in rep["hard_failures"])

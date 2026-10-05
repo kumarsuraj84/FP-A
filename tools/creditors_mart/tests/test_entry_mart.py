@@ -551,7 +551,7 @@ def test_n20_the_shared_run_model_shows_all_three_domains_and_creditors_is_uncha
     rows = {r[0]: r[1:] for r in a.execute("SELECT domain, run_id, mart_state FROM core.v_domain_run ORDER BY domain").fetchall()}
     assert set(rows) == {"cash", "creditors", "entries"}
     assert a.execute("SELECT recon_state, publication_state FROM cred.run").fetchone() == ("verified", "unpublished")
-    assert [r[0] for r in a.execute("SELECT version FROM cred.schema_migration ORDER BY version").fetchall()] == ["001", "002", "003", "004", "005", "006"]
+    assert [r[0] for r in a.execute("SELECT version FROM cred.schema_migration ORDER BY version").fetchall()] == ["001", "002", "003", "004", "005", "006", "007"]
     assert env["client"].get(f"/api/v1/creditors/runs/{CRED_RUN}/summary").status_code == 200 and env["client"].get(f"/api/v1/cash/runs/{CASH_RUN}/summary").status_code == 200
     ev("N20", "shared run model and untouched domains", domains=sorted(rows), creditors_state="verified / unpublished")
 

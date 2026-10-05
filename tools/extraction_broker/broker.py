@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import guard  # noqa: E402
 import manifest as mf  # noqa: E402
 import packages  # noqa: E402
+import identity_probe  # noqa: E402,F401  (registers entry_identity_probe_01)
 import readiness  # noqa: E402
 from packages import PACKAGE_META, PACKAGES, Dataset  # noqa: E402
 

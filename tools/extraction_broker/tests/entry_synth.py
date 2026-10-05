@@ -32,11 +32,12 @@ class Builder:
         self.lines: list[dict] = []          # every line, with the selections it belongs to
         self.no = 0
 
-    def line(self, sels, site, typ, typ_long, no, date_, gl, name, nature, sl, dr, cr, status="Posted", **text):
+    def line(self, sels, site, typ, typ_long, no, date_, gl, name, nature, sl, dr, cr, status="Posted", creator="HO", seq=None, **text):
         self.seq += 1
+        seq = str(self.seq) if seq is None else str(seq)
         self.lines.append({
-            "sels": set(sels), "site_code": site, "entry_type_short": typ, "entry_type_long": typ_long, "entry_no": no, "entry_date": date_, "seq": str(self.seq), "glcode": gl, "glname": name,
-            "glnature": nature, "slcode": sl, "debit": str(Decimal(dr)), "credit": str(Decimal(cr)), "release_status": status, "created_by_site": "HO", "cubename": "SITE_REG_26-27",
+            "sels": set(sels), "site_code": site, "entry_type_short": typ, "entry_type_long": typ_long, "entry_no": no, "entry_date": date_, "seq": seq, "glcode": gl, "glname": name,
+            "glnature": nature, "slcode": sl, "debit": str(Decimal(dr)), "credit": str(Decimal(cr)), "release_status": status, "created_by_site": creator, "cubename": "SITE_REG_26-27",
             "narration": text.get("narration", f"{SENT_NARR} entry {no}"), "reference_no": text.get("reference_no", f"{SENT_REF}-{no}"), "reference_date": date_,
             "cheque_no": text.get("cheque_no", f"{SENT_CHQ}-{no}"), "cheque_date": date_, "counter_ledgers": "counter", "prepared_by": SENT_USER, "prepared_on": f"{date_} 10:00:00",
             "modified_by": SENT_USER, "modified_on": f"{date_} 11:00:00", "released_by": SENT_USER, "released_on": f"{date_} 12:00:00"})
@@ -74,10 +75,11 @@ def build(tmp_path: Path, name: str = "run_20261005_960", tweak=None, statuses=N
         entry_sels = sels + (["bank"] if kind == "overlap_bank" else [])
         if kind == "multiline":
             third = (amt / 3).quantize(Decimal("0.01"))
-            parts = [third, third, amt - 2 * third]
+            parts = [third, third + 1, amt - 2 * third - 1]
             b.line(entry_sels, site, "PIM", "Purchase Invoice", no, d, led, r["ledger_name"], None, sl, dr, cr)
+            rep_seq = b.seq + 1
             for p in parts:
-                b.line(entry_sels, site, "PIM", "Purchase Invoice", no, d, "7001", "Purchases", None, None, cr and p, dr and p)
+                b.line(entry_sels, site, "PIM", "Purchase Invoice", no, d, "7001", "Purchases", None, None, cr and p, dr and p, seq=rep_seq)
         else:
             b.line(entry_sels, site, "PIM", "Purchase Invoice", no, d, led, r["ledger_name"], None, sl, dr, cr)
             b.line(entry_sels, site, "PIM", "Purchase Invoice", no, d, "7001", "Purchases", None, None, cr, dr)   # counter line balances the entry
@@ -107,6 +109,11 @@ def build(tmp_path: Path, name: str = "run_20261005_960", tweak=None, statuses=N
             if cr:
                 b.line(["bank"], "010", "PAY", "Voucher", f"{tag}C{n}", "2026-09-20", code, lname, NATURE[code], None, 0, cr, status)
                 b.line(["bank"], "010", "PAY", "Voucher", f"{tag}C{n}", "2026-09-20", "8002", "Purchases", None, None, cr, 0, status)
+
+    # the register reuses an entry number: by another creating warehouse on the SAME day, and by the same warehouse on ANOTHER day. Four different entries (one has no creating site at all), never merged.
+    for creator, day in (("HO", "2026-09-15"), ("WH2", "2026-09-15"), ("HO", "2026-09-16"), (None, "2026-09-15")):
+        b.line(["bank"], "010", "RCP", "Voucher", "COLL1", day, "111", GL_NAME["111"], "Bank", None, 0, 0, creator=creator)
+        b.line(["bank"], "010", "RCP", "Voucher", "COLL1", day, "8001", "Sales", None, None, 0, 0, creator=creator)
 
     if bank_delta:    # one rupee more posted at the bank than the cash run's review card says: the layer must then disagree with the card
         b.line(["bank"], "010", "RCP", "Voucher", "XD1", "2026-09-16", "111", GL_NAME["111"], "Bank", None, 1, 0)
@@ -138,7 +145,7 @@ def selection_stats(b: Builder, sel: str):
     ls = [x for x in b.lines if sel in x["sels"]]
     ents = {}
     for x in ls:
-        ents.setdefault((x["site_code"], x["entry_type_short"], x["entry_no"]), []).append(x)
+        ents.setdefault(es.ident_of(x), []).append(x)
     hist = {}
     for v in ents.values():
         hist[len(v)] = hist.get(len(v), 0) + 1
@@ -168,16 +175,16 @@ def finish(tmp_path, name, b, rows, till_rows, expected_status, tweak, statuses)
         ents_all = {}
         for x in b.lines:
             if ds_sel in x["sels"]:
-                ents_all.setdefault((x["site_code"], x["entry_type_short"], x["entry_no"]), []).append(x)
+                ents_all.setdefault(es.ident_of(x), []).append(x)
         for r in group:
             hit = {k: v for k, v in ents_all.items() if k[2] == r["document_no"] and any(x["glcode"] == r["ledger_code"] and x["slcode"] == r["sub_ledger_code"] for x in v)}
             m = len(hit)
             row = {"document_code": r["document_code"], "sub_ledger_code": r["sub_ledger_code"], "ledger_code": r["ledger_code"], "bill_amount": r["amount"], "matched_entries": str(m),
-                   "site_code": None, "entry_type_short": None, "entry_no": None, "entry_net_dr_minus_cr": None}
+                   "site_code": None, "entry_type_short": None, "entry_no": None, "entry_creator": None, "entry_date": None, "entry_net_dr_minus_cr": None}
             if m == 1:
-                (site, typ, no), v = next(iter(hit.items()))
+                (site, typ, no, creator, day), v = next(iter(hit.items()))
                 net = sum((Decimal(x["debit"]) - Decimal(x["credit"]) for x in v if x["glcode"] == r["ledger_code"] and x["slcode"] == r["sub_ledger_code"]), Decimal(0))
-                row.update({"site_code": site, "entry_type_short": typ, "entry_no": no, "entry_net_dr_minus_cr": str(net)})
+                row.update({"site_code": site, "entry_type_short": typ, "entry_no": no, "entry_creator": creator, "entry_date": day, "entry_net_dr_minus_cr": str(net)})
             out.append(row)
         return out
 

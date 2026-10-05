@@ -315,11 +315,11 @@ def test_c12_creditors_pipeline_is_unchanged_by_the_new_migrations(env):
     cred = load_creditors(env)
     a = env["admin"]
     assert a.execute("SELECT recon_state, publication_state FROM cred.run WHERE extraction_run_id = %s", (cred,)).fetchone() == ("verified", "unpublished")
-    assert a.execute("SELECT count(*) FROM cred.schema_migration").fetchone()[0] == 6
-    assert [r[0] for r in a.execute("SELECT version FROM cred.schema_migration ORDER BY version").fetchall()] == ["001", "002", "003", "004", "005", "006"]
+    assert a.execute("SELECT count(*) FROM cred.schema_migration").fetchone()[0] == 7
+    assert [r[0] for r in a.execute("SELECT version FROM cred.schema_migration ORDER BY version").fetchall()] == ["001", "002", "003", "004", "005", "006", "007"]
     r = env["client"].get(f"/api/v1/creditors/runs/{cred}/summary")
     assert r.status_code == 200 and r.json()["data_state"] == "verified_candidate"
-    ev("C12", "creditors untouched", migrations=["001", "002", "003", "004", "005", "006"], creditors_api_still_serves=True)
+    ev("C12", "creditors untouched", migrations=["001", "002", "003", "004", "005", "006", "007"], creditors_api_still_serves=True)
 
 
 def write_evidence():

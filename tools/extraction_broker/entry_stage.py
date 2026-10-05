@@ -7,8 +7,9 @@ Reads ONLY the Parquet files and manifest of one broker run. It never talks to O
 
   1. validates the manifest (every dataset `ok`, roles right) and rejects the run if the PRE source controls differ from the POST ones (refresh race);
   2. requires ONE snapshot: the outstanding cube's report date equals the site register's report date;
-  3. builds entries from lines: identity (site, entry type, entry number) -> entry_ref; all lines of an entry are kept; a line that appears in two selections must be
-     IDENTICAL in both (a conflicting duplicate fails the run; nothing is deduplicated by guessing);
+  3. builds entries from lines: identity (site, entry type, entry number, creating site, entry date) -> entry_ref (v2: the first real run showed numbers reused across creating
+     warehouses and dates); all lines of an entry are kept; a line is identified by its FULL row (the register repeats SEQ within an entry); an entry that two selections both
+     extracted must carry exactly the same lines in both (otherwise the run fails; nothing is deduplicated by guessing);
   4. E3 every entry balances; E1/E2 source controls (entries, lines, exact Dr/Cr, lines-per-entry histogram) equal the extract exactly;
   5. derives the creditor bill links: EXACT (one distinct entry AND the entry's net amount for that ledger and sub-ledger equals the bill amount), STRONG (one entry,
      amount differs), AMBIGUOUS (several: never resolved to one), NOT_LINKED (NO_MATCH, or REGISTER_COVERAGE_UNAVAILABLE for bills the register does not reach);
@@ -46,7 +47,8 @@ LINE_DATASETS = {"h1_lines_creditors_cur": "creditors_cur", "h1b_lines_creditors
 LINE_COLUMNS = ["site_code", "entry_type_short", "entry_type_long", "entry_no", "entry_date", "seq", "glcode", "glname", "glnature", "slcode", "debit", "credit", "release_status", "created_by_site",
                 "cubename", "narration", "reference_no", "reference_date", "cheque_no", "cheque_date", "counter_ledgers", "prepared_by", "prepared_on", "modified_by", "modified_on", "released_by", "released_on"]
 TEXT_FIELDS = ["narration", "reference_no", "reference_date", "cheque_no", "cheque_date", "counter_ledgers", "prepared_by", "prepared_on", "modified_by", "modified_on", "released_by", "released_on"]
-LINK_COLUMNS = ["document_code", "sub_ledger_code", "ledger_code", "bill_amount", "matched_entries", "site_code", "entry_type_short", "entry_no", "entry_net_dr_minus_cr"]
+LINK_COLUMNS = ["document_code", "sub_ledger_code", "ledger_code", "bill_amount", "matched_entries", "site_code", "entry_type_short", "entry_no", "entry_creator", "entry_date", "entry_net_dr_minus_cr"]
+NO_CREATOR = "<none>"   # the SQL and the hash agree on this stand-in for a register line with no creating site
 KEY_USED = "ledger + sub-ledger + document_no = entry_no"
 
 
@@ -54,8 +56,14 @@ class StageError(RuntimeError):
     """The message never carries a data value."""
 
 
-def entry_ref(site: str, typ: str, no: str) -> str:
-    return hashlib.sha256(f"v1|{site}|{typ}|{no}".encode("utf-8")).hexdigest()[:32]
+def entry_ref(site: str, typ: str, no: str, creator: str | None, day: str) -> str:
+    return hashlib.sha256(f"v2|{site}|{typ}|{no}|{creator or NO_CREATOR}|{day}".encode("utf-8")).hexdigest()[:32]
+
+
+def ident_of(ln: dict) -> tuple:
+    """The identity of an entry: (site, type, number, creating site or NO_CREATOR, ISO date)."""
+    d = ln["entry_date"]
+    return (str(ln["site_code"]), ln["entry_type_short"], str(ln["entry_no"]), ln["created_by_site"] or NO_CREATOR, d.isoformat() if hasattr(d, "isoformat") else str(d))
 
 
 def dec(v, field: str, where: str) -> Decimal | None:
@@ -110,12 +118,14 @@ class Recon:
 
 
 def build_lines(run_dir: Path, by: dict, fail) -> tuple[dict, dict]:
-    """-> (lines keyed by (site, type, no, seq) with the set of selections that extracted them, per-selection list of entry keys)."""
+    """-> (lines keyed by (identity..., full-row fingerprint) with the set of selections that extracted them, per-selection line counts per entry identity)."""
     lines: dict[tuple, dict] = {}
     per_sel_entries: dict[str, dict[tuple, int]] = {}
+    sel_members: dict[str, dict[tuple, set]] = {}
     for ds, sel in LINE_DATASETS.items():
         seen = set()
         counts: dict[tuple, int] = Counter()
+        members: dict[tuple, set] = defaultdict(set)
         for i, r in enumerate(load(run_dir, ds)):
             if sorted(r) != sorted(LINE_COLUMNS):
                 raise StageError(f"{ds}: columns differ from the contract")
@@ -123,11 +133,6 @@ def build_lines(run_dir: Path, by: dict, fail) -> tuple[dict, dict]:
             for k in ("site_code", "entry_type_short", "entry_no", "seq", "glcode", "glname"):
                 if r.get(k) in (None, ""):
                     raise StageError(f"{where}: required field '{k}' is empty")
-            ident = (str(r["site_code"]), r["entry_type_short"], str(r["entry_no"]))
-            key = ident + (str(r["seq"]),)
-            if key in seen:
-                raise StageError(f"{ds}: a line appears twice in the same dataset (no deduplication is done)")
-            seen.add(key)
             debit, credit = dec(r["debit"], "debit", where) or ZERO, dec(r["credit"], "credit", where) or ZERO
             if debit < 0 or credit < 0:
                 raise StageError(f"{where}: a debit or credit is negative")
@@ -137,15 +142,28 @@ def build_lines(run_dir: Path, by: dict, fail) -> tuple[dict, dict]:
             if d is None:
                 raise StageError(f"{where}: entry_date is missing")
             canon = {**{k: r[k] for k in LINE_COLUMNS}, "debit": debit, "credit": credit, "entry_date": d, "seq": str(r["seq"])}
+            ident = ident_of(canon)
+            fp = json.dumps({k: (None if v is None else str(v)) for k, v in sorted(canon.items())}, sort_keys=True)   # a line is its full row: SEQ repeats inside an entry
+            key = ident + (fp,)
+            if key in seen:
+                raise StageError(f"{ds}: an identical line appears twice in the same dataset (no deduplication is done)")
+            seen.add(key)
             prev = lines.get(key)
             if prev is not None:
-                if {k: v for k, v in prev.items() if k != "selections"} != canon:
-                    raise StageError("a line extracted by two selections differs between them (conflicting duplicate)")
                 prev["selections"].add(sel)
             else:
                 lines[key] = {**canon, "selections": {sel}}
             counts[ident] += 1
+            members[ident].add(key)
         per_sel_entries[sel] = counts
+        sel_members[sel] = members
+    # an entry two selections both extracted must be complete and identical in both
+    sels = list(sel_members)
+    for i, a in enumerate(sels):
+        for b in sels[i + 1:]:
+            for ident in set(sel_members[a]) & set(sel_members[b]):
+                if sel_members[a][ident] != sel_members[b][ident]:
+                    raise StageError("an entry extracted by two selections carries different lines in each (conflicting duplicate)")
     return lines, per_sel_entries
 
 
@@ -200,11 +218,11 @@ def validate(run_dir: Path, write: bool = True) -> dict:
         # entries
         groups: dict[tuple, list[dict]] = defaultdict(list)
         for key, ln in lines.items():
-            groups[key[:3]].append(ln)
+            groups[key[:5]].append(ln)
         headers, entry_lines, identity, texts = [], [], [], []
         unbalanced = 0
         for ident, ls in sorted(groups.items()):
-            ls.sort(key=lambda x: (int(Decimal(x["seq"])), x["seq"]))
+            ls.sort(key=lambda x: (int(Decimal(x["seq"])), str(x["glcode"]), str(x["slcode"]), x["debit"], x["credit"], str(x["narration"]), str(x["prepared_on"])))
             ref = entry_ref(*ident)
             dates = {x["entry_date"] for x in ls}
             longs = {x["entry_type_long"] for x in ls}
@@ -218,7 +236,7 @@ def validate(run_dir: Path, write: bool = True) -> dict:
             sels = sorted({s for x in ls for s in x["selections"]})
             headers.append({"entry_ref": ref, "site_code": ident[0], "entry_type_short": ident[1], "entry_type_long": ls[0]["entry_type_long"], "entry_date": dates.pop(),
                             "release_status": "Mixed" if len(statuses) > 1 else next(iter(statuses)), "line_count": len(ls), "total_dr": tdr, "total_cr": tcr, "selections": sels})
-            identity.append({"entry_ref": ref, "site_code": ident[0], "entry_type_short": ident[1], "entry_no": ident[2], "created_by_site": next((x["created_by_site"] for x in ls if x["created_by_site"]), None)})
+            identity.append({"entry_ref": ref, "site_code": ident[0], "entry_type_short": ident[1], "entry_no": ident[2], "created_by_site": None if ident[3] == NO_CREATOR else ident[3]})
             for n, x in enumerate(ls, start=1):
                 entry_lines.append({"entry_ref": ref, "line_no": n, "source_seq": x["seq"], "ledger_code": x["glcode"], "ledger_name": x["glname"], "ledger_nature": x["glnature"], "debit": x["debit"],
                                     "credit": x["credit"], "release_status": x["release_status"], "cube_name": x["cubename"]})
@@ -231,7 +249,7 @@ def validate(run_dir: Path, write: bool = True) -> dict:
         c1 = {r["selection"]: r for n in SEL_NAMES for r in load(run_dir, f"c1_totals_{n}_pre")}
         for sel in ("creditors_cur", "creditors_old", "bank"):
             ex_lines = [ln for ln in lines.values() if sel in ln["selections"]]
-            ex_entries = {(ln["site_code"], ln["entry_type_short"], ln["entry_no"]) for ln in ex_lines}
+            ex_entries = {ident_of(ln) for ln in ex_lines}
             s = c1.get(sel)
             if s is None:
                 fail(f"the c1 totals have no row for selection {sel}")
@@ -278,7 +296,7 @@ def validate(run_dir: Path, write: bool = True) -> dict:
                 elif m_ > 1:
                     status, reason = "AMBIGUOUS", None
                 else:
-                    ref = entry_ref(str(r["site_code"]), r["entry_type_short"], str(r["entry_no"]))
+                    ref = entry_ref(str(r["site_code"]), r["entry_type_short"], str(r["entry_no"]), r["entry_creator"], str(r["entry_date"]))
                     if ref not in hdr_ref:
                         raise StageError(f"{where}: a linked entry was not extracted (the bridge and the entry extract disagree)")
                     net = dec(r["entry_net_dr_minus_cr"], "entry_net_dr_minus_cr", where)
