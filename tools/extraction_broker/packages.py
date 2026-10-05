@@ -1031,6 +1031,58 @@ VOUCHER_PROBE_01: tuple[Dataset, ...] = (
                  f" FROM {_TILL} v WHERE v.bill_date >= DATE '2026-04-01' AND v.bill_date <= DATE '2026-10-03' FETCH FIRST 20 ROWS ONLY")),
 )
 
+# ───────────── voucher_probe_03: the three links the drill needs (aggregates and metadata only) ─────────────
+# 1. creditor bill -> GL entry: restricted to the four creditor ledgers; per candidate key and document type, how many open items match exactly ONE register entry,
+#    more than one (ambiguous) or none, and whether the matched entry's net amount for that sub-ledger equals the bill amount. An entry is (site, entry type, entry number).
+# 2. Store Till Cash source: the drawer view by ledger / entry type / source cube, against the register for the SAME ledger names and window.
+# 3. portal attachments: columns and population counts only (no file name, no path value, no invoice value leaves Oracle).
+_ALLYEARS = f'{OWNER}."T$FINREGSITE_877"'
+_CRED_IN = ", ".join(str(c) for c in CREDITOR_LEDGERS)
+
+
+def _bridge(register: str, since: str, until: str | None, key: str, label: str, site: bool = False) -> str:
+    """Per document type: open items by number of distinct register entries matched through `key` (r = pre-aggregated register lines, o = open items)."""
+    reg_until = f" AND entry_date <= DATE '{until}'" if until else ""
+    rs, rg = (", created_by_site AS cbs", ", created_by_site") if site else ("", "")
+    r = (f"SELECT entry_glcode AS g, entry_slcode AS s, entry_no AS n, entry_reference_no AS rf, entry_type_short AS t, sitecode AS st{rs}, SUM(debit) AS dr, SUM(credit) AS cr FROM {register} "
+         f"WHERE entry_glcode IN ({_CRED_IN}) AND entry_date >= DATE '{since}'{reg_until} GROUP BY entry_glcode, entry_slcode, entry_no, entry_reference_no, entry_type_short, sitecode{rg}")
+    o = (f"SELECT document_initial AS di, document_code AS dc, sub_ledger_code AS s, ledger_code AS g, document_no AS dn, ref_no AS rn, amount AS amt{', created_by_site AS cbs' if site else ''} FROM {_O} "
+         f"WHERE report_date >= DATE '2026-01-01' AND ledger_code IN ({_CRED_IN}) AND pending <> 0 AND document_date >= DATE '{since}'" + (f" AND document_date <= DATE '{until}'" if until else ""))
+    per_item = (f"SELECT o.di, o.dc, o.s, COUNT(DISTINCT r.st || '|' || r.t || '|' || r.n) AS m, MAX(CASE WHEN ABS(r.dr - r.cr) = ABS(o.amt) THEN 1 ELSE 0 END) AS amt_ok "
+                f"FROM ({o}) o LEFT JOIN ({r}) r ON {key} AND r.g = o.g AND r.s = o.s GROUP BY o.di, o.dc, o.s")
+    return (f"SELECT '{label}' AS candidate_key, di AS document_type, COUNT(*) AS open_items, SUM(CASE WHEN m = 1 THEN 1 ELSE 0 END) AS exact, SUM(CASE WHEN m > 1 THEN 1 ELSE 0 END) AS ambiguous, "
+            f"SUM(CASE WHEN m = 0 THEN 1 ELSE 0 END) AS not_linked, SUM(CASE WHEN m = 1 AND amt_ok = 1 THEN 1 ELSE 0 END) AS exact_and_amount_agrees FROM ({per_item}) GROUP BY di ORDER BY di FETCH FIRST 100 ROWS ONLY")
+
+
+_CUR = ("2026-04-01", None)
+_OLD = ("2023-04-01", "2026-03-31")
+VOUCHER_PROBE_03: tuple[Dataset, ...] = (
+    Dataset("b1_cur_doc_no_eq_entry_no", "extract", "FY26-27 open creditor items: document number = entry number.", sql=_bridge(_ENTRY_SITE, *_CUR, "r.n = o.dn", "document_no = entry_no")),
+    Dataset("b2_cur_doc_no_eq_reference", "extract", "FY26-27: document number = entry reference number.", sql=_bridge(_ENTRY_SITE, *_CUR, "r.rf = o.dn", "document_no = entry_reference_no")),
+    Dataset("b3_cur_ref_no_eq_entry_no", "extract", "FY26-27: bill reference number = entry number.", sql=_bridge(_ENTRY_SITE, *_CUR, "r.n = o.rn", "ref_no = entry_no")),
+    Dataset("b4_cur_ref_no_eq_reference", "extract", "FY26-27: bill reference number = entry reference number.", sql=_bridge(_ENTRY_SITE, *_CUR, "r.rf = o.rn", "ref_no = entry_reference_no")),
+    Dataset("b5_cur_doc_no_and_type", "extract", "FY26-27: document number = entry number AND document initial = entry type short.", sql=_bridge(_ENTRY_SITE, *_CUR, "r.n = o.dn AND r.t = o.di", "document_no = entry_no and initial = type")),
+    Dataset("b8_cur_doc_no_type_and_site", "extract", "FY26-27: document number = entry number AND initial = type AND the bill's CREATED_BY_SITE = the entry's CREATED_BY_SITE (the only site-like field on the outstanding cube).",
+            sql=_bridge(_ENTRY_SITE, *_CUR, "r.n = o.dn AND r.t = o.di AND r.cbs = o.cbs", "document_no = entry_no, initial = type, created_by_site = created_by_site", site=True)),
+    Dataset("b6_old_doc_no_eq_entry_no", "extract", "FY23-24 to FY25-26 open creditor items against the all-years site register: document number = entry number.", sql=_bridge(_ALLYEARS, *_OLD, "r.n = o.dn", "document_no = entry_no (all years)")),
+    Dataset("b7_old_doc_no_and_type", "extract", "FY23-24 to FY25-26: document number = entry number AND initial = type.", sql=_bridge(_ALLYEARS, *_OLD, "r.n = o.dn AND r.t = o.di", "document_no = entry_no and initial = type (all years)")),
+    Dataset("t1_drawer_by_ledger_type_cube", "extract", "Store cash drawer view, 1 Apr to 3 Oct 2026: lines, stores and exact Dr/Cr by ledger name, entry type, source cube and type.",
+            sql=("SELECT glname, entry_type_long, cubename, type, COUNT(*) AS lines, COUNT(DISTINCT sitecode) AS sites, " + _TM9("SUM(debit)", "sum_debit") + ", " + _TM9("SUM(credit)", "sum_credit") +
+                 f" FROM {OWNER}.V_FINANCE_CASH_DRAWER WHERE entry_date >= DATE '2026-04-01' AND entry_date <= DATE '2026-10-03' GROUP BY glname, entry_type_long, cubename, type ORDER BY glname, entry_type_long FETCH FIRST 2000 ROWS ONLY")),
+    Dataset("t2_register_for_drawer_ledgers", "extract", "The site register for the SAME ledger names and window, by ledger name, entry type and release status.",
+            sql=("SELECT g.glname AS glname, t.entry_type_long, t.release_status, COUNT(*) AS lines, COUNT(DISTINCT t.sitecode) AS sites, " + _TM9("SUM(t.debit)", "sum_debit") + ", " + _TM9("SUM(t.credit)", "sum_credit") +
+                 f" FROM {_ENTRY_SITE} t, {OWNER}.\"MAS$FINGL\" g WHERE g.glcode = t.entry_glcode AND t.entry_date >= DATE '2026-04-01' AND t.entry_date <= DATE '2026-10-03' "
+                 f"AND g.glname IN (SELECT DISTINCT glname FROM {OWNER}.V_FINANCE_CASH_DRAWER WHERE entry_date >= DATE '2026-04-01' AND entry_date <= DATE '2026-10-03') "
+                 "GROUP BY g.glname, t.entry_type_long, t.release_status ORDER BY g.glname, t.entry_type_long FETCH FIRST 2000 ROWS ONLY")),
+    Dataset("p1_portal_columns", "metadata", "Columns of the vendor-portal invoice, credit-note and statement-upload objects (names and types only).",
+            sql=("SELECT table_name, column_id, column_name, data_type FROM all_tab_columns WHERE owner = 'MISRETAIL' AND table_name IN ('VP_CREDIT_NOTES', 'MV_VP_INVOICES', 'V_VP_INVOICES', 'VP_VENDOR_STATEMENT_UPLOADS', 'VP_VENDOR_STATEMENT_LINES') "
+                 "ORDER BY table_name, column_id FETCH FIRST 2000 ROWS ONLY")),
+    Dataset("p2_portal_attachment_population", "master", "How many portal rows carry an attachment field (counts only; no name or path value is read).",
+            sql=(f"SELECT 'VP_CREDIT_NOTES' AS source, COUNT(*) AS total_rows, COUNT(attachment_name) AS with_attachment_name, COUNT(attachment_path) AS with_attachment_path FROM {OWNER}.VP_CREDIT_NOTES "
+                 f"UNION ALL SELECT 'MV_VP_INVOICES', COUNT(*), COUNT(cnattachmentname), 0 FROM {OWNER}.MV_VP_INVOICES "
+                 f"UNION ALL SELECT 'VP_VENDOR_STATEMENT_UPLOADS', COUNT(*), COUNT(file_name), COUNT(file_path) FROM {OWNER}.VP_VENDOR_STATEMENT_UPLOADS FETCH FIRST 10 ROWS ONLY")),
+)
+
 PACKAGE_META["cash_pilot_01"] = CASH_META
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01, "voucher_probe_01": VOUCHER_PROBE_01}
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01, "voucher_probe_01": VOUCHER_PROBE_01, "voucher_probe_03": VOUCHER_PROBE_03}
