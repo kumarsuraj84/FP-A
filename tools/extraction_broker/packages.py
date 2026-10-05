@@ -994,6 +994,43 @@ CASH_META = {
                  "caps": {"e1_store_till": 2000, "e2_bank_site_register": 200, "e3_bank_gl_register": 200, "e4_bank_prior_year_closing": 200}},
 }
 
+# ───────────── voucher_probe_01: can every figure reach its entry / voucher, and are there attachments? (metadata and aggregates only) ─────────────
+# The creditors page reads the bill-level OUTSTANDING cube; the Cash page reads store till balances and bank ledger registers. To drill to an entry number we need to know:
+# where attachments live (if anywhere), how an entry is identified in the registers, how a creditors document links to a register entry, and whether the cash-in-hand
+# register lines are exactly what the till figures are made of. No narration, no names, no row-level data leaves Oracle here.
+_ATTACH_WORDS = ("ATTACH", "DOCUMENT", "UPLOAD", "FILE", "IMAGE", "SCAN", "DMS", "BLOB", "PDF", "EVIDENCE")
+_TILL_GL = 1114925459  # CASH IN HAND(STORES)
+_ENTRY_SITE = f'{OWNER}."T$FINREGSITE_844"'
+
+VOUCHER_PROBE_01: tuple[Dataset, ...] = (
+    Dataset("v1_attachment_like_objects", "metadata", "MISRETAIL tables and views whose NAME suggests attachments, documents, uploads, files, images or scans.",
+            sql=("SELECT object_name, object_type FROM all_objects WHERE owner = 'MISRETAIL' AND object_type IN ('TABLE', 'VIEW') AND (" + " OR ".join(f"object_name LIKE '%{w}%'" for w in _ATTACH_WORDS) + ") ORDER BY object_name FETCH FIRST 2000 ROWS ONLY")),
+    Dataset("v2_attachment_like_columns", "metadata", "MISRETAIL columns that hold files (BLOB, CLOB, BFILE, LONG RAW) or whose NAME suggests a file, path, URL or attachment.",
+            sql=("SELECT table_name, column_name, data_type FROM all_tab_columns WHERE owner = 'MISRETAIL' AND (data_type IN ('BLOB', 'BFILE', 'LONG RAW', 'LONG') OR column_name LIKE '%ATTACH%' OR column_name LIKE '%FILE_NAME%' "
+                 "OR column_name LIKE '%FILE_PATH%' OR column_name LIKE '%FILEPATH%' OR column_name LIKE '%URL%' OR column_name LIKE '%DOC_LINK%') ORDER BY table_name, column_name FETCH FIRST 5000 ROWS ONLY")),
+    Dataset("v3_entry_structure", "extract", "Site register (current FY): how an entry is identified. Per entry type: entries, lines, distinct sites, whether ENTRY_NO alone, with site, or with type is unique, and the largest number of lines in one entry.",
+            sql=("SELECT entry_type_long, COUNT(*) AS entries_by_site_and_no, SUM(lines) AS lines, COUNT(DISTINCT entry_no) AS distinct_entry_no, COUNT(DISTINCT entry_no || '|' || entry_type_short) AS distinct_no_and_type, MAX(lines) AS max_lines_in_one_entry, "
+                 f"COUNT(DISTINCT sitecode) AS sites FROM (SELECT entry_type_long, entry_type_short, entry_no, sitecode, COUNT(*) AS lines FROM {_ENTRY_SITE} WHERE entry_date >= DATE '2026-04-01' GROUP BY entry_type_long, entry_type_short, entry_no, sitecode) "
+                 "GROUP BY entry_type_long ORDER BY entry_type_long FETCH FIRST 100 ROWS ONLY")),
+    Dataset("v4_creditor_document_to_entry", "extract", "Open creditor items of the current FY: which outstanding-cube fields match a register entry (same ledger and sub-ledger), by document type. Counts only.",
+            sql=("SELECT o.document_initial, COUNT(*) AS open_items, "
+                 f"COUNT(CASE WHEN EXISTS (SELECT 1 FROM {_ENTRY_SITE} r WHERE r.entry_no = o.document_no AND r.entry_glcode = o.ledger_code AND r.entry_slcode = o.sub_ledger_code AND r.entry_date >= DATE '2026-04-01') THEN 1 END) AS doc_no_eq_entry_no, "
+                 f"COUNT(CASE WHEN EXISTS (SELECT 1 FROM {_ENTRY_SITE} r WHERE r.entry_reference_no = o.document_no AND r.entry_glcode = o.ledger_code AND r.entry_slcode = o.sub_ledger_code AND r.entry_date >= DATE '2026-04-01') THEN 1 END) AS doc_no_eq_reference_no, "
+                 f"COUNT(CASE WHEN EXISTS (SELECT 1 FROM {_ENTRY_SITE} r WHERE r.entry_no = o.ref_no AND r.entry_glcode = o.ledger_code AND r.entry_slcode = o.sub_ledger_code AND r.entry_date >= DATE '2026-04-01') THEN 1 END) AS ref_no_eq_entry_no, "
+                 f"COUNT(CASE WHEN EXISTS (SELECT 1 FROM {_ENTRY_SITE} r WHERE r.entry_glcode = o.ledger_code AND r.entry_slcode = o.sub_ledger_code AND r.entry_date = o.document_date) THEN 1 END) AS same_ledger_sub_and_date "
+                 f"FROM {_O} o WHERE o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({', '.join(str(c) for c in CREDITOR_LEDGERS)}) AND o.pending <> 0 AND o.document_date >= DATE '2026-04-01' "
+                 "GROUP BY o.document_initial ORDER BY o.document_initial FETCH FIRST 100 ROWS ONLY")),
+    Dataset("v5_bank_entries_volume", "extract", "Bank and cash ledgers in the current-FY site register: lines, distinct entry numbers, lines with a narration, reference, cheque number and cheque date (counts only).",
+            sql=("SELECT t.entry_glcode, COUNT(*) AS lines, COUNT(DISTINCT t.entry_no) AS distinct_entry_no, COUNT(t.narration) AS with_narration, COUNT(t.entry_reference_no) AS with_reference, COUNT(t.entry_cheque_no) AS with_cheque_no, "
+                 f"COUNT(t.entry_cheque_date) AS with_cheque_date, COUNT(t.entry_ref_ledgers) AS with_ref_ledgers FROM {_ENTRY_SITE} t WHERE t.entry_date >= DATE '2026-04-01' AND t.entry_glcode IN ({_BANK_LEDGERS}) "
+                 "GROUP BY t.entry_glcode ORDER BY t.entry_glcode FETCH FIRST 100 ROWS ONLY")),
+    Dataset("v6_till_vs_register", "extract", "Do the store till figures equal the CASH IN HAND(STORES) register lines? Debit, credit and line counts of that ledger to the till date, by release status; and the till view's year-to-date totals for comparison.",
+            sql=("SELECT 'register_cash_in_hand' AS source, t.release_status AS status, COUNT(*) AS lines, COUNT(DISTINCT t.sitecode) AS sites, " + _TM9("SUM(t.debit)", "sum_debit") + ", " + _TM9("SUM(t.credit)", "sum_credit") +
+                 f" FROM {_ENTRY_SITE} t WHERE t.entry_date >= DATE '2026-04-01' AND t.entry_date <= DATE '2026-10-03' AND t.entry_glcode = {_TILL_GL} GROUP BY t.release_status "
+                 "UNION ALL SELECT 'till_view', 'all', COUNT(*), COUNT(DISTINCT v.site_code), " + _TM9("SUM(v.debit)", "sum_debit") + ", " + _TM9("SUM(v.credit)", "sum_credit") +
+                 f" FROM {_TILL} v WHERE v.bill_date >= DATE '2026-04-01' AND v.bill_date <= DATE '2026-10-03' FETCH FIRST 20 ROWS ONLY")),
+)
+
 PACKAGE_META["cash_pilot_01"] = CASH_META
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01}
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01, "voucher_probe_01": VOUCHER_PROBE_01}
