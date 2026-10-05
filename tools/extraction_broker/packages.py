@@ -1134,7 +1134,9 @@ def _sel(name: str) -> tuple[str, str, str]:
         return old, win, f"{_KEY} IN ({sub})"
     if name == "bank":
         win = f"r.entry_date >= DATE '2026-04-01' AND r.entry_date <= {_CUT}"
-        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2 WHERE r2.entry_glcode IN ({_BANK_LEDGERS}) AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_CUT}")
+        # a join to the ledger master, not a nested IN: the nested form could not be unnested and ran past the broker time limit
+        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2, {_FINGL} g2 WHERE g2.glcode = r2.entry_glcode AND g2.nature IN ('Bank', 'Cash') "
+               f"AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_CUT}")
         return cur, win, f"{_KEY} IN ({sub})"
     if name == "till":
         win = f"r.entry_date >= DATE '2026-04-01' AND r.entry_date <= {_CUT}"
