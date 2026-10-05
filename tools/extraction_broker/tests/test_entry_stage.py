@@ -13,11 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import entry_stage as es  # noqa: E402
 import entry_synth as syn  # noqa: E402
 import guard  # noqa: E402
-from packages import ENTRY_PILOT_01, PACKAGE_META, PACKAGES  # noqa: E402
+from packages import PACKAGE_META, PACKAGES  # noqa: E402
 
 
 def test_package_is_registered_guarded_capped_misretail_only_and_pre_post_identical():
-    assert PACKAGES["entry_pilot_01"] is ENTRY_PILOT_01 and PACKAGE_META["entry_pilot_01"]["halt_on_failure"] is True
+    ENTRY_PILOT_01 = PACKAGES["entry_pilot_01"]  # read at call time: the as-of date may have been configured since import
+    assert PACKAGE_META["entry_pilot_01"]["halt_on_failure"] is True
     assert [d.role for d in ENTRY_PILOT_01][:3] == ["control_pre"] * 3 and [d.role for d in ENTRY_PILOT_01][-3:] == ["control_post"] * 3
     caps = {d.name: guard.check(d.sql, d.kind).row_cap for d in ENTRY_PILOT_01}
     assert caps["h3_lines_till"] == 1_000_000 and caps["h1_lines_creditors_cur"] == 400_000 and all(c <= 5_000_000 for c in caps.values())
