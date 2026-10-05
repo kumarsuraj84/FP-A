@@ -59,7 +59,7 @@ const READINESS: { metric: string; status: Readiness; note: string }[] = [
   { metric: "Units", status: "conditional", note: "Totals agree; not independently reconciled." },
   { metric: "ASP", status: "conditional", note: "Sales ÷ Units, recomputed at every level." },
   { metric: "Store contribution", status: "conditional", note: "Store-day key is sound by definition; the comparable-store rule is still to be agreed." },
-  { metric: "Same dates / same weekdays / custom", status: "conditional", note: "Computed from history with the reference dates shown. History starts Apr 2025." },
+  { metric: "Same dates / same weekdays / custom", status: "conditional", note: "Computed from history with the reference dates shown. How far back each source reaches is being certified; unreached dates show unavailable." },
   { metric: "Bills, ABV, Bills → ABV bridge", status: "unavailable", note: "No certified bill identity or counting rule yet; return bills are counted as bills in the source." },
   { metric: "Department contribution", status: "unavailable", note: "No department history source verified." },
   { metric: "Festival-stage comparison", status: "unavailable", note: "Source date mappings disagree; the convention is a business decision." },
