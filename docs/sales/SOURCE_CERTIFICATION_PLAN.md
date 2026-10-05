@@ -21,6 +21,8 @@ A claim passes only when **all** of these hold for its stated scope:
 5. **Residuals.** Every residual is either **explained** (cause shown) or **explicitly accepted** in the register by a named approver, with the amount and the reason. A small percentage never certifies a residual by itself.
 6. **"99.9% of store-days within ₹1" is a diagnostic statistic only.** It is reported but is never a pass criterion.
 
+**Report dates** in the sources are treated as source-reported timestamps; refresh semantics are not verified, and a later timestamp is a restatement risk, not proof that values changed. **"Gross"** has two meanings: the cube column `GROSSAMT` (after returns and promotion, before bill-level discount) is not the dictionary's Gross Sales (`NETAMT`).
+
 Verdicts: **Certified** (rules 1 to 6 met, no accepted residual) · **Certified with accepted residual** (residual named, amount, approver) · **Not certified** · **Blocked** (needs a decision or access).
 
 Evidence kept for each verdict in `CERTIFICATION_REGISTER.md`: run id, query hash, exact SQL and parameters, duration, source snapshot, the result and the exception list.
@@ -31,7 +33,7 @@ Evidence kept for each verdict in `CERTIFICATION_REGISTER.md`: run id, query has
 - **Coordination:** confirm the extraction service is idle (newest run folder complete, no `broker.py` process) and tell the other session before any heavy check; do not pause or cancel their runs.
 - **Two classes of check.**
   - *MISRETAIL-native* (POS cube copies, small tables, dictionary views): no production exposure; run when the service is idle.
-  - *SSRK-backed* (the dashboard view, the bucket view and other views that read the live POS tables underneath): each scan reads production tables indirectly. **These need the user's explicit confirmation before they run**, because the project rule is that FP&A never queries SSRK. They are narrow (a bounded window of days), sequential, off-hours, aborted past 10 minutes, and never repeated automatically.
+  - *SSRK-backed* (the dashboard view, the bucket view and other views that read the live POS tables underneath): each scan reads production tables indirectly. **These are on hold.** They need the user's explicit confirmation and a resolution of the project's access rule before they run, because the rule is that FP&A never queries SSRK. A bounded date window does not make the production load bounded and does not override that restriction. Until then only MISRETAIL-native and local checks proceed. They are narrow (a bounded window of days), sequential, off-hours, aborted past 10 minutes, and never repeated automatically.
 - **No customer columns.** Only totals by store and day.
 - **Frozen test windows:** an ordinary period, a festive period and a high-return period, fixed in advance so a rerun is comparable.
 
@@ -61,18 +63,19 @@ Whether older **raw** sales exist is a separate question from whether older **ma
 
 | Id | Statement | Test | Pass rule | Status |
 |---|---|---|---|---|
-| I1 | The sales source's store code matches the master's `SITE_CODE` | For each test window, the store codes with sales (from the cube's own store list) against the master | Rules 1–2: every selling code is in the master; unmatched codes listed and explained | Sample-verified on 3 days; cube-side check in section 9 |
-| I2 | (store, day) is unique in each source | Rows against distinct (store, day) pairs over the test window | Zero duplicate keys; any duplicate listed | Unique by definition; 1 day verified |
+| I1 | The sales source's store code matches the master's `SITE_CODE` (**identity of the rows that exist; coverage is claim C1, separate**) | For each test window, the store codes with sales (from the cube's own store list) against the master | Rules 1–2: every selling code is in the master; unmatched codes listed and explained | Sample-verified on 3 days; cube-side check in section 9 |
+| I2 | (store, day) is unique in each source (**observed rows only**) | Rows against distinct (store, day) pairs over the test window | Zero duplicate keys; any duplicate listed | Unique by definition; 1 day verified |
 | I3 | The master key is unique; names are never used as keys | Master rows against distinct codes; duplicate names listed | Codes unique; each duplicate name listed and excluded from name joins | Verified: 341/341; one duplicate name |
 | I4 | Every selling site is a store | Selling codes against the DC and store-type flags | Zero DC sites with store sales, or each explained | 0 on one day |
-| I5 | Store attributes for the default view | **Rule (proposed, for approval):** the default operational view uses **today's hierarchy** (region, cluster, state) applied to **both** periods. **Eligibility** (open, closed, trading) uses **effective dates**: opening date and last bill date from the master, and actual trading days from sales. A historical-hierarchy mode is separate and shown unavailable until a dated history exists. The master is a current snapshot, so a dated copy is kept per run | The rule is applied identically to both periods; every store whose status changed in the test window is listed. **Finding (5 Oct, register):** the master's `LAST_BILL_DATE` is a placeholder (2000-01-01 for all 200 selling stores) and 7 of 12 new stores sold before their master opening date, so **trading start and closure must be derived from sales** (first and last day with sales), flagged as derived | Proposed; evidence in the register |
+| I5 | Store attributes and trading dates | **Default view:** today's hierarchy (region, cluster, state) applied to **both** periods. **Eligibility** (open, closed, trading) needs **effective-dated opening, closure and trading status from an authoritative record**. **Sales absence is insufficient to establish closure**; first and last observed sales are evidence fields for investigation, not certified operating dates. Where no dated record exists, the status shows **unavailable** and eligibility flags show "unverified". A historical-hierarchy mode stays separate and unavailable until a dated history exists | Every status used for eligibility has a dated source; every store whose status changed in the window is listed; sales-derived dates appear only as flags | **Not certified.** Master `LAST_BILL_DATE` is a placeholder (2000-01-01), there is no closure field, and sales contradict the master opening date for 7 of 12 new stores. **Needs operational evidence** |
 | I6 | The monthly distinct-count anomaly on the dashboard view is a query artifact | Compare the view's store list for two days with the cube's | Same set of stores. This is an SSRK-backed check | Open; optional if I1 and I2 pass |
+| C1 | Expected store-day coverage: every store-day that should have sales has a row, and each missing one is classified | For each test window: expected store-days (from a **dated** trading record) against present; missing listed by store and day, classified confirmed / provisional / unexplained / unknown | Rules 1–2: zero unexplained missing store-days, or each accepted by a named approver. Missing is never counted as zero and never assumed to be a closure | Aug 2026: 154 missing: 0 confirmed, 43 provisional, 111 unexplained; store 343 on 31 Aug **unknown**. **Not certified** |
 
 ## 6. Sales
 
 | Id | Statement | Test | Pass rule | Status |
 |---|---|---|---|---|
-| S1 | The dashboard view's `SL_V` equals the cube's non-void `NETAMT` | Store-day totals from both sources over the test window (view side is SSRK-backed) | Rules 1–6. Report: signed total difference, total absolute difference, maximum difference, every store-day exception. Diagnostic only: the share within ₹1 | Month level within 0.0013%; one day 202 of 206 stores exact. **Not certified** |
+| S1 | The dashboard view's `SL_V` equals the cube's non-void `NETAMT` | Store-day totals from both sources over the test window (view side is SSRK-backed) | Rules 1–6. Report: signed total difference, total absolute difference, maximum difference, every store-day exception. Diagnostic only: the share within ₹1 | 17 of 19 months differ by under 0.012%; **April 2026 differs by +5.15% (₹7.07 crore)** and October 2026 (partial) by −0.17%. One day: 202 of 206 stores exact. **Not certified** |
 | S2 | The S1 differences come from the view's exclusions (divisions `FIXED ASSETS`, `NON-TRADING`; items missing from the item master) | Measure the excluded amount where a MISRETAIL source with item division exists; else record the exclusion as the sales definition and ask the owner to confirm it | The residual is explained and equals the S1 difference, or is explicitly accepted with a named approver | Hypothesis only |
 | S3 | `NETAMT` includes GST: taxable + tax = net | Cube store-day totals over the test window | Rules 1–6; residual listed per store-day | Monthly: within ₹99 to ₹1,107 on ₹1,000–1,350 million. Not certified at store-day |
 | S4 | `NETAMT` is after returns, promotion and discount | Identities `SALE + RETURNS − PROMO = GROSS` and `NET ≈ GROSS − DISCOUNT` per store-day | Gross identity exact to the rupee at store-day; the discount residual (0.004–0.011% at month level) explained or explicitly accepted | Gross identity verified at month level; discount residual unexplained |
@@ -112,7 +115,7 @@ Whether older **raw** sales exist is a separate question from whether older **ma
 - *H-checks:* one-day totals on the POS cube at chosen dates to find how far back usable store-day sales go: Diwali 2022 (24 Oct), Diwali 2023 (12 Nov), Diwali 2024 (1 Nov), Holi 2025 (14 Mar), Eid-ul-Fitr 2025 (31 Mar). Records rows, stores, void split and net per day.
 - *Store-day listing for 1–31 Aug 2026* from the cube: gives the cube side of S1, S3, S4, U1 and the store lists for I1, I2, I4.
 
-**Stage 3: SSRK-backed checks (need the user's explicit confirmation).**
+**Stage 3: SSRK-backed checks. ON HOLD pending the project's access rule and the user's explicit confirmation.**
 - The dashboard view's store-day totals for a bounded window (proposed 1–15 Aug 2026, about 5 minutes) for the view side of S1, U1, I1, I2, I6.
 - Single-day dashboard-view checks at two earlier dates to test its reach for Holi/Eid 2025 and a festive day in 2024 (S8, D5).
 
@@ -142,7 +145,9 @@ Whether older **raw** sales exist is a separate question from whether older **ma
 
 **Store applicability.** Neither store classification is chosen automatically. The documented differences: `T_STORE_OPENING_DATE.FESTIVAL_GROUPING` (six tags; 101 of 209 active stores tagged), `T_STORE_FESTIVAL_FILTER` (Holi and Eid with peak tiers; 164 stores), `T_MAMJ25_FESTIVAL_STORE` (126 stores, spring 2025), `T_STORE_COMPARE_FESTIVAL` (89 eligible), and the store lists typed into the views (74 stores for the Puja–Diwali–Chhath report, 28 excluded stores in the comparison tables, `T_STORE_COMPARE_120`). They overlap and conflict. Regional applicability and each store's participation need business approval.
 
-**Roles (proposed; to be confirmed by the business).** *Owner* of the festival calendar: Retail Operations. *Approver* before publication: the FP&A / Finance lead. *Regional applicability and store overrides:* the regional heads, each override logged with a reason and a date. **Every festival date is verified against an authoritative source before publication** (a named calendar source, recorded with the verifier), because Holi, Eid, Durga Puja and Chhath follow lunar calendars.
+**Roles (proposed arrangement; the business confirms).** *Retail Operations* maintains the festival windows and store applicability. *Finance* approves the calculation treatment (how windows are compared and totalled). A **named business approver** confirms each year's festival dates and regional relevance before publication. Store-level overrides are logged with a reason, a date and the approver. **Every festival date is verified against an authoritative source** (a named calendar source, recorded with the verifier) before publication, because Holi, Eid, Durga Puja and Chhath follow lunar calendars.
+
+**Legacy report rules are not approvals.** The current festival report's four phases (Shradh, Pooja, Diwali, Chhath) and its typed list of 74 stores are **legacy report rules**. They are not approved festival anchors and not comparable-store eligibility, and they are not reused as such.
 
 **Wording correction.** I earlier said October's last-year columns are "inflated by Diwali". That is a plausible explanation, not a measured finding: October 2026 and October 2025 have **different festival exposure** (Diwali falls on 8 Nov 2026 and 20 Oct 2025). The measurement would be a day-by-day comparison against the festival-aligned mapping, which has not been done.
 
@@ -157,3 +162,18 @@ The trial may start for a named scope (stores, dates, measures) when: I1, I2 and
 - The master is a current snapshot with no closure date field (I5).
 - Festival dates are lunar; approval before publication is required.
 - Typed windows in existing views are stale or overwritten; none of them should be reused as a source of record.
+
+## 13. Blocker-resolution plan
+
+| Blocker | What local analysis has settled | What is still needed | Class of need |
+|---|---|---|---|
+| April 2026: cube is +5.15% above the dashboard view | Quantified over 19 months; only April and the partial October stand out; registry shows an overlapping instance | Show which cube instance each April row came from (a cube-only count by instance for April 1 to 5) | MISRETAIL-native query (authorisation to run) |
+| Discount residual (₹148,408 in Aug; falling from ₹683,953 in Apr) | The chain `SALE + RETURNS = BASIC`, `BASIC − PROMO = GROSS` is exact; the dictionary's own identity fails by the same amount; not explained by returns or promo alone | Component discount columns, `EXTRATAXAMT`, null counts per column, the discount formula in the owner's definition | MISRETAIL-native query plus the owner's definition |
+| Store 353 tax differences (₹899, ₹99, ₹109) | Whole-rupee amounts, three days of one store | `EXTRATAXAMT` and the item mix for those days | MISRETAIL-native query |
+| Missing store-days (111 unexplained, store 343 unknown) | Classified; master opening dates contradicted at 7 stores | Dated opening and closure register; day-end records for store 343 | **Operational evidence** |
+| Trading dates and eligibility (I5) | Sales cannot establish closure; master fields unusable | An authoritative dated store-status record | **Operational evidence** |
+| View side of S1, U1 | Nothing yet | Store-day totals from the dashboard view for a bounded window | **Authorised source access** (SSRK-backed; on hold) |
+| Void mechanism (S5) | Behaviour shown, view has no void filter | How voided bills stay out of the view | **Owner explanation or authorised source access** |
+| Rounding | Candidates found (₹0.01, ₹0.02) | A policy with Finance | Decision |
+| Festival calendar (D4, D5) | Legacy report rules documented; store classifications compared | Festival list, windows, anchors, owners, authoritative date source | Business decisions |
+| Bills, ABV, comparable-store growth | Gates written | Bill identifier evidence, owner rulings, cohort rule | Separate gates |
