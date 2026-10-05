@@ -451,7 +451,7 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA entry FROM PUBLIC;
 GRANT USAGE ON SCHEMA entry TO entry_loader, entry_verifier, entry_promoter, entry_api_reader, entry_finance_reader;
 
 GRANT INSERT ON entry.run, entry.entry_header, entry.entry_line, entry.entry_identity, entry.entry_line_text, entry.creditor_bill_link, entry.till_day, entry.load_rejection TO entry_loader;
-GRANT SELECT ON entry.run, entry.control_result TO entry_loader;
+GRANT SELECT ON entry.run, entry.control_result, entry.entry_header, entry.entry_line, entry.creditor_bill_link, entry.till_day TO entry_loader;   -- to compute its own extract -> mart controls; never the restricted text
 GRANT USAGE ON SEQUENCE entry.load_rejection_rejection_id_seq TO entry_loader;
 GRANT EXECUTE ON FUNCTION entry.record_control(text, text, text, text, numeric, text, numeric), entry.verify_run(text), entry.mart_checks(text), entry.cross_checks(text) TO entry_loader;
 

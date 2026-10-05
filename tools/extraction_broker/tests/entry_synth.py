@@ -48,9 +48,9 @@ def window(doc_date: str | None) -> str:
     return "CURRENT_FY" if doc_date >= "2026-04-01" else "PRIOR_YEARS_IN_COVERAGE"
 
 
-def build(tmp_path: Path, name: str = "run_20261005_960", tweak=None, statuses=None):
+def build(tmp_path: Path, name: str = "run_20261005_960", tweak=None, statuses=None, bank_delta: bool = False, till_delta: bool = False, rows=None):
     b = Builder()
-    rows = tcp.synth_rows()
+    rows = rows if rows is not None else tcp.synth_rows()
     cur = [r for r in rows if window(r["document_date"]) == "CURRENT_FY"]
     prior = [r for r in rows if window(r["document_date"]) == "PRIOR_YEARS_IN_COVERAGE"]
     kinds = {cur[0]["document_code"]: "ambiguous", cur[1]["document_code"]: "nomatch", cur[2]["document_code"]: "strong", cur[3]["document_code"]: "multiline",
@@ -95,18 +95,22 @@ def build(tmp_path: Path, name: str = "run_20261005_960", tweak=None, statuses=N
     n = 0
     for code, fig in tcs.FIG.items():
         od, oc, pd_, pc, ud, uc = (Decimal(x) for x in fig[:6])
-        name = GL_NAME[code]
+        lname = GL_NAME[code]
         n += 1
         if od or oc:
-            b.line(["bank"], "010", "OPN", " Opening", f"O{n}", "2026-04-01", code, name, NATURE[code], None, od, oc)
+            b.line(["bank"], "010", "OPN", " Opening", f"O{n}", "2026-04-01", code, lname, NATURE[code], None, od, oc)
             b.line(["bank"], "010", "OPN", " Opening", f"O{n}", "2026-04-01", "9000", "Opening Balance Equity", None, None, oc, od)
         for tag, status, dr, cr in (("P", "Posted", pd_, pc), ("U", "Unposted", ud, uc)):
             if dr:
-                b.line(["bank"], "010", "RCP", "Voucher", f"{tag}D{n}", "2026-09-15", code, name, NATURE[code], None, dr, 0, status)
+                b.line(["bank"], "010", "RCP", "Voucher", f"{tag}D{n}", "2026-09-15", code, lname, NATURE[code], None, dr, 0, status)
                 b.line(["bank"], "010", "RCP", "Voucher", f"{tag}D{n}", "2026-09-15", "8001", "Sales", None, None, 0, dr, status)
             if cr:
-                b.line(["bank"], "010", "PAY", "Voucher", f"{tag}C{n}", "2026-09-20", code, name, NATURE[code], None, 0, cr, status)
+                b.line(["bank"], "010", "PAY", "Voucher", f"{tag}C{n}", "2026-09-20", code, lname, NATURE[code], None, 0, cr, status)
                 b.line(["bank"], "010", "PAY", "Voucher", f"{tag}C{n}", "2026-09-20", "8002", "Purchases", None, None, cr, 0, status)
+
+    if bank_delta:    # one rupee more posted at the bank than the cash run's review card says: the layer must then disagree with the card
+        b.line(["bank"], "010", "RCP", "Voucher", "XD1", "2026-09-16", "111", GL_NAME["111"], "Bank", None, 1, 0)
+        b.line(["bank"], "010", "RCP", "Voucher", "XD1", "2026-09-16", "8001", "Sales", None, None, 0, 1)
 
     # till: the Cash Drawer ledger per store; opening + a retail sale + a deposit so that the running total equals the cash run's till balance on the till date
     till_days = ["2026-04-01", "2026-10-02", "2026-10-03"]
@@ -130,6 +134,9 @@ def build(tmp_path: Path, name: str = "run_20261005_960", tweak=None, statuses=N
             run_bal += dr - cr
             till_rows.append({"site_code": site, "day": d, "debit": str(dr), "credit": str(cr), "cumulative_balance": str(run_bal)})
 
+    if till_delta:    # a Cash Drawer line the till view does not carry
+        b.line(["till"], "S002", "RTL", "Retail Sale", "TX1", "2026-10-03", "9100", "Cash Drawer", None, None, 1, 0)
+        b.line(["till"], "S002", "RTL", "Retail Sale", "TX1", "2026-10-03", "8101", "Sales", None, None, 0, 1)
     return finish(tmp_path, name, b, rows, till_rows, expected_status, tweak, statuses)
 
 

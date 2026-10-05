@@ -227,10 +227,21 @@ def dims_from_db(conn, run_id: str) -> dict:
 
 
 def safe_reason(e: BaseException) -> str:
-    """The error class and the constraint name only. Never the DETAIL (it carries row values, which here could include narration)."""
+    """The error class, SQLSTATE, constraint and table name. Never the DETAIL or the value-bearing message (they carry row values, which here could include narration).
+    Only access/syntax errors (SQLSTATE class 42) also give their message: it names an object and never contains a row value."""
     diag = getattr(e, "diag", None)
-    cname = getattr(diag, "constraint_name", None) if diag else None
-    return f"{type(e).__name__}" + (f" (constraint {cname})" if cname else "")
+    parts = [type(e).__name__]
+    if diag is not None:
+        code = getattr(diag, "sqlstate", None)
+        if code:
+            parts.append(f"sqlstate {code}")
+        for attr, label in (("constraint_name", "constraint"), ("table_name", "table")):
+            v = getattr(diag, attr, None)
+            if v:
+                parts.append(f"{label} {v}")
+        if code and str(code).startswith("42") and getattr(diag, "message_primary", None):
+            parts.append(str(diag.message_primary)[:120])
+    return " ".join(parts)
 
 
 def record_rejection(conn, run_id: str, manifest_sha: str | None, stage: str, reason: str, failed: dict | None) -> None:

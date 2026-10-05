@@ -332,7 +332,7 @@ No application database, no pilot database, no Oracle, no frontend and no real r
 ```json
 {
   "suite": "tools/creditors_mart/tests/test_cred_mart_db.py",
-  "tests_collected": 189,
+  "tests_collected": 221,
   "failures_so_far": 0,
   "isolation": "every test runs in a fresh database cloned from the migrated template"
 }
@@ -422,7 +422,7 @@ No application database, no pilot database, no Oracle, no frontend and no real r
 ## U16: install verifier
 ```json
 {
-  "checks_on_clean_install": 44,
+  "checks_on_clean_install": 53,
   "failures": 0,
   "drift_detected": {
     "extra_grant_to_api_reader": [

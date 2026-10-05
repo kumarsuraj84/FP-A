@@ -102,6 +102,49 @@ def verify_cash(conn, add, one) -> None:
         and all(d in one("SELECT pg_get_viewdef('core.v_domain_run'::regclass)") for d in ("'creditors'", "'cash'")))
 
 
+ENTRY_ROLES = ["entry_owner", "entry_loader", "entry_verifier", "entry_promoter", "entry_api_reader", "entry_finance_reader"]
+ENTRY_TABLES = ["run", "entry_header", "entry_line", "entry_identity", "entry_line_text", "creditor_bill_link", "till_day", "control_result", "run_event", "load_rejection", "live_run", "promotion"]
+ENTRY_LOADER_INSERTS = {"run", "entry_header", "entry_line", "entry_identity", "entry_line_text", "creditor_bill_link", "till_day", "load_rejection"}
+ENTRY_MASKED_VIEWS = ["v_serving_run", "v_entry_header", "v_entry_line", "v_creditor_bill_link", "v_till_day", "v_control", "v_cash_drawer_entry", "v_bank_entry"]
+
+
+def verify_entry(conn, add, one) -> None:
+    """The entry layer: owners, roles, the privilege matrix, immutability, and above all that restricted text is reachable ONLY by entry_finance_reader."""
+    add("schema entry exists and is owned by entry_owner", one("SELECT count(*) FROM pg_namespace WHERE nspname = 'entry'") == 1 and one("SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'entry'") == "entry_owner")
+    owners = {r[0] for r in conn.execute("SELECT pg_get_userbyid(relowner) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'entry' AND c.relkind IN ('r','v','S')")}
+    add("every entry table, view and sequence is owned by entry_owner", owners == {"entry_owner"}, str(sorted(owners)))
+    fown = {r[0] for r in conn.execute("SELECT pg_get_userbyid(proowner) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'entry'")}
+    add("every entry function is owned by entry_owner", fown == {"entry_owner"}, str(sorted(fown)))
+    attrs = {r[0]: r[1:] for r in conn.execute("SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls FROM pg_roles WHERE rolname = ANY(%s)", (ENTRY_ROLES,))}
+    add("the six entry roles exist, none is superuser / createdb / createrole / replication / bypassrls", sorted(attrs) == sorted(ENTRY_ROLES) and all(not any(v[1:]) for v in attrs.values()))
+    mism = []
+    for t in ENTRY_TABLES:
+        for r in ENTRY_ROLES[1:]:
+            for priv in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
+                want = (priv == "INSERT" and r == "entry_loader" and t in ENTRY_LOADER_INSERTS) or (priv == "SELECT" and r == "entry_loader" and t in ("run", "control_result", "entry_header", "entry_line", "creditor_bill_link", "till_day"))
+                if want != one("SELECT has_table_privilege(%s, %s, %s)", r, f"entry.{t}", priv):
+                    mism.append(f"{r} {priv} on {t}")
+    add("entry table privilege matrix matches the design (only the loader inserts; nobody updates or deletes; no reader touches a base table)", not mism, "; ".join(mism[:6]) or "checked")
+    mism = []
+    for v in ENTRY_MASKED_VIEWS:
+        for r in ("entry_verifier", "entry_api_reader", "entry_finance_reader"):
+            if not one("SELECT has_table_privilege(%s, %s, 'SELECT')", r, f"entry.{v}"):
+                mism.append(f"{r} cannot read {v}")
+    restricted = ["v_entry_identity", "v_entry_line_text", "entry_identity", "entry_line_text"]
+    for v in restricted:
+        for r in ENTRY_ROLES[1:]:
+            want = r == "entry_finance_reader" and v.startswith("v_")
+            if want != one("SELECT has_table_privilege(%s, %s, 'SELECT')", r, f"entry.{v}"):
+                mism.append(f"{r} SELECT on {v}: expected {want}")
+    add("masked views are readable by the API roles; the restricted text and the entry number are readable by entry_finance_reader ONLY", not mism, "; ".join(mism[:6]) or "checked")
+    funcs = {"promote_run(text, text)": {"entry_promoter"}, "api_verify_run(text)": {"entry_verifier"}, "verify_run(text)": {"entry_loader", "entry_owner"}}
+    mism = [f"{r} {f}" for f, allowed in funcs.items() for r in ENTRY_ROLES[1:] if (r in allowed) != one("SELECT has_function_privilege(%s, %s, 'EXECUTE')", r, f"entry.{f}")]
+    add("entry function execute rights match the design (only the promoter publishes)", not mism, "; ".join(mism[:6]) or "checked")
+    trig = {r[0] for r in conn.execute("SELECT c.relname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'entry' AND t.tgname IN ('no_mutation', 'no_delete')")}
+    add("immutability triggers on every fact, link, control and history table", {"run", "entry_header", "entry_line", "entry_identity", "entry_line_text", "creditor_bill_link", "till_day", "control_result", "run_event", "load_rejection", "promotion"} <= trig, str(sorted(trig)))
+    add("shared run model core.v_domain_run covers creditors, cash and entries", all(d in one("SELECT pg_get_viewdef('core.v_domain_run'::regclass)") for d in ("'creditors'", "'cash'", "'entries'")))
+
+
 def verify(conn) -> list[tuple[str, bool, str]]:
     """Returns (check, ok, detail). Read-only: catalog queries only."""
     out: list[tuple[str, bool, str]] = []
@@ -170,6 +213,7 @@ def verify(conn) -> list[tuple[str, bool, str]]:
     ledger = [r[0] for r in conn.execute("SELECT version FROM cred.schema_migration ORDER BY version")]
     add("migration ledger records 001 to 005", ledger == ["001", "002", "003", "004", "005"], str(ledger))
     verify_cash(conn, add, one)
+    verify_entry(conn, add, one)
     empty = {t: conn.execute(f"SELECT count(*) FROM cred.{t}").fetchone()[0] for t in TABLES if t not in ("policy_change", "schema_migration")}
     add("no data has been loaded: every table is empty and nothing is live" if not any(empty.values()) else "data tables (informational: a run has been loaded)", True if any(empty.values()) else all(v == 0 for v in empty.values()), str(empty))
 
