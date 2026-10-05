@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Banknote, ChevronRight, CircleDot, Landmark, LayoutDashboard, Lock, PiggyBank, RefreshCw, Scale, Store, Truck, Wallet } from "lucide-react";
+import { Banknote, ChevronRight, CircleDot, Landmark, LayoutDashboard, LayoutGrid, Lock, PiggyBank, RefreshCw, Scale, Store, Truck, Wallet } from "lucide-react";
 import { useCfo } from "@/context/CfoContext";
 import { searchFromState } from "@/context/drillUrl";
 import { CREDITORS_ORIGIN } from "@/lib/creditorNodes";
@@ -161,6 +161,9 @@ export function TopBar() {
         {f?.label ?? "Checking freshness…"}
       </div>
       )}
+      <Link to="/home" data-testid="link-home" title="Analytics Home: Finance, Operations and Merchandising" className="press inline-flex items-center gap-1 rounded border bg-card px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted hover:text-foreground">
+        <LayoutGrid className="h-3 w-3" /> All reports
+      </Link>
       <div className="flex h-7 w-7 items-center justify-center rounded-full bg-secondary text-[11px] font-bold text-secondary-foreground" title="CFO">
         CF
       </div>
@@ -267,7 +270,41 @@ export function Breadcrumbs() {
   );
 }
 
+/** Home and the Operations pages are not part of the CFO workflow: they get the same header look, without the finance banner, period controls or finance sidebar. */
+const PORTAL_PREFIXES = ["/home", "/operations"];
+export const isPortalPath = (p: string) => PORTAL_PREFIXES.some((x) => p === x || p.startsWith(`${x}/`));
+
+function PortalHeader({ path }: { path: string }) {
+  const link = (active: boolean) => cn("press rounded px-2.5 py-1 text-[12.5px] font-semibold", active ? "bg-[oklch(0.95_0.025_265)] text-[oklch(0.28_0.09_265)]" : "text-muted-foreground hover:bg-muted hover:text-foreground");
+  return (
+    <header data-testid="portal-header" className="flex h-12 items-center gap-4 border-b bg-card px-4">
+      <Link to="/home" className="flex items-center gap-2.5" aria-label="CityKart Analytics home">
+        <span className="flex h-7 w-7 items-center justify-center rounded bg-[oklch(0.24_0.07_255)] text-[11px] font-bold tracking-tight text-white">CK</span>
+        <span className="leading-none">
+          <span className="block text-[13px] font-bold tracking-tight text-foreground">CityKart Analytics</span>
+          <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Finance · Operations · Merchandising</span>
+        </span>
+      </Link>
+      <div className="mx-1 h-6 w-px bg-border" />
+      <nav aria-label="Areas" className="flex items-center gap-1">
+        <Link to="/home" data-testid="portal-nav-home" className={link(path === "/home")}>Home</Link>
+        <Link to="/" data-testid="portal-nav-finance" className={link(false)}>Finance</Link>
+        <Link to="/operations/sales" data-testid="portal-nav-operations" className={link(path.startsWith("/operations"))}>Operations</Link>
+      </nav>
+    </header>
+  );
+}
+
 export function AppShell({ children, drawer, drawerOpen }: { children: ReactNode; drawer: ReactNode; drawerOpen: boolean }) {
+  const path = useRouterState({ select: (r) => r.location.pathname });
+  if (isPortalPath(path)) {
+    return (
+      <div className="flex min-h-screen flex-col bg-background text-foreground">
+        <PortalHeader path={path} />
+        <main className="min-w-0 flex-1">{children}</main>
+      </div>
+    );
+  }
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <DemoBanner />
