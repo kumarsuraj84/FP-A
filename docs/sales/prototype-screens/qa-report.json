@@ -1,0 +1,87 @@
+{
+  "consoleErrors": [],
+  "checks": {
+    "home_direct": {
+      "title": "Analytics Home · CityKart",
+      "landing": true,
+      "overflow": 0
+    },
+    "home_refresh": {
+      "title": "Analytics Home · CityKart",
+      "landing": true
+    },
+    "sales_direct": {
+      "title": "Sales Comparison · CityKart Operations",
+      "page": true,
+      "banner": true,
+      "overflow": 0
+    },
+    "sales_refresh": {
+      "title": "Sales Comparison · CityKart Operations",
+      "page": true,
+      "kpis": true
+    },
+    "detail": {
+      "banner": true,
+      "coverage": "Days with data: current 2 of 4, reference 4 of 4. A dash is no data, not zero."
+    },
+    "custom": {
+      "perStoreDay": "Per store-day with data: ₹3.73 L vs ₹3.22 L.",
+      "note": "The periods have 4 and 14 days. Totals are not like-for-like; sales per store-day with data is shown beside them."
+    },
+    "no_reference": {
+      "text": "There is no data in the reference period for these stores, so growth cannot be calculated. It is shown as a dash, not as 0% or infinity.",
+      "growth": "—"
+    },
+    "loading": true,
+    "empty": true,
+    "finance_has_home_link": true,
+    "navigation_round_trip": true,
+    "root": {
+      "title": "CFO Command Center · CityKart FP&A",
+      "financeShell": true
+    }
+  },
+  "viewports": {
+    "1920": {
+      "home": {
+        "horizontalOverflow": 0,
+        "clipped": [],
+        "mainLeft": 0,
+        "mainRight": 0
+      },
+      "sales": {
+        "horizontalOverflow": 0,
+        "clipped": [],
+        "mainLeft": 0,
+        "mainRight": 0
+      },
+      "detail": {
+        "left": 1440,
+        "width": 480,
+        "fitsViewport": true
+      },
+      "consoleErrors": []
+    },
+    "mobile390": {
+      "home": {
+        "horizontalOverflow": 0,
+        "clipped": [],
+        "mainLeft": 0,
+        "mainRight": 0
+      },
+      "sales": {
+        "horizontalOverflow": 0,
+        "clipped": [],
+        "mainLeft": 0,
+        "mainRight": 0
+      },
+      "detail": {
+        "left": 0,
+        "width": 390,
+        "fitsViewport": true
+      },
+      "consoleErrors": []
+    }
+  }
+}
