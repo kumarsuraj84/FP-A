@@ -1088,6 +1088,134 @@ VOUCHER_PROBE_03: tuple[Dataset, ...] = (
                  f"UNION ALL SELECT 'VP_VENDOR_STATEMENT_UPLOADS', COUNT(*), COUNT(file_name), COUNT(file_path) FROM {OWNER}.VP_VENDOR_STATEMENT_UPLOADS FETCH FIRST 10 ROWS ONLY")),
 )
 
-PACKAGE_META["cash_pilot_01"] = CASH_META
+# ───────────── entry_pilot_01: the entry-level extract behind the drill (contract drill-1.0) ─────────────
+# Row-level, but ONLY the entries the three pages already show: every line of every entry that (1) carries an open creditor bill, (2) touches a bank or cash ledger,
+# (3) touches the "Cash Drawer" ledger, up to the register report date; plus one link row per open creditor bill and the till view per store per day.
+# Numbers and dates leave Oracle as exact text. Source controls (entries, lines, exact Dr/Cr, lines-per-entry histogram) are computed in a different shape before and after.
+# Narration and the other free-text / identifying fields are extracted (they are needed for the Finance-only entry view) but NEVER summarised, logged or reported by any tool.
+ENTRY_RULES = {
+    "contract": "drill-1.0",
+    "rules_version": "1",
+    "fy_start": "2026-04-01",
+    "coverage_from": "2023-04-01",
+    "register_current": '"T$FINREGSITE_844"',
+    "register_all_years": '"T$FINREGSITE_877"',
+    "identity": "(site, entry type short, entry number); entry_ref = sha256('v1|site|type|number')[:32]",
+    "bridge": "ledger + sub-ledger + DOCUMENT_NO = ENTRY_NO; EXACT = one distinct entry identity AND net amount for that ledger and sub-ledger equals the bill amount",
+}
+_FINGL = f'{OWNER}."MAS$FINGL"'
+_RD = f"(SELECT MAX(report_date) FROM {_ENTRY_SITE} WHERE entry_date >= DATE '2026-04-01')"
+_LINE_COLS = (
+    "TO_CHAR(r.sitecode) AS site_code, r.entry_type_short AS entry_type_short, r.entry_type_long AS entry_type_long, r.entry_no AS entry_no, TO_CHAR(r.entry_date, 'YYYY-MM-DD') AS entry_date, "
+    "TO_CHAR(r.seq) AS seq, TO_CHAR(r.entry_glcode) AS glcode, g.glname AS glname, g.nature AS glnature, TO_CHAR(r.entry_slcode) AS slcode, "
+    f"{_TM9('r.debit', 'debit')}, {_TM9('r.credit', 'credit')}, r.release_status AS release_status, r.created_by_site AS created_by_site, r.cubename AS cubename, "
+    "r.narration AS narration, r.entry_reference_no AS reference_no, TO_CHAR(r.entry_reference_date, 'YYYY-MM-DD') AS reference_date, r.entry_cheque_no AS cheque_no, "
+    "TO_CHAR(r.entry_cheque_date, 'YYYY-MM-DD') AS cheque_date, r.entry_ref_ledgers AS counter_ledgers, r.prepared_by AS prepared_by, TO_CHAR(r.prepared_on, 'YYYY-MM-DD HH24:MI:SS') AS prepared_on, "
+    "r.last_modified_by AS modified_by, TO_CHAR(r.last_modified_on, 'YYYY-MM-DD HH24:MI:SS') AS modified_on, r.release_by AS released_by, TO_CHAR(r.release_on, 'YYYY-MM-DD HH24:MI:SS') AS released_on"
+)
+_KEY = "(r.sitecode, r.entry_type_short, r.entry_no)"
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01, "voucher_probe_01": VOUCHER_PROBE_01, "voucher_probe_03": VOUCHER_PROBE_03}
+
+def _sel(name: str) -> tuple[str, str, str]:
+    """-> (register table, date window predicate on r, key predicate): the entries of one selection."""
+    cur, old = _ENTRY_SITE, _ALLYEARS
+    if name == "creditors_cur":
+        win = "r.entry_date >= DATE '2026-04-01'"
+        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
+               f"AND r2.entry_glcode IN ({_CRED_IN}) AND r2.entry_date >= DATE '2026-04-01' AND o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 AND o.document_date >= DATE '2026-04-01'")
+        return cur, win, f"{_KEY} IN ({sub})"
+    if name == "creditors_old":
+        win = "r.entry_date >= DATE '2023-04-01' AND r.entry_date <= DATE '2026-03-31'"
+        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {old} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
+               f"AND r2.entry_glcode IN ({_CRED_IN}) AND r2.entry_date >= DATE '2023-04-01' AND r2.entry_date <= DATE '2026-03-31' AND o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 "
+               "AND o.document_date >= DATE '2023-04-01' AND o.document_date <= DATE '2026-03-31'")
+        return old, win, f"{_KEY} IN ({sub})"
+    if name == "bank":
+        win = "r.entry_date >= DATE '2026-04-01' AND r.entry_date <= p.rd"
+        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2 WHERE r2.entry_glcode IN ({_BANK_LEDGERS}) AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_RD}")
+        return cur, win, f"{_KEY} IN ({sub})"
+    if name == "till":
+        win = "r.entry_date >= DATE '2026-04-01' AND r.entry_date <= p.rd"
+        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2, {_FINGL} g2 WHERE g2.glcode = r2.entry_glcode AND g2.glname = 'Cash Drawer' "
+               f"AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_RD}")
+        return cur, win, f"{_KEY} IN ({sub})"
+    raise KeyError(name)
+
+
+def _cte() -> str:
+    return f"WITH p AS (SELECT MAX(report_date) AS rd FROM {_ENTRY_SITE} WHERE entry_date >= DATE '2026-04-01') "
+
+
+def _lines_sql(name: str, cap: int) -> str:
+    reg, win, key = _sel(name)
+    return (_cte() + f"SELECT {_LINE_COLS} FROM {reg} r, {OWNER}.\"MAS$FINGL\" g, p WHERE g.glcode = r.entry_glcode AND {win} AND {key} FETCH FIRST {cap} ROWS ONLY")
+
+
+def _totals_sql() -> str:
+    parts = []
+    for name in ("creditors_cur", "creditors_old", "bank", "till"):
+        reg, win, key = _sel(name)
+        parts.append(f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
+                     f"FROM {reg} r, p WHERE {win} AND {key}")
+    return _cte() + " UNION ALL ".join(parts) + " FETCH FIRST 10 ROWS ONLY"
+
+
+def _histogram_sql() -> str:
+    parts = []
+    for name in ("creditors_cur", "creditors_old", "bank", "till"):
+        reg, win, key = _sel(name)
+        parts.append(f"SELECT '{name}' AS selection, lines_per_entry, COUNT(*) AS entries FROM (SELECT COUNT(*) AS lines_per_entry FROM {reg} r, p WHERE {win} AND {key} GROUP BY r.sitecode, r.entry_type_short, r.entry_no) GROUP BY lines_per_entry")
+    return _cte() + " UNION ALL ".join(parts) + " ORDER BY selection, lines_per_entry FETCH FIRST 2000 ROWS ONLY"
+
+
+def _bills_sql() -> str:
+    return (f"SELECT TO_CHAR(MAX(o.report_date), 'YYYY-MM-DD') AS cube_report_date, TO_CHAR({_RD}, 'YYYY-MM-DD') AS register_report_date, COUNT(*) AS open_bills, "
+            "COUNT(CASE WHEN o.document_date >= DATE '2026-04-01' THEN 1 END) AS bills_current_fy, "
+            "COUNT(CASE WHEN o.document_date >= DATE '2023-04-01' AND o.document_date < DATE '2026-04-01' THEN 1 END) AS bills_prior_years, "
+            "COUNT(CASE WHEN o.document_date < DATE '2023-04-01' OR o.document_date IS NULL THEN 1 END) AS bills_before_coverage "
+            f"FROM {_O} o WHERE o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 FETCH FIRST 5 ROWS ONLY")
+
+
+def _links_sql(register: str, since: str, until: str | None) -> str:
+    reg_until = f" AND entry_date <= DATE '{until}'" if until else ""
+    o_until = f" AND document_date <= DATE '{until}'" if until else ""
+    r = (f"SELECT entry_glcode AS g, entry_slcode AS s, entry_no AS n, entry_type_short AS t, sitecode AS st, SUM(debit) AS dr, SUM(credit) AS cr FROM {register} "
+         f"WHERE entry_glcode IN ({_CRED_IN}) AND entry_date >= DATE '{since}'{reg_until} GROUP BY entry_glcode, entry_slcode, entry_no, entry_type_short, sitecode")
+    o = (f"SELECT document_code AS dc, sub_ledger_code AS s, ledger_code AS g, document_no AS dn, amount AS amt FROM {_O} WHERE report_date >= DATE '2026-01-01' "
+         f"AND ledger_code IN ({_CRED_IN}) AND pending <> 0 AND document_date >= DATE '{since}'{o_until}")
+    return (f"SELECT o.dc AS document_code, o.s AS sub_ledger_code, TO_CHAR(o.g) AS ledger_code, {_TM9('o.amt', 'bill_amount')}, "
+            "COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END) AS matched_entries, "
+            "CASE WHEN COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END) = 1 THEN TO_CHAR(MIN(r.st)) END AS site_code, "
+            "CASE WHEN COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END) = 1 THEN MIN(r.t) END AS entry_type_short, "
+            "CASE WHEN COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END) = 1 THEN MIN(r.n) END AS entry_no, "
+            f"CASE WHEN COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END) = 1 THEN TO_CHAR(SUM(r.dr - r.cr), 'TM9') END AS entry_net_dr_minus_cr "
+            f"FROM ({o}) o LEFT JOIN ({r}) r ON r.n = o.dn AND r.g = o.g AND r.s = o.s GROUP BY o.dc, o.s, o.g, o.amt FETCH FIRST 50000 ROWS ONLY")
+
+
+_L1C_SQL = (f"SELECT document_code AS document_code, sub_ledger_code AS sub_ledger_code, TO_CHAR(ledger_code) AS ledger_code, {_TM9('amount', 'bill_amount')}, TO_CHAR(document_date, 'YYYY-MM-DD') AS document_date "
+            f"FROM {_O} WHERE report_date >= DATE '2026-01-01' AND ledger_code IN ({_CRED_IN}) AND pending <> 0 AND (document_date < DATE '2023-04-01' OR document_date IS NULL) FETCH FIRST 50000 ROWS ONLY")
+_L2_SQL = (_cte() + f"SELECT TO_CHAR(v.site_code) AS site_code, TO_CHAR(v.bill_date, 'YYYY-MM-DD') AS day, {_TM9('v.debit', 'debit')}, {_TM9('v.credit', 'credit')}, {_TM9('v.cumlative_balance', 'cumulative_balance')} "
+           f"FROM {_TILL} v, p WHERE v.bill_date >= DATE '2026-04-01' AND v.bill_date <= p.rd FETCH FIRST 100000 ROWS ONLY")
+
+ENTRY_PILOT_01: tuple[Dataset, ...] = (
+    Dataset("c1_totals_pre", "extract", "Source control before the extract: entries, lines and exact Dr/Cr of each selection (no per-entry grouping).", sql=_totals_sql(), role="control_pre"),
+    Dataset("c2_histogram_pre", "extract", "Source control before the extract: how many entries have 1, 2, 3 ... n lines, per selection (proves multi-line vouchers are complete).", sql=_histogram_sql(), role="control_pre"),
+    Dataset("c3_bills_pre", "extract", "Source control before the extract: cube and register report dates and the open creditor bills by register-coverage window.", sql=_bills_sql(), role="control_pre"),
+    Dataset("h1_lines_creditors_cur", "extract", "All lines of every FY26-27 entry that carries an open creditor bill.", sql=_lines_sql("creditors_cur", 400_000), role="extract"),
+    Dataset("h1b_lines_creditors_old", "extract", "All lines of every FY23-24 to FY25-26 entry that carries an open creditor bill (all-years register).", sql=_lines_sql("creditors_old", 400_000), role="extract"),
+    Dataset("h2_lines_bank", "extract", "All lines of every entry that touches a bank or cash ledger, to the register report date.", sql=_lines_sql("bank", 200_000), role="extract"),
+    Dataset("h3_lines_till", "extract", "All lines of every entry that touches the Cash Drawer ledger, to the register report date.", sql=_lines_sql("till", 1_000_000), role="extract"),
+    Dataset("l1a_links_current", "extract", "One row per open creditor bill dated FY26-27: the distinct register entries matched by ledger + sub-ledger + document number = entry number.", sql=_links_sql(_ENTRY_SITE, "2026-04-01", None), role="extract"),
+    Dataset("l1b_links_prior", "extract", "The same for bills dated FY23-24 to FY25-26 against the all-years register.", sql=_links_sql(_ALLYEARS, "2023-04-01", "2026-03-31"), role="extract"),
+    Dataset("l1c_bills_before_coverage", "extract", "Open creditor bills dated before April 2023 or without a document date: identity only (the register coverage does not reach them).", sql=_L1C_SQL, role="extract"),
+    Dataset("l2_till_day", "extract", "The till view per store per day, 1 Apr 2026 to the register report date.", sql=_L2_SQL, role="extract"),
+    Dataset("c1_totals_post", "extract", "The same totals after the extract.", sql=_totals_sql(), role="control_post"),
+    Dataset("c2_histogram_post", "extract", "The same histogram after the extract.", sql=_histogram_sql(), role="control_post"),
+    Dataset("c3_bills_post", "extract", "The same bill counts after the extract.", sql=_bills_sql(), role="control_post"),
+)
+ENTRY_META = {"halt_on_failure": True, "contract": {**ENTRY_RULES, "caps": {"h1_lines_creditors_cur": 400_000, "h1b_lines_creditors_old": 400_000, "h2_lines_bank": 200_000, "h3_lines_till": 1_000_000, "l2_till_day": 100_000}}}
+
+PACKAGE_META["cash_pilot_01"] = CASH_META
+PACKAGE_META["entry_pilot_01"] = ENTRY_META
+
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01, "voucher_probe_01": VOUCHER_PROBE_01, "voucher_probe_03": VOUCHER_PROBE_03, "entry_pilot_01": ENTRY_PILOT_01}
