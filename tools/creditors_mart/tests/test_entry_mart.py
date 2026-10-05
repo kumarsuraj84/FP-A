@@ -247,7 +247,9 @@ def test_n07_e11_a_different_snapshot_is_refused(env):
     def tweak(files, b):
         for k in ("c3_bills_pre", "c3_bills_post"):
             d, cols = files[k]
-            files[k] = ([{**d[0], "cube_report_date": "2026-10-05", "register_report_date": "2026-10-05"}], cols)
+            files[k] = ([{**d[0], "cube_report_date": "2026-10-05"}], cols)
+        for k in ("c4_register_pre", "c4_register_post"):
+            files[k] = ([{"register_report_date": "2026-10-05"}], ["register_report_date"])
 
     run, _, rep = staged(env, tweak=tweak)
     assert rep["verdict"] == "PASSED"

@@ -1174,11 +1174,16 @@ def _histogram_sql() -> str:
 
 
 def _bills_sql() -> str:
-    return (f"SELECT TO_CHAR(MAX(o.report_date), 'YYYY-MM-DD') AS cube_report_date, TO_CHAR({_RD}, 'YYYY-MM-DD') AS register_report_date, COUNT(*) AS open_bills, "
+    return (f"SELECT TO_CHAR(MAX(o.report_date), 'YYYY-MM-DD') AS cube_report_date, COUNT(*) AS open_bills, "
             "COUNT(CASE WHEN o.document_date >= DATE '2026-04-01' THEN 1 END) AS bills_current_fy, "
             "COUNT(CASE WHEN o.document_date >= DATE '2023-04-01' AND o.document_date < DATE '2026-04-01' THEN 1 END) AS bills_prior_years, "
             "COUNT(CASE WHEN o.document_date < DATE '2023-04-01' OR o.document_date IS NULL THEN 1 END) AS bills_before_coverage "
             f"FROM {_O} o WHERE o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 FETCH FIRST 5 ROWS ONLY")
+
+
+def _register_sql() -> str:
+    """The register's own report date, as its own query: a scalar subquery inside the aggregate bills query raised an ODBC error."""
+    return f"SELECT TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS register_report_date FROM {_ENTRY_SITE} WHERE entry_date >= DATE '2026-04-01' FETCH FIRST 5 ROWS ONLY"
 
 
 def _links_sql(register: str, since: str, until: str | None) -> str:
@@ -1206,6 +1211,7 @@ ENTRY_PILOT_01: tuple[Dataset, ...] = (
     Dataset("c1_totals_pre", "extract", "Source control before the extract: entries, lines and exact Dr/Cr of each selection (no per-entry grouping).", sql=_totals_sql(), role="control_pre"),
     Dataset("c2_histogram_pre", "extract", "Source control before the extract: how many entries have 1, 2, 3 ... n lines, per selection (proves multi-line vouchers are complete).", sql=_histogram_sql(), role="control_pre"),
     Dataset("c3_bills_pre", "extract", "Source control before the extract: cube and register report dates and the open creditor bills by register-coverage window.", sql=_bills_sql(), role="control_pre"),
+    Dataset("c4_register_pre", "extract", "Source control before the extract: the site register's report date (must equal the outstanding cube's).", sql=_register_sql(), role="control_pre"),
     Dataset("h1_lines_creditors_cur", "extract", "All lines of every FY26-27 entry that carries an open creditor bill.", sql=_lines_sql("creditors_cur", 400_000), role="extract"),
     Dataset("h1b_lines_creditors_old", "extract", "All lines of every FY23-24 to FY25-26 entry that carries an open creditor bill (all-years register).", sql=_lines_sql("creditors_old", 400_000), role="extract"),
     Dataset("h2_lines_bank", "extract", "All lines of every entry that touches a bank or cash ledger, to the register report date.", sql=_lines_sql("bank", 200_000), role="extract"),
@@ -1217,6 +1223,7 @@ ENTRY_PILOT_01: tuple[Dataset, ...] = (
     Dataset("c1_totals_post", "extract", "The same totals after the extract.", sql=_totals_sql(), role="control_post"),
     Dataset("c2_histogram_post", "extract", "The same histogram after the extract.", sql=_histogram_sql(), role="control_post"),
     Dataset("c3_bills_post", "extract", "The same bill counts after the extract.", sql=_bills_sql(), role="control_post"),
+    Dataset("c4_register_post", "extract", "The same register report date after the extract.", sql=_register_sql(), role="control_post"),
 )
 ENTRY_META = {"halt_on_failure": True, "contract": {**ENTRY_RULES, "caps": {"h1_lines_creditors_cur": 400_000, "h1b_lines_creditors_old": 400_000, "h2_lines_bank": 200_000, "h3_lines_till": 1_000_000, "l2_till_day": 100_000}}}
 
@@ -1229,7 +1236,15 @@ def _one_total(name: str) -> str:
 # four separate timings of the source controls (the combined query exceeded the broker time limit once): evidence for where the cost is
 ENTRY_TIMING_PROBE: tuple[Dataset, ...] = tuple(Dataset(f"t_{n}", "extract", f"Totals of the {n} selection alone.", sql=_one_total(n)) for n in ("bank", "creditors_cur", "creditors_old", "till"))
 
+_B = f"FROM {_O} o WHERE o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 FETCH FIRST 5 ROWS ONLY"
+C3_DEBUG: tuple[Dataset, ...] = (
+    Dataset("x1_cube_date_and_total", "extract", "Cube report date and open bills.", sql=f"SELECT TO_CHAR(MAX(o.report_date), 'YYYY-MM-DD') AS cube_report_date, COUNT(*) AS open_bills {_B}"),
+    Dataset("x2_windows", "extract", "Bills by register-coverage window.", sql=("SELECT COUNT(CASE WHEN o.document_date >= DATE '2026-04-01' THEN 1 END) AS bills_current_fy, COUNT(CASE WHEN o.document_date >= DATE '2023-04-01' AND o.document_date < DATE '2026-04-01' THEN 1 END) AS bills_prior_years, "
+                                                   f"COUNT(CASE WHEN o.document_date < DATE '2023-04-01' OR o.document_date IS NULL THEN 1 END) AS bills_before_coverage {_B}")),
+    Dataset("x3_register_date", "extract", "Register report date alone.", sql=f"SELECT TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS register_report_date FROM {_ENTRY_SITE} WHERE entry_date >= DATE '2026-04-01' FETCH FIRST 5 ROWS ONLY"),
+)
+
 PACKAGE_META["cash_pilot_01"] = CASH_META
 PACKAGE_META["entry_pilot_01"] = ENTRY_META
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01, "voucher_probe_01": VOUCHER_PROBE_01, "voucher_probe_03": VOUCHER_PROBE_03, "entry_pilot_01": ENTRY_PILOT_01, "entry_timing_probe": ENTRY_TIMING_PROBE}
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01, "voucher_probe_01": VOUCHER_PROBE_01, "voucher_probe_03": VOUCHER_PROBE_03, "entry_pilot_01": ENTRY_PILOT_01, "entry_timing_probe": ENTRY_TIMING_PROBE, "c3_debug": C3_DEBUG}

@@ -36,10 +36,10 @@ ZERO = Decimal(0)
 _NUM = re.compile(r"^-?([0-9]+(\.[0-9]+)?|\.[0-9]+)$")
 _DATE = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$")
 EXPECTED = {
-    "c1_totals_pre": "control_pre", "c2_histogram_pre": "control_pre", "c3_bills_pre": "control_pre",
+    "c1_totals_pre": "control_pre", "c2_histogram_pre": "control_pre", "c3_bills_pre": "control_pre", "c4_register_pre": "control_pre",
     "h1_lines_creditors_cur": "extract", "h1b_lines_creditors_old": "extract", "h2_lines_bank": "extract", "h3_lines_till": "extract",
     "l1a_links_current": "extract", "l1b_links_prior": "extract", "l1c_bills_before_coverage": "extract", "l2_till_day": "extract",
-    "c1_totals_post": "control_post", "c2_histogram_post": "control_post", "c3_bills_post": "control_post",
+    "c1_totals_post": "control_post", "c2_histogram_post": "control_post", "c3_bills_post": "control_post", "c4_register_post": "control_post",
 }
 LINE_DATASETS = {"h1_lines_creditors_cur": "creditors_cur", "h1b_lines_creditors_old": "creditors_old", "h2_lines_bank": "bank", "h3_lines_till": "till"}
 LINE_COLUMNS = ["site_code", "entry_type_short", "entry_type_long", "entry_no", "entry_date", "seq", "glcode", "glname", "glnature", "slcode", "debit", "credit", "release_status", "created_by_site",
@@ -174,7 +174,7 @@ def validate(run_dir: Path, write: bool = True) -> dict:
     report["manifest_sha256"] = mf.sha256_file(run_dir / "manifest.json")
     report["contract"] = contract
     try:
-        for kind in ("c1_totals", "c2_histogram", "c3_bills"):
+        for kind in ("c1_totals", "c2_histogram", "c3_bills", "c4_register"):
             if _norm(load(run_dir, f"{kind}_pre")) != _norm(load(run_dir, f"{kind}_post")):
                 fail(f"REFRESH RACE: {kind} differs between PRE and POST")
         c3 = load(run_dir, "c3_bills_pre")
@@ -182,10 +182,17 @@ def validate(run_dir: Path, write: bool = True) -> dict:
             fail("c3_bills_pre must have exactly one row")
             return finish(run_dir, report, None, write)
         c3 = c3[0]
-        as_of = dt(c3["register_report_date"], "register_report_date", "c3")
+        c4 = load(run_dir, "c4_register_pre")
+        if len(c4) != 1:
+            fail("c4_register_pre must have exactly one row")
+            return finish(run_dir, report, None, write)
+        as_of = dt(c4[0]["register_report_date"], "register_report_date", "c4")
         cube = dt(c3["cube_report_date"], "cube_report_date", "c3")
         if as_of is None or cube is None or as_of != cube:
             fail("the outstanding cube and the site register are not the same snapshot (report dates differ)")
+            return finish(run_dir, report, None, write)
+        if contract.get("as_of_cutoff") and as_of.isoformat() != contract["as_of_cutoff"]:
+            fail(f"the source has moved on: its report date is not the pinned cutoff {contract['as_of_cutoff']}: refresh creditors and cash first, then re-pin the cutoff")
             return finish(run_dir, report, None, write)
         lines, per_sel = build_lines(run_dir, by, fail)
 

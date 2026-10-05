@@ -22,7 +22,7 @@ def test_package_is_registered_guarded_capped_misretail_only_and_pre_post_identi
     caps = {d.name: guard.check(d.sql, d.kind).row_cap for d in ENTRY_PILOT_01}
     assert caps["h3_lines_till"] == 1_000_000 and caps["h1_lines_creditors_cur"] == 400_000 and all(c <= 5_000_000 for c in caps.values())
     by = {d.name: d.sql for d in ENTRY_PILOT_01}
-    for k in ("c1_totals", "c2_histogram", "c3_bills"):
+    for k in ("c1_totals", "c2_histogram", "c3_bills", "c4_register"):
         assert by[f"{k}_pre"] == by[f"{k}_post"]
     for name, sql in by.items():
         assert "SSRK" not in sql.upper() and "PUBLIC" not in sql.upper(), name
@@ -154,3 +154,15 @@ def test_a_link_to_an_entry_that_was_not_extracted_is_refused(tmp_path):
 def test_capped_or_failed_dataset_fails_the_run(tmp_path):
     _, _, rep = run_and_report(tmp_path, statuses={"h3_lines_till": "capped"})
     assert rep["verdict"] == "FAILED" and any("capped" in f for f in rep["hard_failures"])
+
+
+def test_a_source_that_has_moved_past_the_pinned_cutoff_stops_the_run(tmp_path):
+    def tweak(files, b):
+        for k in ("c3_bills_pre", "c3_bills_post"):
+            d, cols = files[k]
+            files[k] = ([{**d[0], "cube_report_date": "2026-10-05"}], cols)
+        for k in ("c4_register_pre", "c4_register_post"):
+            files[k] = ([{"register_report_date": "2026-10-05"}], ["register_report_date"])
+
+    _, _, rep = run_and_report(tmp_path, tweak=tweak)
+    assert rep["verdict"] == "FAILED" and any("the source has moved on" in f for f in rep["hard_failures"])

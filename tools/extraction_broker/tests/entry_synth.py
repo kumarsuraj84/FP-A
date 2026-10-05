@@ -166,7 +166,7 @@ def finish(tmp_path, name, b, rows, till_rows, expected_status, tweak, statuses)
     wins = {"CURRENT_FY": [], "PRIOR_YEARS_IN_COVERAGE": [], "BEFORE_COVERAGE": []}
     for r in rows:
         wins[window(r["document_date"])].append(r)
-    c3 = [{"cube_report_date": AS_OF, "register_report_date": AS_OF, "open_bills": str(len(rows)), "bills_current_fy": str(len(wins["CURRENT_FY"])), "bills_prior_years": str(len(wins["PRIOR_YEARS_IN_COVERAGE"])),
+    c3 = [{"cube_report_date": AS_OF, "open_bills": str(len(rows)), "bills_current_fy": str(len(wins["CURRENT_FY"])), "bills_prior_years": str(len(wins["PRIOR_YEARS_IN_COVERAGE"])),
            "bills_before_coverage": str(len(wins["BEFORE_COVERAGE"]))}]
 
     def link_rows(group, ds_sel):
@@ -196,6 +196,7 @@ def finish(tmp_path, name, b, rows, till_rows, expected_status, tweak, statuses)
         files[f"c1_totals_{pre}"] = (c1, ["selection", "entries", "lines", "sum_debit", "sum_credit"])
         files[f"c2_histogram_{pre}"] = (c2, ["selection", "lines_per_entry", "entries"])
         files[f"c3_bills_{pre}"] = (c3, list(c3[0].keys()))
+        files[f"c4_register_{pre}"] = ([{"register_report_date": AS_OF}], ["register_report_date"])
     if tweak:
         tweak(files, b)
     entries = []
