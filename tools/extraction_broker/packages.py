@@ -1097,6 +1097,7 @@ ENTRY_RULES = {
     "contract": "drill-1.0",
     "rules_version": "1",
     "fy_start": "2026-04-01",
+    "as_of_cutoff": "2026-10-04",
     "coverage_from": "2023-04-01",
     "register_current": '"T$FINREGSITE_844"',
     "register_all_years": '"T$FINREGSITE_877"',
@@ -1104,6 +1105,7 @@ ENTRY_RULES = {
     "bridge": "ledger + sub-ledger + DOCUMENT_NO = ENTRY_NO; EXACT = one distinct entry identity AND net amount for that ledger and sub-ledger equals the bill amount",
 }
 _FINGL = f'{OWNER}."MAS$FINGL"'
+_CUT = "DATE '2026-10-04'"   # the cash and creditors runs' as-of date, pinned: entries after it are never extracted
 _RD = f"(SELECT MAX(report_date) FROM {_ENTRY_SITE} WHERE entry_date >= DATE '2026-04-01')"
 _LINE_COLS = (
     "TO_CHAR(r.sitecode) AS site_code, r.entry_type_short AS entry_type_short, r.entry_type_long AS entry_type_long, r.entry_no AS entry_no, TO_CHAR(r.entry_date, 'YYYY-MM-DD') AS entry_date, "
@@ -1131,24 +1133,24 @@ def _sel(name: str) -> tuple[str, str, str]:
                "AND o.document_date >= DATE '2023-04-01' AND o.document_date <= DATE '2026-03-31'")
         return old, win, f"{_KEY} IN ({sub})"
     if name == "bank":
-        win = "r.entry_date >= DATE '2026-04-01' AND r.entry_date <= p.rd"
-        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2 WHERE r2.entry_glcode IN ({_BANK_LEDGERS}) AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_RD}")
+        win = f"r.entry_date >= DATE '2026-04-01' AND r.entry_date <= {_CUT}"
+        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2 WHERE r2.entry_glcode IN ({_BANK_LEDGERS}) AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_CUT}")
         return cur, win, f"{_KEY} IN ({sub})"
     if name == "till":
-        win = "r.entry_date >= DATE '2026-04-01' AND r.entry_date <= p.rd"
+        win = f"r.entry_date >= DATE '2026-04-01' AND r.entry_date <= {_CUT}"
         sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2, {_FINGL} g2 WHERE g2.glcode = r2.entry_glcode AND g2.glname = 'Cash Drawer' "
-               f"AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_RD}")
+               f"AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_CUT}")
         return cur, win, f"{_KEY} IN ({sub})"
     raise KeyError(name)
 
 
 def _cte() -> str:
-    return f"WITH p AS (SELECT MAX(report_date) AS rd FROM {_ENTRY_SITE} WHERE entry_date >= DATE '2026-04-01') "
+    return ""
 
 
 def _lines_sql(name: str, cap: int) -> str:
     reg, win, key = _sel(name)
-    return (_cte() + f"SELECT {_LINE_COLS} FROM {reg} r, {OWNER}.\"MAS$FINGL\" g, p WHERE g.glcode = r.entry_glcode AND {win} AND {key} FETCH FIRST {cap} ROWS ONLY")
+    return (_cte() + f"SELECT {_LINE_COLS} FROM {reg} r, {OWNER}.\"MAS$FINGL\" g WHERE g.glcode = r.entry_glcode AND {win} AND {key} FETCH FIRST {cap} ROWS ONLY")
 
 
 def _totals_sql() -> str:
@@ -1156,7 +1158,7 @@ def _totals_sql() -> str:
     for name in ("creditors_cur", "creditors_old", "bank", "till"):
         reg, win, key = _sel(name)
         parts.append(f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
-                     f"FROM {reg} r, p WHERE {win} AND {key}")
+                     f"FROM {reg} r WHERE {win} AND {key}")
     return _cte() + " UNION ALL ".join(parts) + " FETCH FIRST 10 ROWS ONLY"
 
 
@@ -1164,7 +1166,7 @@ def _histogram_sql() -> str:
     parts = []
     for name in ("creditors_cur", "creditors_old", "bank", "till"):
         reg, win, key = _sel(name)
-        parts.append(f"SELECT '{name}' AS selection, lines_per_entry, COUNT(*) AS entries FROM (SELECT COUNT(*) AS lines_per_entry FROM {reg} r, p WHERE {win} AND {key} GROUP BY r.sitecode, r.entry_type_short, r.entry_no) GROUP BY lines_per_entry")
+        parts.append(f"SELECT '{name}' AS selection, lines_per_entry, COUNT(*) AS entries FROM (SELECT COUNT(*) AS lines_per_entry FROM {reg} r WHERE {win} AND {key} GROUP BY r.sitecode, r.entry_type_short, r.entry_no) GROUP BY lines_per_entry")
     return _cte() + " UNION ALL ".join(parts) + " ORDER BY selection, lines_per_entry FETCH FIRST 2000 ROWS ONLY"
 
 
@@ -1195,7 +1197,7 @@ def _links_sql(register: str, since: str, until: str | None) -> str:
 _L1C_SQL = (f"SELECT document_code AS document_code, sub_ledger_code AS sub_ledger_code, TO_CHAR(ledger_code) AS ledger_code, {_TM9('amount', 'bill_amount')}, TO_CHAR(document_date, 'YYYY-MM-DD') AS document_date "
             f"FROM {_O} WHERE report_date >= DATE '2026-01-01' AND ledger_code IN ({_CRED_IN}) AND pending <> 0 AND (document_date < DATE '2023-04-01' OR document_date IS NULL) FETCH FIRST 50000 ROWS ONLY")
 _L2_SQL = (_cte() + f"SELECT TO_CHAR(v.site_code) AS site_code, TO_CHAR(v.bill_date, 'YYYY-MM-DD') AS day, {_TM9('v.debit', 'debit')}, {_TM9('v.credit', 'credit')}, {_TM9('v.cumlative_balance', 'cumulative_balance')} "
-           f"FROM {_TILL} v, p WHERE v.bill_date >= DATE '2026-04-01' AND v.bill_date <= p.rd FETCH FIRST 100000 ROWS ONLY")
+           f"FROM {_TILL} v WHERE v.bill_date >= DATE '2026-04-01' AND v.bill_date <= {_CUT} FETCH FIRST 100000 ROWS ONLY")
 
 ENTRY_PILOT_01: tuple[Dataset, ...] = (
     Dataset("c1_totals_pre", "extract", "Source control before the extract: entries, lines and exact Dr/Cr of each selection (no per-entry grouping).", sql=_totals_sql(), role="control_pre"),
@@ -1215,7 +1217,16 @@ ENTRY_PILOT_01: tuple[Dataset, ...] = (
 )
 ENTRY_META = {"halt_on_failure": True, "contract": {**ENTRY_RULES, "caps": {"h1_lines_creditors_cur": 400_000, "h1b_lines_creditors_old": 400_000, "h2_lines_bank": 200_000, "h3_lines_till": 1_000_000, "l2_till_day": 100_000}}}
 
+def _one_total(name: str) -> str:
+    reg, win, key = _sel(name)
+    return (f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
+            f"FROM {reg} r WHERE {win} AND {key} FETCH FIRST 5 ROWS ONLY")
+
+
+# four separate timings of the source controls (the combined query exceeded the broker time limit once): evidence for where the cost is
+ENTRY_TIMING_PROBE: tuple[Dataset, ...] = tuple(Dataset(f"t_{n}", "extract", f"Totals of the {n} selection alone.", sql=_one_total(n)) for n in ("bank", "creditors_cur", "creditors_old", "till"))
+
 PACKAGE_META["cash_pilot_01"] = CASH_META
 PACKAGE_META["entry_pilot_01"] = ENTRY_META
 
-PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01, "voucher_probe_01": VOUCHER_PROBE_01, "voucher_probe_03": VOUCHER_PROBE_03, "entry_pilot_01": ENTRY_PILOT_01}
+PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01, "voucher_probe_01": VOUCHER_PROBE_01, "voucher_probe_03": VOUCHER_PROBE_03, "entry_pilot_01": ENTRY_PILOT_01, "entry_timing_probe": ENTRY_TIMING_PROBE}
