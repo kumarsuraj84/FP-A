@@ -1162,6 +1162,21 @@ def _totals_sql() -> str:
     return _cte() + " UNION ALL ".join(parts) + " FETCH FIRST 10 ROWS ONLY"
 
 
+def _one_total(name: str) -> str:
+    reg, extra, win, key = _sel(name)
+    return (f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
+            f"FROM {reg} r{extra} WHERE {win} AND {key} FETCH FIRST 5 ROWS ONLY")
+
+
+SEL_NAMES = ("creditors_cur", "creditors_old", "bank")   # one control query per selection: a single bad plan can no longer sink the whole control set
+
+
+def _one_histogram(name: str) -> str:
+    reg, extra, win, key = _sel(name)
+    return (f"SELECT '{name}' AS selection, lines_per_entry, COUNT(*) AS entries FROM (SELECT COUNT(*) AS lines_per_entry FROM {reg} r{extra} WHERE {win} AND {key} "
+            "GROUP BY r.sitecode, r.entry_type_short, r.entry_no) GROUP BY lines_per_entry ORDER BY lines_per_entry FETCH FIRST 2000 ROWS ONLY")
+
+
 def _histogram_sql() -> str:
     parts = []
     for name in ("creditors_cur", "creditors_old", "bank"):
@@ -1209,8 +1224,8 @@ def _l2_sql() -> str:
 
 def _entry_datasets() -> tuple[Dataset, ...]:
     return (
-    Dataset("c1_totals_pre", "extract", "Source control before the extract: entries, lines and exact Dr/Cr of each selection (no per-entry grouping).", sql=_totals_sql(), role="control_pre"),
-    Dataset("c2_histogram_pre", "extract", "Source control before the extract: how many entries have 1, 2, 3 ... n lines, per selection (proves multi-line vouchers are complete).", sql=_histogram_sql(), role="control_pre"),
+    *[Dataset(f"c1_totals_{n}_pre", "extract", f"Source control before the extract: entries, lines and exact Dr/Cr of the {n} selection (no per-entry grouping).", sql=_one_total(n), role="control_pre") for n in SEL_NAMES],
+    *[Dataset(f"c2_histogram_{n}_pre", "extract", f"Source control before the extract: how many {n} entries have 1, 2, 3 ... n lines (proves multi-line vouchers are complete).", sql=_one_histogram(n), role="control_pre") for n in SEL_NAMES],
     Dataset("c3_bills_pre", "extract", "Source control before the extract: cube and register report dates and the open creditor bills by register-coverage window.", sql=_bills_sql(), role="control_pre"),
     Dataset("c4_register_pre", "extract", "Source control before the extract: the site register's report date (must equal the outstanding cube's).", sql=_register_sql(), role="control_pre"),
     Dataset("h1_lines_creditors_cur", "extract", "All lines of every FY26-27 entry that carries an open creditor bill.", sql=_lines_sql("creditors_cur", 400_000), role="extract"),
@@ -1220,7 +1235,7 @@ def _entry_datasets() -> tuple[Dataset, ...]:
     Dataset("l1b_links_prior", "extract", "The same for bills dated FY23-24 to FY25-26 against the all-years register.", sql=_links_sql(_ALLYEARS, "2023-04-01", "2026-03-31"), role="extract"),
     Dataset("l1c_bills_before_coverage", "extract", "Open creditor bills dated before April 2023 or without a document date: identity only (the register coverage does not reach them).", sql=_L1C_SQL, role="extract"),
     Dataset("l2_till_day", "extract", "The till view per store per day, 1 Apr 2026 to the register report date.", sql=_l2_sql(), role="extract"),
-    Dataset("c1_totals_post", "extract", "The same totals after the extract.", sql=_totals_sql(), role="control_post"),
+    *[Dataset(f"c1_totals_{n}_post", "extract", f"The same {n} totals after the extract.", sql=_one_total(n), role="control_post") for n in SEL_NAMES],
     Dataset("c3_bills_post", "extract", "The same bill counts after the extract.", sql=_bills_sql(), role="control_post"),
     Dataset("c4_register_post", "extract", "The same register report date after the extract.", sql=_register_sql(), role="control_post"),
 )
@@ -1254,12 +1269,6 @@ def configure_entry(as_of: str) -> None:
     ENTRY_META = _entry_meta()
     PACKAGES["entry_pilot_01"] = ENTRY_PILOT_01
     PACKAGE_META["entry_pilot_01"] = ENTRY_META
-
-def _one_total(name: str) -> str:
-    reg, extra, win, key = _sel(name)
-    return (f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
-            f"FROM {reg} r{extra} WHERE {win} AND {key} FETCH FIRST 5 ROWS ONLY")
-
 
 # four separate timings of the source controls (the combined query exceeded the broker time limit once): evidence for where the cost is
 ENTRY_TIMING_PROBE: tuple[Dataset, ...] = tuple(Dataset(f"t_{n}", "extract", f"Totals of the {n} selection alone.", sql=_one_total(n)) for n in ("bank", "creditors_cur", "creditors_old"))

@@ -187,9 +187,11 @@ def finish(tmp_path, name, b, rows, till_rows, expected_status, tweak, statuses)
                                            for r in wins["BEFORE_COVERAGE"]], ["document_code", "sub_ledger_code", "ledger_code", "bill_amount", "document_date"])
     files["l2_till_day"] = (till_rows, ["site_code", "day", "debit", "credit", "cumulative_balance"])
     for pre in ("pre", "post"):
-        files[f"c1_totals_{pre}"] = (c1, ["selection", "entries", "lines", "sum_debit", "sum_credit"])
+        for r1 in c1:
+            files[f"c1_totals_{r1['selection']}_{pre}"] = ([r1], ["selection", "entries", "lines", "sum_debit", "sum_credit"])
         if pre == "pre":
-            files["c2_histogram_pre"] = (c2, ["selection", "lines_per_entry", "entries"])
+            for sel in sels:
+                files[f"c2_histogram_{sel}_pre"] = ([r2 for r2 in c2 if r2["selection"] == sel], ["selection", "lines_per_entry", "entries"])
         files[f"c3_bills_{pre}"] = (c3, list(c3[0].keys()))
         files[f"c4_register_{pre}"] = ([{"register_report_date": AS_OF}], ["register_report_date"])
     if tweak:

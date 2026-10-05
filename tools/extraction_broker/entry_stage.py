@@ -35,11 +35,12 @@ import manifest as mf  # noqa: E402
 ZERO = Decimal(0)
 _NUM = re.compile(r"^-?([0-9]+(\.[0-9]+)?|\.[0-9]+)$")
 _DATE = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$")
+SEL_NAMES = ("creditors_cur", "creditors_old", "bank")   # one source-control query per selection (same names as packages.SEL_NAMES)
 EXPECTED = {
-    "c1_totals_pre": "control_pre", "c2_histogram_pre": "control_pre", "c3_bills_pre": "control_pre", "c4_register_pre": "control_pre",
+    **{f"c1_totals_{n}_pre": "control_pre" for n in SEL_NAMES}, **{f"c2_histogram_{n}_pre": "control_pre" for n in SEL_NAMES}, "c3_bills_pre": "control_pre", "c4_register_pre": "control_pre",
     "h1_lines_creditors_cur": "extract", "h1b_lines_creditors_old": "extract", "h2_lines_bank": "extract",
     "l1a_links_current": "extract", "l1b_links_prior": "extract", "l1c_bills_before_coverage": "extract", "l2_till_day": "extract",
-    "c1_totals_post": "control_post", "c3_bills_post": "control_post", "c4_register_post": "control_post",
+    **{f"c1_totals_{n}_post": "control_post" for n in SEL_NAMES}, "c3_bills_post": "control_post", "c4_register_post": "control_post",
 }
 LINE_DATASETS = {"h1_lines_creditors_cur": "creditors_cur", "h1b_lines_creditors_old": "creditors_old", "h2_lines_bank": "bank"}
 LINE_COLUMNS = ["site_code", "entry_type_short", "entry_type_long", "entry_no", "entry_date", "seq", "glcode", "glname", "glnature", "slcode", "debit", "credit", "release_status", "created_by_site",
@@ -174,7 +175,7 @@ def validate(run_dir: Path, write: bool = True) -> dict:
     report["manifest_sha256"] = mf.sha256_file(run_dir / "manifest.json")
     report["contract"] = contract
     try:
-        for kind in ("c1_totals", "c3_bills", "c4_register"):
+        for kind in [f"c1_totals_{n}" for n in SEL_NAMES] + ["c3_bills", "c4_register"]:
             if _norm(load(run_dir, f"{kind}_pre")) != _norm(load(run_dir, f"{kind}_post")):
                 fail(f"REFRESH RACE: {kind} differs between PRE and POST")
         c3 = load(run_dir, "c3_bills_pre")
@@ -227,20 +228,20 @@ def validate(run_dir: Path, write: bool = True) -> dict:
 
         # E1 / E2: source controls
         rc = Recon()
-        c1 = {r["selection"]: r for r in load(run_dir, "c1_totals_pre")}
+        c1 = {r["selection"]: r for n in SEL_NAMES for r in load(run_dir, f"c1_totals_{n}_pre")}
         for sel in ("creditors_cur", "creditors_old", "bank"):
             ex_lines = [ln for ln in lines.values() if sel in ln["selections"]]
             ex_entries = {(ln["site_code"], ln["entry_type_short"], ln["entry_no"]) for ln in ex_lines}
             s = c1.get(sel)
             if s is None:
-                fail(f"c1_totals_pre has no row for selection {sel}")
+                fail(f"the c1 totals have no row for selection {sel}")
                 continue
             rc.add(f"E1_{sel}", "entries", as_int(s["entries"]), len(ex_entries))
             rc.add(f"E1_{sel}", "lines", as_int(s["lines"]), len(ex_lines))
             rc.add(f"E1_{sel}", "debit", dec(s["sum_debit"], "sum_debit", "c1") or ZERO, sum((ln["debit"] for ln in ex_lines), ZERO))
             rc.add(f"E1_{sel}", "credit", dec(s["sum_credit"], "sum_credit", "c1") or ZERO, sum((ln["credit"] for ln in ex_lines), ZERO))
         src_hist: dict[tuple, int] = {}
-        for r in load(run_dir, "c2_histogram_pre"):
+        for r in (x for n in SEL_NAMES for x in load(run_dir, f"c2_histogram_{n}_pre")):
             src_hist[(r["selection"], as_int(r["lines_per_entry"]))] = as_int(r["entries"])
         for sel, counts in per_sel.items():
             ex_hist = Counter(counts.values())

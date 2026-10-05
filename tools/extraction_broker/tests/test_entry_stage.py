@@ -23,9 +23,9 @@ def test_package_is_registered_guarded_capped_misretail_only_and_pre_post_identi
     caps = {d.name: guard.check(d.sql, d.kind).row_cap for d in ENTRY_PILOT_01}
     assert "h3_lines_till" not in caps and caps["l2_till_day"] == 100_000 and caps["h1_lines_creditors_cur"] == 400_000 and all(c <= 5_000_000 for c in caps.values())
     by = {d.name: d.sql for d in ENTRY_PILOT_01}
-    for k in ("c1_totals", "c3_bills", "c4_register"):
+    for k in ("c1_totals_creditors_cur", "c1_totals_creditors_old", "c1_totals_bank", "c3_bills", "c4_register"):
         assert by[f"{k}_pre"] == by[f"{k}_post"]
-    assert "c2_histogram_post" not in by and "c2_histogram_pre" in by
+    assert not any(n.startswith("c2_histogram") and n.endswith("_post") for n in by) and all(f"c2_histogram_{n}_pre" in by for n in ("creditors_cur", "creditors_old", "bank"))
     for name, sql in by.items():
         assert "SSRK" not in sql.upper() and "PUBLIC" not in sql.upper(), name
         for obj in re.findall(r"(?i)\b(?:from|join)\s+([\w$#\".]+)", sql):
@@ -103,8 +103,8 @@ def test_a_parse_error_names_the_field_and_row_but_never_echoes_the_value(tmp_pa
 
 def test_pre_post_difference_rejects_the_run(tmp_path):
     def tweak(files, b):
-        d, cols = files["c1_totals_post"]
-        files["c1_totals_post"] = ([{**d[0], "lines": "999999"}] + d[1:], cols)
+        d, cols = files["c1_totals_bank_post"]
+        files["c1_totals_bank_post"] = ([{**d[0], "lines": "999999"}] + d[1:], cols)
 
     _, _, rep = run_and_report(tmp_path, tweak=tweak)
     assert rep["verdict"] == "FAILED" and any("REFRESH RACE" in f for f in rep["hard_failures"])
