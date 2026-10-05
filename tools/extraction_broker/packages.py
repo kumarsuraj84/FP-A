@@ -1395,3 +1395,98 @@ SALES_PROBE_02: tuple[Dataset, ...] = (
                  f"FROM {_CO} WHERE bill_date >= DATE '2025-04-01' GROUP BY TRUNC(bill_date, 'MM') FETCH FIRST 100 ROWS ONLY")),
 )
 PACKAGES["sales_probe_02"] = SALES_PROBE_02
+
+
+# ───────────── sales_probe_03a: Phase 0 follow-up, stage A (dictionary views only) ─────────────
+# View text, dependencies and errors for the comparison views and the two INVALID views; columns and statistics of the mapping / store-compare tables the views read.
+# Read-only: nothing is compiled or repaired. Dictionary views restricted to owner MISRETAIL.
+_V03_VIEWS = ("V_SALE_COMPARE_ABV_ASP", "V_SALE_COMPARE_ASP_ABV", "V_SALE_COMPARE_DAY_WISE", "V_SALE_COMPARE_CONSOLIDATED", "V_SALE_BUCKET_WISE", "V_DAYWISE_BILLCUT", "V_SALE_COMPARE_BILL_CUT", "V_DUMMY_REMOVE")
+_V03_TABLES = ("T_NEW_DATE_TWO_YEAR_COMP_20", "T_NEW_DATE_TWO_YEAR_COMP_ADHOC", "T_STORE_COMPARE", "T_STORE_COMPARE_120", "T_CALENDER_DATE_PLAN")
+_V03_ALL = ", ".join(f"'{n}'" for n in _V03_VIEWS + _V03_TABLES)
+_V03_VIEWS_IN = ", ".join(f"'{n}'" for n in _V03_VIEWS)
+
+SALES_PROBE_03A: tuple[Dataset, ...] = (
+    Dataset("v1_status", "metadata", "Status and last DDL time of the comparison views and mapping tables.",
+            sql=f"SELECT object_name, object_type, status, TO_CHAR(created, 'YYYY-MM-DD HH24:MI') AS created, TO_CHAR(last_ddl_time, 'YYYY-MM-DD HH24:MI') AS last_ddl FROM all_objects WHERE {_SCOPE} AND object_name IN ({_V03_ALL}) FETCH FIRST 200 ROWS ONLY"),
+    Dataset("v2_dependencies", "metadata", "What each comparison view reads (all referenced objects).",
+            sql=f"SELECT name, type, referenced_owner, referenced_name, referenced_type FROM all_dependencies WHERE owner = '{OWNER}' AND name IN ({_V03_VIEWS_IN}) ORDER BY name, referenced_name FETCH FIRST 2000 ROWS ONLY"),
+    Dataset("v3_errors", "metadata", "Recorded compile errors of the invalid views (read from the dictionary; nothing is compiled).",
+            sql=f"SELECT name, type, sequence, line, position, attribute, text FROM all_errors WHERE owner = '{OWNER}' AND name IN ({_V03_VIEWS_IN}) ORDER BY name, sequence FETCH FIRST 500 ROWS ONLY"),
+    Dataset("v4_view_text", "metadata", "Text of the comparison and bill-cut views (the date-mapping and bill logic).",
+            sql=f"SELECT view_name, text_length, text FROM all_views WHERE owner = '{OWNER}' AND view_name IN ({_V03_VIEWS_IN}) FETCH FIRST 20 ROWS ONLY"),
+    Dataset("v5_columns", "metadata", "Columns of the mapping and store-compare tables.",
+            sql=f"SELECT table_name, column_name, data_type, data_length, column_id FROM all_tab_columns WHERE {_SCOPE} AND table_name IN ({_V03_ALL}) ORDER BY table_name, column_id FETCH FIRST 2000 ROWS ONLY"),
+    Dataset("v6_stats", "metadata", "Row estimates for the mapping and store-compare tables.",
+            sql=f"SELECT table_name, num_rows, TO_CHAR(last_analyzed, 'YYYY-MM-DD') AS last_analyzed FROM all_tables WHERE {_SCOPE} AND table_name IN ({_V03_ALL}) FETCH FIRST 100 ROWS ONLY"),
+)
+PACKAGES["sales_probe_03a"] = SALES_PROBE_03A
+
+
+# ───────────── sales_probe_03b: Phase 0 follow-up, stage B (dictionary text + small mapping masters) ─────────────
+# Text and dependencies of the views the DAY_WISE / CONSOLIDATED comparison reads and of the dashboard view; the mapping table the ABV_ASP view uses
+# (T_NEW_DATE_TWO_YEAR_COMP_20) and the 120-store comparison list. Reference data only.
+_V03B_VIEWS = ("V_CFO_DASHBOARD_SL_V", "V_COMPARE_TY_LY_LLY_DAY_V1", "V_COMPARE_TY_LY_LLY_CONSO", "V_STORE_WISE_MC_STATUS", "V_COMPARE_TY_LY_LLY_DAY_WISE")
+_V03B_IN = ", ".join(f"'{n}'" for n in _V03B_VIEWS)
+
+SALES_PROBE_03B: tuple[Dataset, ...] = (
+    Dataset("w1_status", "metadata", "Status of the views the comparison and dashboard read.",
+            sql=f"SELECT object_name, object_type, status, TO_CHAR(last_ddl_time, 'YYYY-MM-DD HH24:MI') AS last_ddl FROM all_objects WHERE {_SCOPE} AND object_name IN ({_V03B_IN}) FETCH FIRST 50 ROWS ONLY"),
+    Dataset("w2_dependencies", "metadata", "What those views read.",
+            sql=f"SELECT name, referenced_owner, referenced_name, referenced_type FROM all_dependencies WHERE owner = '{OWNER}' AND name IN ({_V03B_IN}) ORDER BY name, referenced_name FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("w3_view_text", "metadata", "Text of those views (date mapping and the dashboard's grain).",
+            sql=f"SELECT view_name, text_length, text FROM all_views WHERE owner = '{OWNER}' AND view_name IN ({_V03B_IN}) FETCH FIRST 20 ROWS ONLY"),
+    Dataset("w4_map_comp_20", "master", "The date mapping the ABV_ASP view joins on (old date -> new date).",
+            sql=f"SELECT {_DT('old_date', 'old_date')}, {_DT('new_date', 'new_date')}, week_no FROM {_M}.T_NEW_DATE_TWO_YEAR_COMP_20 FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("w5_map_comp_adhoc", "master", "The date mapping the ASP_ABV view joins on.",
+            sql=f"SELECT {_DT('old_date', 'old_date')}, {_DT('new_date', 'new_date')}, week_no FROM {_M}.T_NEW_DATE_TWO_YEAR_COMP_ADHOC FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("w6_store_compare_120", "master", "The 120-store comparison list.",
+            sql=f"SELECT site_code, store_name, state, city_name, year_comparision_2026 FROM {_M}.T_STORE_COMPARE_120 FETCH FIRST 1000 ROWS ONLY"),
+)
+PACKAGES["sales_probe_03b"] = SALES_PROBE_03B
+
+
+# ───────────── sales_probe_03c: Phase 0 follow-up, stage C (POS cube, one day, no customer columns) ─────────────
+# Bill identity and the corrected void filter ('No' / 'Yes'). One business day each: 2026-09-15 (this year) and 2025-09-15 (last year). The cube's customer
+# columns are never named. Bills are counted only through a composite of store + bill number when the bill number is demonstrably present.
+_D26 = "billdate >= DATE '2026-09-15' AND billdate <= DATE '2026-09-15'"
+_D25 = "billdate >= DATE '2025-09-15' AND billdate <= DATE '2025-09-15'"
+
+
+def _day_totals(cond: str) -> str:
+    return (f"SELECT isvoid, COUNT(*) AS row_n, COUNT(billno) AS billno_present, COUNT(DISTINCT billno) AS distinct_billno, "
+            "COUNT(DISTINCT CASE WHEN billno IS NOT NULL THEN sitecode || '|' || billno END) AS distinct_site_bill, MIN(LENGTH(billno)) AS billno_len_min, MAX(LENGTH(billno)) AS billno_len_max, "
+            f"COUNT(CASE WHEN netamt < 0 THEN 1 END) AS negative_net_rows, COUNT(CASE WHEN returnamt <> 0 THEN 1 END) AS return_rows, COUNT(DISTINCT sitecode) AS sites, "
+            f"{_TM9('SUM(netamt)', 'net')}, {_TM9('SUM(taxamt)', 'tax')}, {_TM9('SUM(taxableamt)', 'taxable')}, {_TM9('SUM(billqty)', 'qty')} FROM {_PS} WHERE {cond} GROUP BY isvoid FETCH FIRST 5 ROWS ONLY")
+
+
+SALES_PROBE_03C: tuple[Dataset, ...] = (
+    Dataset("c1_pos_day_totals", "extract", "POS cube, 2026-09-15: bill-number presence and distinctness by void flag.", sql=_day_totals(_D26)),
+    Dataset("c2_pos_day_totals_ly", "extract", "POS cube, 2025-09-15: the same for last year.", sql=_day_totals(_D25)),
+    Dataset("c3_pos_rows_per_bill", "extract", "POS cube, 2026-09-15, non-void: how many cube rows make one (store, bill number): the cube's grain.",
+            sql=(f"SELECT rows_per_bill, COUNT(*) AS bills FROM (SELECT COUNT(*) AS rows_per_bill FROM {_PS} WHERE {_D26} AND isvoid = 'No' AND billno IS NOT NULL GROUP BY sitecode, billno) "
+                 "GROUP BY rows_per_bill ORDER BY rows_per_bill FETCH FIRST 50 ROWS ONLY")),
+    Dataset("c4_pos_store_day", "extract", "POS cube, 2026-09-15, non-void, by store: bills, net, quantity, tax (for store-level reconciliation with the dashboard view).",
+            sql=(f"SELECT TO_CHAR(sitecode) AS site_code, COUNT(DISTINCT CASE WHEN billno IS NOT NULL THEN billno END) AS bills, {_TM9('SUM(netamt)', 'net')}, {_TM9('SUM(billqty)', 'qty')}, {_TM9('SUM(taxamt)', 'tax')} "
+                 f"FROM {_PS} WHERE {_D26} AND isvoid = 'No' GROUP BY sitecode FETCH FIRST 1000 ROWS ONLY")),
+)
+PACKAGES["sales_probe_03c"] = SALES_PROBE_03C
+
+
+# ───────────── sales_probe_03d: one day, the MIS bill-bucket view by store (second MIS bill counter) ─────────────
+SALES_PROBE_03D: tuple[Dataset, ...] = (
+    Dataset("d1_bucket_view_store_day", "extract", "V_SALE_BUCKET_WISE, 2026-09-15, by store: bills (summed over buckets), value, quantity. Compared offline with the dashboard view's COUNT(DISTINCT BILLNO).",
+            sql=(f"SELECT store_name, {_TM9('SUM(bill_count)', 'bills')}, {_TM9('SUM(sale_v)', 'sale_v')}, {_TM9('SUM(sale_q)', 'sale_q')}, COUNT(*) AS bucket_rows, "
+                 f"{_TM9('SUM(CASE WHEN sale_bucket = ' + chr(39) + 'NEGATIVE SALE' + chr(39) + ' THEN bill_count ELSE 0 END)', 'negative_sale_bills')} "
+                 f"FROM {_M}.V_SALE_BUCKET_WISE WHERE billdate >= DATE '2026-09-15' AND billdate <= DATE '2026-09-15' GROUP BY store_name FETCH FIRST 1000 ROWS ONLY")),
+)
+PACKAGES["sales_probe_03d"] = SALES_PROBE_03D
+
+
+# ───────────── sales_probe_03e: who reads each date-mapping table (reverse dependencies, dictionary only) ─────────────
+SALES_PROBE_03E: tuple[Dataset, ...] = (
+    Dataset("r1_readers_of_mapping_tables", "metadata", "Objects that reference each date-mapping or store-compare table.",
+            sql=("SELECT referenced_name, name, type FROM all_dependencies WHERE owner = 'MISRETAIL' AND referenced_owner = 'MISRETAIL' AND referenced_name IN "
+                 "('T_CALENDER_DATE_PLAN', 'T_NEW_DATE_TWO_YEAR_COMP_20', 'T_NEW_DATE_TWO_YEAR_COMP_ADHOC', 'T_NEW_DATE_TWO_YEAR_COMP_FEST', 'T_NEW_DATE_TWO_YEAR_COMP_FESTO', "
+                 "'T_NEW_DATE_HOLI_TY_VS_LY', 'T_NEW_DATE_HOLI_TY_VS_LLY', 'T_STORE_COMPARE_120', 'T_STORE_COMPARE', 'T_WEEK_AUGUST') ORDER BY referenced_name, name FETCH FIRST 2000 ROWS ONLY")),
+)
+PACKAGES["sales_probe_03e"] = SALES_PROBE_03E
