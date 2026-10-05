@@ -54,7 +54,7 @@ const VIEW_STATES: { id: ViewState; label: string }[] = [
 
 type Readiness = "conditional" | "unavailable";
 const READINESS: { metric: string; status: Readiness; note: string }[] = [
-  { metric: "Sales (incl. GST)", status: "conditional", note: "Store-day source reconciles to the POS cube within 0.0013% on checked months; residual cause not yet shown." },
+  { metric: "Sales (incl. GST)", status: "conditional", note: "Dashboard view and POS cube agree within 0.012% in 17 of 19 months checked; April 2026 differs by 5.15% and is unexplained. Not certified." },
   { metric: "Sales ex-GST", status: "conditional", note: "Equals taxable value within ₹100 a month on checked months." },
   { metric: "Units", status: "conditional", note: "Totals agree; not independently reconciled." },
   { metric: "ASP", status: "conditional", note: "Sales ÷ Units, recomputed at every level." },
