@@ -1499,3 +1499,54 @@ SALES_PROBE_03E: tuple[Dataset, ...] = (
                  "'T_NEW_DATE_HOLI_TY_VS_LY', 'T_NEW_DATE_HOLI_TY_VS_LLY', 'T_STORE_COMPARE_120', 'T_STORE_COMPARE', 'T_WEEK_AUGUST') ORDER BY referenced_name, name FETCH FIRST 2000 ROWS ONLY")),
 )
 PACKAGES["sales_probe_03e"] = SALES_PROBE_03E
+
+
+# ───────────── sales_probe_04a: festival views, text and dependencies (dictionary views only, read-only) ─────────────
+_FV = ("V_COMPARE_TY_LY_LLY_FESTIVAL", "V_COMPARE_TY_LY_LLY_FEST_GV", "V_SALE_COMPARISION_FESTIVAL", "V_COMPARE_HOLI", "V_COMPARE_HOLI_2019", "V_PDC_SALE_COMPARE_PART_1",
+       "V_PDC_SALE_COMPARE_PART_2", "V_WEEKLY_SL_FESTIVAL_WISE", "V_FOOTFALL_HOLI_COMPARE", "V_COMPARE_TY_LY_LLY_DAY_V1", "V_COMPARE_TY_LY_LLY_CONSO")
+_FV_IN = ", ".join(f"'{n}'" for n in _FV)
+
+SALES_PROBE_04A: tuple[Dataset, ...] = (
+    Dataset("f1_status", "metadata", "Status and last DDL of the festival and comparison views.",
+            sql=f"SELECT object_name, object_type, status, TO_CHAR(created, 'YYYY-MM-DD HH24:MI') AS created, TO_CHAR(last_ddl_time, 'YYYY-MM-DD HH24:MI') AS last_ddl FROM all_objects WHERE {_SCOPE} AND object_name IN ({_FV_IN}) FETCH FIRST 100 ROWS ONLY"),
+    Dataset("f2_dependencies", "metadata", "What those views read.",
+            sql=f"SELECT name, referenced_owner, referenced_name, referenced_type FROM all_dependencies WHERE owner = '{OWNER}' AND name IN ({_FV_IN}) ORDER BY name, referenced_name FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("f3_view_text", "metadata", "Text of those views: festival windows, store applicability, date mapping.",
+            sql=f"SELECT view_name, text_length, text FROM all_views WHERE owner = '{OWNER}' AND view_name IN ({_FV_IN}) FETCH FIRST 40 ROWS ONLY"),
+)
+PACKAGES["sales_probe_04a"] = SALES_PROBE_04A
+
+
+# ───────────── sales_probe_04b: certification stage 2, POS cube only (MISRETAIL-native, no SSRK-backed view) ─────────────
+# H-checks: one-day totals at chosen dates, to find how far back the cube holds usable store-day sales.
+# M-check: the cube side of the store-day reconciliation for 1 to 31 Aug 2026. Customer columns are never named.
+_H_DAYS = (("h1_2022_diwali", "2022-10-24"), ("h2_2023_diwali", "2023-11-12"), ("h3_2024_diwali", "2024-11-01"), ("h4_2025_holi", "2025-03-14"), ("h5_2025_eid_fitr", "2025-03-31"))
+
+
+def _cube_day(d: str) -> str:
+    return (f"SELECT isvoid, COUNT(*) AS row_n, COUNT(DISTINCT sitecode) AS sites, {_TM9('SUM(netamt)', 'net')}, {_TM9('SUM(taxamt)', 'tax')}, {_TM9('SUM(taxableamt)', 'taxable')}, {_TM9('SUM(billqty)', 'qty')}, "
+            f"COUNT(CASE WHEN netamt < 0 THEN 1 END) AS negative_rows FROM {_PS} WHERE billdate >= DATE '{d}' AND billdate <= DATE '{d}' GROUP BY isvoid FETCH FIRST 5 ROWS ONLY")
+
+
+SALES_PROBE_04B: tuple[Dataset, ...] = tuple(Dataset(n, "extract", f"POS cube, {d}: rows, stores, net, tax, taxable, quantity by void flag (history reach).", sql=_cube_day(d)) for n, d in _H_DAYS) + (
+    Dataset("m1_cube_store_day_aug26", "extract", "POS cube, 1 to 31 Aug 2026: store-day totals by void flag, for the cube side of the store-day reconciliation.",
+            sql=(f"SELECT TO_CHAR(sitecode) AS site_code, {_DT('billdate', 'bill_date')}, isvoid, COUNT(*) AS row_n, {_TM9('SUM(netamt)', 'net')}, {_TM9('SUM(taxamt)', 'tax')}, {_TM9('SUM(taxableamt)', 'taxable')}, "
+                 f"{_TM9('SUM(billqty)', 'qty')}, {_TM9('SUM(returnamt)', 'returns')}, {_TM9('SUM(saleamt)', 'sale')}, {_TM9('SUM(promoamt)', 'promo')}, {_TM9('SUM(grossamt)', 'gross')}, {_TM9('SUM(totaldiscountamt)', 'discount')} "
+                 f"FROM {_PS} WHERE billdate >= DATE '2026-08-01' AND billdate <= DATE '2026-08-31' GROUP BY sitecode, billdate, isvoid FETCH FIRST 20000 ROWS ONLY")),
+)
+PACKAGES["sales_probe_04b"] = SALES_PROBE_04B
+
+
+# ───────────── sales_probe_04c: certification stage 2, source freshness of the POS cube (which instance served a period, and when it was last refreshed) ─────────────
+_FRESH_AUG = (f"SELECT cube_code, cubename, {_DT('MAX(report_date)', 'report_date')}, {_DT('MIN(start_date)', 'window_start')}, {_DT('MAX(end_date)', 'window_end')}, COUNT(*) AS row_n, "
+              f"{_DT('MIN(billdate)', 'first_bill_date')}, {_DT('MAX(billdate)', 'last_bill_date')} FROM {_PS} WHERE billdate >= DATE '2026-08-01' AND billdate <= DATE '2026-08-31' GROUP BY cube_code, cubename FETCH FIRST 20 ROWS ONLY")
+_FRESH_HIST = (f"SELECT cube_code, cubename, {_DT('MAX(report_date)', 'report_date')}, {_DT('MIN(start_date)', 'window_start')}, {_DT('MAX(end_date)', 'window_end')}, COUNT(*) AS row_n, "
+               f"{_DT('MIN(billdate)', 'first_bill_date')}, {_DT('MAX(billdate)', 'last_bill_date')} FROM {_PS} WHERE (billdate >= DATE '2022-10-24' AND billdate <= DATE '2022-10-24') "
+               "OR (billdate >= DATE '2023-11-12' AND billdate <= DATE '2023-11-12') OR (billdate >= DATE '2024-11-01' AND billdate <= DATE '2024-11-01') "
+               "OR (billdate >= DATE '2025-03-14' AND billdate <= DATE '2025-03-14') OR (billdate >= DATE '2025-03-31' AND billdate <= DATE '2025-03-31') GROUP BY cube_code, cubename FETCH FIRST 20 ROWS ONLY")
+
+SALES_PROBE_04C: tuple[Dataset, ...] = (
+    Dataset("q1_cube_instance_aug26", "extract", "POS cube instances that served 1 to 31 Aug 2026: report date (freshness), window and rows.", sql=_FRESH_AUG),
+    Dataset("q2_cube_instance_history_days", "extract", "POS cube instances that served the five history test dates: report date, window and rows.", sql=_FRESH_HIST),
+)
+PACKAGES["sales_probe_04c"] = SALES_PROBE_04C
