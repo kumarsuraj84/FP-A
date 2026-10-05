@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Banknote, ChevronRight, CircleDot, Landmark, LayoutDashboard, Lock, PiggyBank, Scale, Store, Truck, Wallet } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Banknote, ChevronRight, CircleDot, Landmark, LayoutDashboard, Lock, PiggyBank, RefreshCw, Scale, Store, Truck, Wallet } from "lucide-react";
 import { useCfo } from "@/context/CfoContext";
 import { searchFromState } from "@/context/drillUrl";
 import { CREDITORS_ORIGIN } from "@/lib/creditorNodes";
@@ -87,24 +88,52 @@ export function DemoBanner() {
   );
 }
 
-/** Real-data pages state their OWN as-of date (from the API), not the demo shell's freshness. */
-function useRealFreshness(): { label: string; state: string } | null {
+/** Real-data pages state their OWN as-of date and state (from the API), not the demo shell's freshness or controls. */
+interface RealMeta { asOf: string | null; state: string; stateLabel: string; updated: string | null; scope: "cash" | "cred"; status: "ok" | "error" | "pending" }
+const STATE_TEXT: Record<string, string> = { verified_candidate: "Verified candidate · not live", live: "Live", superseded: "Superseded", withdrawn: "Withdrawn" };
+
+function useRealMeta(): RealMeta | null {
   const path = useRouterState({ select: (r) => r.location.pathname });
   const cash = useCashRun();
   const cred = useLiveRun();
-  const run = path.startsWith("/cash") ? cash : path.startsWith("/creditors") ? cred : null;
-  if (!run) return null;
-  if (run.isError) return { label: "Real data unavailable", state: "error" };
-  if (!run.data) return { label: "Checking real data…", state: "pending" };
-  const stamp = "source_updated_at" in run.data && run.data.source_updated_at ? ` · extracted ${new Date(run.data.source_updated_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : "";
-  return { label: `Real data as of ${fmtDate(run.data.as_of_date)}${stamp}`, state: run.data.data_state };
+  const scope = path.startsWith("/cash") ? "cash" : path.startsWith("/creditors") ? "cred" : null;
+  if (!scope) return null;
+  const run = scope === "cash" ? cash : cred;
+  if (run.isError) return { asOf: null, state: "error", stateLabel: "Real data unavailable", updated: null, scope, status: "error" };
+  if (!run.data) return { asOf: null, state: "pending", stateLabel: "Checking…", updated: null, scope, status: "pending" };
+  const d = run.data as { as_of_date: string; data_state: string; source_updated_at?: string };
+  const updated = d.source_updated_at ? new Date(d.source_updated_at).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : null;
+  return { asOf: d.as_of_date, state: d.data_state, stateLabel: STATE_TEXT[d.data_state] ?? d.data_state, updated, scope, status: "ok" };
+}
+
+function RealControls({ meta }: { meta: RealMeta }) {
+  const qc = useQueryClient();
+  const chip = "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium";
+  return (
+    <>
+      <div className="flex flex-1 flex-wrap items-center gap-2" data-testid="real-controls">
+        <div data-testid="real-asof" className={cn(chip, "bg-secondary text-secondary-foreground")}>
+          <span className="eyebrow !text-[10px]">As of</span>
+          <span className="font-semibold">{meta.asOf ? fmtDate(meta.asOf) : "—"}</span>
+        </div>
+        <div data-testid="real-state" data-state={meta.state} className={cn(chip, meta.state === "live" ? "bg-[oklch(0.96_0.04_155)] text-[oklch(0.4_0.12_155)]" : "bg-[oklch(0.985_0.03_90)] text-[oklch(0.45_0.09_75)]")}>
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+          {meta.stateLabel}
+        </div>
+        <div data-testid="real-updated" className="text-[11px] text-muted-foreground">{meta.updated ? `Source updated ${meta.updated}` : "Source timestamp not provided"}</div>
+        <button data-testid="real-refresh" onClick={() => qc.invalidateQueries({ queryKey: [meta.scope] })} className="press inline-flex items-center gap-1 rounded border bg-card px-2 py-1 text-[11px] font-semibold hover:bg-muted">
+          <RefreshCw className="h-3 w-3" /> Refresh
+        </button>
+      </div>
+    </>
+  );
 }
 
 export function TopBar() {
   const { state, dispatch } = useCfo();
   const fresh = useFreshness();
-  const real = useRealFreshness();
-  const f = real ? { label: real.label, stale: real.state === "error" || real.state === "pending" } : fresh.data;
+  const real = useRealMeta();
+  const f = fresh.data;
   return (
     <header className="flex h-12 items-center gap-4 border-b bg-card px-4">
       <Link to="/" onClick={() => dispatch({ type: "home" })} className="flex items-center gap-2.5" aria-label="CityKart CFO OS home">
@@ -115,19 +144,23 @@ export function TopBar() {
         </span>
       </Link>
       <div className="mx-1 h-6 w-px bg-border" />
+      {real ? (
+        <RealControls meta={real} />
+      ) : (
       <div className="flex flex-1 flex-wrap items-center gap-3">
         <Select<PeriodId> label="Period" testId="select-period" value={state.period} options={PERIOD_ORDER.map((id) => ({ id, label: PERIODS[id].label }))} onChange={(v) => dispatch({ type: "setPeriod", value: v })} />
         <Select<ComparisonId> label="Compare" testId="select-comparison" value={state.comparison} options={COMPARISON_ORDER.map((id) => ({ id, label: COMPARISONS[id].label }))} onChange={(v) => dispatch({ type: "setComparison", value: v })} />
         <Select<ScenarioId> label="Scenario" testId="select-scenario" value={state.scenario} options={SCENARIO_ORDER.map((id) => ({ id, label: SCENARIOS[id].label }))} onChange={(v) => dispatch({ type: "setScenario", value: v })} />
       </div>
-      <div
+      )}
+      {!real && (      <div
         data-testid="freshness"
-        data-real={real ? real.state : undefined}
         className={cn("flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium", f?.stale ? "bg-[oklch(0.96_0.05_85)] text-[oklch(0.42_0.1_75)]" : "bg-[oklch(0.96_0.03_155)] text-[oklch(0.38_0.1_155)]")}
       >
         <span className={cn("h-1.5 w-1.5 rounded-full", f?.stale ? "bg-[oklch(0.7_0.15_75)]" : "bg-[oklch(0.62_0.16_155)]")} />
         {f?.label ?? "Checking freshness…"}
       </div>
+      )}
       <div className="flex h-7 w-7 items-center justify-center rounded-full bg-secondary text-[11px] font-bold text-secondary-foreground" title="CFO">
         CF
       </div>

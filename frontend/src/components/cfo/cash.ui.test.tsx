@@ -67,18 +67,36 @@ describe("Liquidity & Working Capital Control: the verified strip", () => {
   });
 });
 
-describe("Liquidity & Working Capital Control: freshness", () => {
-  it("the shell shows the real run's own as-of date, not the demo freshness", async () => {
+describe("Real pages: header controls", () => {
+  it("shows only As of, the data state, the source timestamp and Refresh; Period / Compare / Scenario are hidden", async () => {
     mount(q("/cash"));
-    await waitFor(() => expect(screen.getByTestId("freshness")).toHaveTextContent(/Real data as of 04 Oct 2026/), T);
-    expect(screen.getByTestId("freshness")).not.toHaveTextContent(/03 Oct 2026, 06:00/);
-    expect(screen.getByTestId("freshness")).toHaveAttribute("data-real", "verified_candidate");
+    await waitFor(() => expect(screen.getByTestId("real-asof")).toHaveTextContent("04 Oct 2026"), T);
+    expect(screen.getByTestId("real-state")).toHaveTextContent("Verified candidate · not live");
+    expect(screen.getByTestId("real-updated")).toHaveTextContent(/Source updated .*2026/);
+    expect(screen.getByTestId("real-refresh")).toBeInTheDocument();
+    for (const id of ["select-period", "select-comparison", "select-scenario", "freshness"]) expect(screen.queryByTestId(id)).toBeNull();
+    expect(screen.getByTestId("real-controls")).not.toHaveTextContent(/03 Oct 2026, 06:00/);
   });
 
-  it("demo pages keep their demo freshness", async () => {
+  it("the Creditors page has the same controls", async () => {
+    mount(q("/creditors"));
+    await waitFor(() => expect(screen.getByTestId("real-asof")).toHaveTextContent("04 Oct 2026"), T);
+    expect(screen.queryByTestId("select-scenario")).toBeNull();
+  });
+
+  it("Refresh re-reads the real data", async () => {
+    mount(q("/cash"));
+    await screen.findByTestId("cash-strip", {}, T);
+    const before = calls.filter((c) => c.includes("/summary")).length;
+    fireEvent.click(screen.getByTestId("real-refresh"));
+    await waitFor(() => expect(calls.filter((c) => c.includes("/summary")).length).toBeGreaterThan(before), T);
+  });
+
+  it("demo pages keep Period / Compare / Scenario and the demo freshness", async () => {
     mount(q("/"));
     await waitFor(() => expect(screen.getByTestId("freshness")).toHaveTextContent(/Data as of/), T);
-    expect(screen.getByTestId("freshness")).not.toHaveAttribute("data-real");
+    for (const id of ["select-period", "select-comparison", "select-scenario"]) expect(screen.getByTestId(id)).toBeInTheDocument();
+    expect(screen.queryByTestId("real-controls")).toBeNull();
   });
 });
 
