@@ -1118,31 +1118,32 @@ _LINE_COLS = (
 _KEY = "(r.sitecode, r.entry_type_short, r.entry_no)"
 
 
-def _sel(name: str) -> tuple[str, str, str]:
-    """-> (register table, date window predicate on r, key predicate): the entries of one selection."""
+def _sel(name: str) -> tuple[str, str, str, str]:
+    """-> (register table, extra FROM item, date window predicate on r, key predicate): the entries of one selection.
+    The two selections that pick entries by LEDGER (bank, till) use a join to a DISTINCT inline view, not a tuple IN: the IN form ran as a per-row filter and exceeded the broker time limit."""
     cur, old = _ENTRY_SITE, _ALLYEARS
     if name == "creditors_cur":
         win = "r.entry_date >= DATE '2026-04-01'"
         sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
                f"AND r2.entry_glcode IN ({_CRED_IN}) AND r2.entry_date >= DATE '2026-04-01' AND o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 AND o.document_date >= DATE '2026-04-01'")
-        return cur, win, f"{_KEY} IN ({sub})"
+        return cur, "", win, f"{_KEY} IN ({sub})"
     if name == "creditors_old":
         win = "r.entry_date >= DATE '2023-04-01' AND r.entry_date <= DATE '2026-03-31'"
         sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {old} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
                f"AND r2.entry_glcode IN ({_CRED_IN}) AND r2.entry_date >= DATE '2023-04-01' AND r2.entry_date <= DATE '2026-03-31' AND o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 "
                "AND o.document_date >= DATE '2023-04-01' AND o.document_date <= DATE '2026-03-31'")
-        return old, win, f"{_KEY} IN ({sub})"
+        return old, "", win, f"{_KEY} IN ({sub})"
     if name == "bank":
         win = f"r.entry_date >= DATE '2026-04-01' AND r.entry_date <= {_CUT}"
         # a join to the ledger master, not a nested IN: the nested form could not be unnested and ran past the broker time limit
-        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2, {_FINGL} g2 WHERE g2.glcode = r2.entry_glcode AND g2.nature IN ('Bank', 'Cash') "
+        sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n FROM {cur} r2, {_FINGL} g2 WHERE g2.glcode = r2.entry_glcode AND g2.nature IN ('Bank', 'Cash') "
                f"AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_CUT}")
-        return cur, win, f"{_KEY} IN ({sub})"
+        return cur, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n"
     if name == "till":
         win = f"r.entry_date >= DATE '2026-04-01' AND r.entry_date <= {_CUT}"
-        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2, {_FINGL} g2 WHERE g2.glcode = r2.entry_glcode AND g2.glname = 'Cash Drawer' "
+        sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n FROM {cur} r2, {_FINGL} g2 WHERE g2.glcode = r2.entry_glcode AND g2.glname = 'Cash Drawer' "
                f"AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_CUT}")
-        return cur, win, f"{_KEY} IN ({sub})"
+        return cur, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n"
     raise KeyError(name)
 
 
@@ -1151,24 +1152,24 @@ def _cte() -> str:
 
 
 def _lines_sql(name: str, cap: int) -> str:
-    reg, win, key = _sel(name)
-    return (_cte() + f"SELECT {_LINE_COLS} FROM {reg} r, {OWNER}.\"MAS$FINGL\" g WHERE g.glcode = r.entry_glcode AND {win} AND {key} FETCH FIRST {cap} ROWS ONLY")
+    reg, extra, win, key = _sel(name)
+    return (_cte() + f"SELECT {_LINE_COLS} FROM {reg} r{extra}, {OWNER}.\"MAS$FINGL\" g WHERE g.glcode = r.entry_glcode AND {win} AND {key} FETCH FIRST {cap} ROWS ONLY")
 
 
 def _totals_sql() -> str:
     parts = []
     for name in ("creditors_cur", "creditors_old", "bank", "till"):
-        reg, win, key = _sel(name)
+        reg, extra, win, key = _sel(name)
         parts.append(f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
-                     f"FROM {reg} r WHERE {win} AND {key}")
+                     f"FROM {reg} r{extra} WHERE {win} AND {key}")
     return _cte() + " UNION ALL ".join(parts) + " FETCH FIRST 10 ROWS ONLY"
 
 
 def _histogram_sql() -> str:
     parts = []
     for name in ("creditors_cur", "creditors_old", "bank", "till"):
-        reg, win, key = _sel(name)
-        parts.append(f"SELECT '{name}' AS selection, lines_per_entry, COUNT(*) AS entries FROM (SELECT COUNT(*) AS lines_per_entry FROM {reg} r WHERE {win} AND {key} GROUP BY r.sitecode, r.entry_type_short, r.entry_no) GROUP BY lines_per_entry")
+        reg, extra, win, key = _sel(name)
+        parts.append(f"SELECT '{name}' AS selection, lines_per_entry, COUNT(*) AS entries FROM (SELECT COUNT(*) AS lines_per_entry FROM {reg} r{extra} WHERE {win} AND {key} GROUP BY r.sitecode, r.entry_type_short, r.entry_no) GROUP BY lines_per_entry")
     return _cte() + " UNION ALL ".join(parts) + " ORDER BY selection, lines_per_entry FETCH FIRST 2000 ROWS ONLY"
 
 
@@ -1220,9 +1221,9 @@ ENTRY_PILOT_01: tuple[Dataset, ...] = (
 ENTRY_META = {"halt_on_failure": True, "contract": {**ENTRY_RULES, "caps": {"h1_lines_creditors_cur": 400_000, "h1b_lines_creditors_old": 400_000, "h2_lines_bank": 200_000, "h3_lines_till": 1_000_000, "l2_till_day": 100_000}}}
 
 def _one_total(name: str) -> str:
-    reg, win, key = _sel(name)
+    reg, extra, win, key = _sel(name)
     return (f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
-            f"FROM {reg} r WHERE {win} AND {key} FETCH FIRST 5 ROWS ONLY")
+            f"FROM {reg} r{extra} WHERE {win} AND {key} FETCH FIRST 5 ROWS ONLY")
 
 
 # four separate timings of the source controls (the combined query exceeded the broker time limit once): evidence for where the cost is
