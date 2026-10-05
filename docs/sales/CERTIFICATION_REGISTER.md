@@ -11,6 +11,10 @@ Started 5 Oct 2026 (IST). Revision 2 (evening). One entry per claim in `SOURCE_C
 | `sales_probe_04a` | `run_20261005_030` | dictionary views only | 6.2, 6.1, 6.1 | 2684d02b77, 9540c5708d, 03a97d33b4 |
 | `sales_probe_04b` | `run_20261005_031` | POS cube only (MISRETAIL) | 26.7, 26.3, 42.5, 62.9, 42.6; 50.6 | d946fc604b, cd2650730e, 5a3bf62e8c, cf62f70544, 796333f977; b5da41706c |
 | `sales_probe_04c` | `run_20261005_032` | POS cube only, freshness | 71.1, 58.7 | 5797db5c9d, 4ff76fa1c5 |
+| `sales_probe_05a` | `run_20261005_036` | POS summary instance tables directly (MISRETAIL, no SSRK dependency) | 6.5, 10.1, 10.1 | df7734b7f3, 5166241ee6, 7945b075f3 |
+| `sales_probe_05c` | `run_20261005_039` | POS summary instance tables directly (MISRETAIL, no SSRK dependency) | 10.5, 6.1, 6.1 | f7b4213187, 580647336f, 853f9c3085 |
+| `sales_probe_05e` | `run_20261005_040` | POS summary instance tables directly (MISRETAIL, no SSRK dependency) | 6.2, 6.1 | af60606364, 5fab6148ec |
+| `sales_probe_05d` | `run_20261005_041` | POS summary instance tables directly (MISRETAIL, no SSRK dependency) | 6.5, 6.1 | a9d28cc3e9, f88242aec2 |
 
 Exact SQL and literal parameters are in `tools/extraction_broker/packages.py` under the same package names; results are in the git-ignored inbox. Earlier probes are in `PHASE0_PROBE_LOG.md`.
 
@@ -81,38 +85,62 @@ Known facts:
 
 Opening, closure and trading-day eligibility need **operational evidence** (an opening and closure register or a store-status history with dates). Until then eligibility rules use the evidence fields only as flags and show "unverified".
 
-## 6. Formula trace: gross, discount, tax
+## 6. Formula trace: gross, discount, extra tax, net (probes 05c and 05e, cube instances read directly)
 
-Source columns of `CUBE$POSBILLSUMM` (names from the dictionary): `MRPAMT`, `BASICAMT`, `SALEAMT`, `RETURNAMT`, `PROMOAMT`, `GROSSAMT`, `ITEMDISCOUNTAMT`, `BILLDISCOUNTAMT`, `LPDISCOUNTAMT`, `TOTALDISCOUNTAMT`, `NETAMT`, `TAXABLEAMT`, `TAXAMT`, `EXTRATAXAMT`, `TAXPERCENT`, `BILLQTY`. The cube view is a union of year instances (dictionary). The dictionary's owner-confirmed rules: Gross Sales = `NETAMT` = MRP − discount, tax-inclusive; `DIS_V = PROMOAMT + DISCOUNTAMT`; validation identity **`MRPAMT − SL_V = DIS_V`**, with the note that a gap "flags a data or tax-handling issue".
+Columns of `CUBE$POSBILLSUMM` (dictionary names). The dictionary's owner-confirmed rules: Gross Sales = `NETAMT` = MRP − discount, tax-inclusive; `DIS_V = PROMOAMT + DISCOUNTAMT`; validation identity `MRPAMT − SL_V = DIS_V`, with the note that a gap "flags a data or tax-handling issue". All recalculations below use **one instance** (809 for August; 196 and 809 separately for April), non-void rows, and the columns exactly as stored. **No formula was changed to force agreement.**
 
-What the data already collected shows (non-void, all in rupees; no transformation was changed to force a fit):
+**August 2026, instance 809, 6,046 store-days.** Signed total / total absolute / maximum / store-days with any difference:
 
-| Step | Result |
-|---|---|
-| `SALEAMT + RETURNAMT = BASICAMT` | **Exact** every month (returns are negative) |
-| `BASICAMT − PROMOAMT = GROSSAMT` | Within ₹0.01 to ₹0.12 a month in May–Oct 2026; **April 2026 is off by −₹8,214.84** |
-| `GROSSAMT − TOTALDISCOUNTAMT = NETAMT` | **Does not hold**: `NETAMT` is higher, every month, store-day sign always the same |
-| The dictionary's own identity `MRPAMT − NETAMT = PROMOAMT + DISCOUNT` | **Fails by the same amount** as the line above (Sep 2026: −₹37,905.52 against −₹37,889.55) |
-| `TAXABLEAMT + TAXAMT = NETAMT` | Holds except as listed in section 7 |
+| Identity | Signed | Total absolute | Max | Store-days with a difference | Status |
+|---|---|---|---|---|---|
+| `SALEAMT + RETURNAMT = BASICAMT` | 0.00 | 0.00 | 0.00 | 0 | Exact |
+| `BASICAMT − PROMOAMT = GROSSAMT` | 0.01 | 0.01 | 0.01 (store 314, 26 Aug) | 1 | Rounding candidate |
+| `ITEMDISCOUNTAMT + BILLDISCOUNTAMT + LPDISCOUNTAMT = TOTALDISCOUNTAMT` | 0.00 | 0.00 | 0.00 | 0 | Exact: TOTALDISCOUNTAMT is the sum of the three components |
+| `GROSSAMT − TOTALDISCOUNTAMT = NETAMT` (the earlier identity) | −148,407.27 | 148,407.93 | −778.68 (store 407, 11 Aug) | 2,288 | **Does not hold** |
+| **`GROSSAMT − TOTALDISCOUNTAMT + EXTRATAXAMT = NETAMT`** | **0.59** | **0.59** | **0.03** | **38** | **Holds to rounding**: 6,046 of 6,046 within ₹1 (diagnostic) |
+| `MRPAMT − NETAMT = PROMOAMT + TOTALDISCOUNTAMT` (the dictionary's identity) | −148,155.26 | 148,265.78 | −778.68 | 2,292 | Fails; equals the extra tax less ₹252 (`MRPAMT − BASICAMT` = ₹252.00) |
+| `TAXABLEAMT + TAXAMT = NETAMT` | 1,107.06 | 1,107.06 | 899.00 (store 353, 22 Aug) | 6 | Fails on six store-days (section 7) |
+| `TAXABLEAMT + TAXAMT + EXTRATAXAMT = NETAMT` | 149,514.92 | 149,514.92 | 927.35 | 2,270 | Fails: `EXTRATAXAMT` is **not** an addition to taxable + tax |
 
-**Discount residual R = GROSSAMT − DISCOUNT − NETAMT, by month** (signed; negative = net is higher): Apr 2026 −₹683,953; May −₹540,363; Jun −₹360,138; Jul −₹340,154; Aug −₹148,407; Sep −₹37,890; Oct (partial) −₹6,318. The residual is **not stable: it falls steadily over the months**, from 2.17% of the discount in April to 0.16% in October.
+**Finding: the "discount residual" is `EXTRATAXAMT`.** For August the sum of `EXTRATAXAMT` is ₹148,407.86 and the residual it explains is ₹148,407.27; the remaining ₹0.59 is spread over 38 store-days at no more than ₹0.03 each. On every store-day where the residual is non-zero, `EXTRATAXAMT` is non-zero (2,268 of 2,268 negative residuals; 20 positive ones are rounding), and there are no negative `EXTRATAXAMT` values. By tax slab (non-void, August): the extra tax sits **only in the 18% GST slab** (₹148,407.86); the 0%, 5% and 12% slabs carry none. So `NETAMT` includes it, and `taxable + tax` already equals `NETAMT` (the extra tax is inside the taxable/tax split, not on top).
 
-**August 2026, store-day level (6,046 store-days):** R is negative on 2,268, zero on 3,758 and positive on 20. It is **zero on every one of the 7 store-days with no promotion**, and it appears on days both with and without returns (2,249 of 5,959 days with returns, 39 of 87 without), so it is not explained by returns alone. Correlation of |R| with the discount is weak (0.26) and with returns weaker (0.12). Median R is 2.3% of that store-day's discount, 90th percentile 11.3%, maximum 495%.
+**What this settles and what it does not.** Numerically, `NETAMT = GROSSAMT − TOTALDISCOUNTAMT + EXTRATAXAMT` for August 2026 in instance 809. That explains why the discount looked over-stated. It does **not** by itself establish what `EXTRATAXAMT` means in business terms (the name and the 18%-only pattern suggest a tax adjustment on discounted prices, but that is an inference); the owner's definition is still needed. It also does not prove the identity for other months.
 
-**Reading (hypothesis, not a finding):** the discount column appears to contain amounts that did not reduce the net value, or the net is adjusted later. The falling pattern suggests the difference is linked to something that changes over time (for example later adjustments or a change in how discounts are recorded) rather than to isolated bad rows. Hypotheses to test, not conclusions: `TOTALDISCOUNTAMT` double-counts part of `PROMOAMT`; a discount component is excluded from `NETAMT`; the cube is rebuilt from different snapshots of the item and bill tables. **What local analysis cannot settle:** the component columns (`ITEMDISCOUNTAMT`, `BILLDISCOUNTAMT`, `LPDISCOUNTAMT`, `EXTRATAXAMT`), null counts per column, and the instance each row came from were not collected.
+**April 2026 (probe 05e), per instance, no union:**
 
-## 7. Tax identity exceptions (claim S3): not certified
+| Identity | Instance 196 (1–3 Apr, 117,389 rows) | Instance 809 (30 days, 2,108,769 rows) |
+|---|---|---|
+| `SALE + RETURNS = BASIC` | 0.00 | 0.00 |
+| `BASIC − PROMO = GROSS` | −300.54 | −7,914.30 |
+| `ITEM + BILL + LP = TOTALDISC` | 0.00 | 0.00 |
+| `GROSS − TOTALDISC − NET` | −32,628.35 (extra tax 27,908.83) | −651,324.80 (extra tax 615,124.74) |
+| `GROSS − TOTALDISC + EXTRATAX − NET` | **−4,719.52** | **−36,200.06** |
+| `TAXABLE + TAX − NET` | 0.00 | 0.18 |
 
-Six store-days of 6,046 (August 2026):
+In April the extra tax explains 94% of the residual in instance 809 but **₹36,200.06 remains unexplained** (0.0026% of April's net), and the gross chain is off by ₹7,914.30. The earlier "April gross identity off by ₹8,214.84" was the union of both instances. So the extra-tax identity is verified for August only; April has an open remainder. May to July were not recomputed.
 
-| Store | Day | Difference (taxable + tax − net) | Net | Effective tax rate that day |
-|---|---|---|---|---|
-| 353 | 22 Aug | **₹899.00** | ₹166,826.82 | 6.26% |
-| 353 | 6 Aug | **₹99.00** | ₹156,825.60 | 6.31% |
-| 353 | 27 Aug | **₹109.00** | ₹384,845.20 | 5.65% |
-| 266 | 2, 15, 26 Aug | ₹0.02 each | ₹364,919–₹503,617 | 5.96–6.40% |
+**Null treatment (probe 05c, instance 809, August).** Of 2,443,910 non-void rows, the only column with NULLs is `LPDISCOUNTAMT`: NULL on 2,378,536 rows (97.3%), and its non-null values sum to 0. On 75 store-days every `LPDISCOUNTAMT` is NULL, so the store-day sum is NULL; the recalculation treats it as 0 and reports that count. All other amount columns are non-null on every non-void row. The 114 void rows have NULL `LPDISCOUNTAMT` on all rows.
 
-Signed total ₹1,107.06, total absolute ₹1,107.06, maximum ₹899.00. Store 353's three differences are **whole rupees**, which fits a fixed-amount item such as an extra charge or manual adjustment rather than a tax calculation, but this is unproven (`EXTRATAXAMT` was not collected). The store 266 differences are rounding candidates. Effective tax rates across store-days range from 5.04% to 17.94% with a median of 6.16%; the wide upper range is itself a flag to explain (a store-day with unusual tax mix or an adjustment). **Not certified.**
+**Terminology.** The cube's `GROSSAMT` is basic value after returns and promotion, **not** the dictionary's Gross Sales (`NETAMT`).
+
+**Verdict S4:** `SALE + RETURNS = BASIC` exact; `BASIC − PROMO = GROSS` fits to rounding in August; `TOTALDISC` is the sum of its components; **the net identity holds to rounding in August 2026 when `EXTRATAXAMT` is included**. Not certified for other months; April 2026 leaves ₹36,200.06 open; the business meaning of `EXTRATAXAMT` needs the owner.
+
+## 7. Tax identity exceptions (claim S3), August 2026
+
+Six store-days of 6,046 (instance 809, non-void):
+
+| Store | Day | Difference (taxable + tax − net) | Where it sits |
+|---|---|---|---|
+| 353 | 22 Aug | **₹899.00** | GST 5% slab rows only; the 0%, 12% and 18% slabs that day reconcile to 0.00 |
+| 353 | 6 Aug | **₹99.00** | GST 5% slab rows only |
+| 353 | 27 Aug | **₹109.00** | GST 5% slab rows only |
+| 266 | 2, 15, 26 Aug | ₹0.02 each | rounding candidates |
+
+Store 353's differences are **whole rupees confined to its 5% slab**, on three days out of 31, and `EXTRATAXAMT` is zero in that slab, so the extra tax does not explain them. They are not tax-calculation rounding (too large, and exact rupees). Possible sources, none established: a bill-level round-off or manual adjustment carried in net but not in the taxable/tax split, or a charge posted to the wrong slab. Telling these apart needs bill-level data, which this cube does not hold. Store 353 also shows a constant ₹28.35 of extra tax each day in the 18% slab, which is unrelated.
+Month totals by slab: 5% slab ₹1,107.00 (all of it store 353), 18% slab ₹0.06 (the store 266 rounding), the other slabs 0.00.
+Effective tax rates across store-days range from 5.04% to 17.94% (median 6.16%); the upper range is a mix effect of the 18% slab, not an identity failure.
+
+**Verdict S3: not certified.** Store 353's ₹1,107.00 is unexplained. The ₹0.06 at store 266 stays a rounding candidate pending the rounding policy.
 
 ## 8. Dashboard view against the cube, by month (claim S1, all 19 months already collected)
 
@@ -140,11 +168,30 @@ Cube non-void `NETAMT` less view `SL_V`:
 | Sep 2026 | +₹13,144 | 0.0013% | 95 |
 | Oct 2026 (partial month) | −₹215,999 | −0.1676% | −949 |
 
-**Correction of an earlier statement.** The Phase 0 brief said the two sources agree within 0.0013%. That was true only for the two months I had compared. Across 19 months, 17 differ by under 0.012%, but **April 2026 differs by 5.15% (₹7.07 crore, 314,700 units)** and the partial month October 2026 by −0.17%. This is the most important open item in the register.
+**Correction of an earlier statement.** The Phase 0 brief said the two sources agree within 0.0013%. That was true only for the two months I had compared. Across 19 months, 17 differ by under 0.012%, but **April 2026 differs by 5.15% (₹7.07 crore, 314,700 units)** and the partial month October 2026 by −0.17%. This was the most important item in the register; it is explained below.
 
-**Hypothesis for April 2026 (unproven):** the cube registry lists two overlapping instances for April 2026, code 196 "POS_SUMM_MTD" (a live month-to-date copy, window 2026-04-01 to 2026-04-30, last refreshed 2026-04-03) and code 809 "SALES SUMMARY_26-27" (the full year). If the cube view unions both, early-April rows would count twice; the size is about 1.5 days of April sales, which is consistent. The registry is a dictionary snapshot and may be out of date. **Until this is explained, no cube-based total for April 2026 can be used, and the cube's role as the reconciliation reference is qualified.** Other months are not affected on this evidence, but that has not been shown row by row.
+**April 2026 overlap: measured (probe 05a, run `run_20261005_036`, cube-only, no SSRK dependency).** The cube view depends only on eight MISRETAIL tables (dictionary dependencies) and is **exactly the sum of its instance tables**: the three April-relevant instances add to ₹1,441,510,119.49, equal to the view's April total to the paisa. I queried the instance tables directly and never summed them silently.
 
-**Verdict S1: not certified.** The view side at store-day level has not been tested (SSRK-backed, on hold), and the monthly comparison shows an unexplained 5.15% difference in one month.
+| Instance | Intended period | Actual April coverage | Source-reported timestamp | Non-void rows | Net | Units |
+|---|---|---|---|---|---|---|
+| 196 "POS_SUMM_MTD" | 1–30 Apr 2026 | **1–3 Apr only** (3 Apr is a partial day: 3,362 rows against 64,079 in instance 809) | report date 2026-04-03 | 117,389 | ₹70,645,272.67 | 314,629 |
+| 809 "SALES SUMMARY_26-27" | 1 Apr 2026 – 31 Mar 2027 | 1–30 Apr (30 days) | report date 2026-10-05 | 2,108,769 | ₹1,370,864,846.82 | 5,720,623.753 |
+| 750 "SALES SUMMARY_25-26" | 1 Apr 2025 – 31 Mar 2026 | none | n/a | 0 | 0 | 0 |
+
+- **Duplicate coverage, not separate slices.** Instances 196 and 809 both hold 1, 2 and 3 April. On 1 and 2 April the two snapshots agree closely but not exactly (rows 57,809 against 57,807 and 56,218 against 56,218; net differs by ₹1,551 and ₹1,546 in opposite directions), consistent with the same days read at different times. 3 April in instance 196 is a partial day.
+- **Instance 196 explains the April difference.** The cube view minus the dashboard view for April is ₹70,656,553.67 and 314,700 units. Instance 196 alone is ₹70,645,272.67 (99.984% of the sales difference) and 314,629 units (99.977%). Instance 809 alone differs from the dashboard view by only ₹11,281 and 71 units, in line with other months (for example May 2026: ₹8,317 and 45 units).
+- **Finding: the cube view double counts 1 to 3 April 2026**, because it unions a stale month-to-date snapshot with the full-year instance. Before this is fixed at the source, the cube view must not be used for April 2026.
+
+**Proposed instance-selection rule (for approval; nothing was summed, deduplicated by value, or chosen by "latest" alone):**
+1. Read each business date from **exactly one** instance table, never from the union view.
+2. An instance is **eligible** for a date only if its window contains the date **and** its source-reported report date is later than that date (the snapshot was taken after the day ended).
+3. If more than one instance is eligible, prefer the **financial-year instance** over a month-to-date or stub instance. This rule is stated by type, not by recency; the report date is a check, not the selector.
+4. If after rule 3 more than one instance is still eligible, or none is, the date is an **exception**: it is listed and the date shows unavailable. It is never resolved by summing, by keeping the larger value, or by choosing the latest.
+5. A per-day check (count of instances with rows for the day) runs with every certification window and its result is recorded.
+
+Applied to April 2026 this selects instance 809 for all thirty days and excludes instance 196. Other months showed no comparable difference (17 of 19 within 0.012%), but that is a monthly total, not a per-day instance count; the per-day check has been run only for April 2026.
+
+**Verdict S1: not certified.** The view side at store-day level has not been tested (SSRK-backed, on hold). The April 2026 difference is now explained (instance 196 duplicates 1–3 April) but the cube view is not usable for that month until the selection rule is applied. The partial October 2026 difference (−0.17%) and the slightly larger Nov–Dec 2025 differences are not yet investigated.
 
 ## 9. Rounding
 
@@ -158,18 +205,21 @@ A ₹0.01 difference occurs on one store-day in the gross identity (store 314, 2
 | I1, I2, I4 observed rows (cube, Aug 2026) | **Passes within the tested rows** |
 | Coverage (Aug 2026) | **Not certified**: 0 confirmed, 43 provisional, 111 unexplained; store 343, 31 Aug **unknown** |
 | I5 trading dates | **Not certified**: needs operational evidence |
-| S1 view vs cube | **Not certified**: April 2026 +5.15% unexplained; view side not tested |
-| S3 tax identity | **Not certified**: store 353 (₹1,107.00 in three store-days) |
-| S4a basic/gross chain | `SALEAMT + RETURNAMT = BASICAMT` exact; `BASICAMT − PROMOAMT = GROSSAMT` fits except April 2026 (−₹8,214.84); rounding candidates unaccepted |
-| S4b discount | **Not certified**: systematic, falling over time, owners' own identity fails by the same amount |
+| S1 view vs cube | **Not certified**: April 2026 difference **explained** (duplicate coverage from instance 196, 99.98%); view side not tested; Oct 2026 partial and Nov–Dec 2025 not investigated |
+| Cube instance selection | Rule proposed (section 8); per-day instance count run for April 2026 only |
+| S3 tax identity | **Not certified**: store 353, ₹1,107.00 in the 5% slab on three days, unexplained |
+| S4 chain and net identity (Aug 2026, instance 809) | `SALE + RETURNS = BASIC` exact; `BASIC − PROMO = GROSS` rounding; **`NET = GROSS − TOTALDISC + EXTRATAX` holds to ₹0.59 total (max ₹0.03)**. Business meaning of `EXTRATAXAMT` unconfirmed. April 2026 leaves ₹36,200.06; other months not recomputed |
+| Rounding | Candidates: ₹0.01 (store 314), ₹0.02 ×3 (store 266), ₹0.59 over 38 store-days. A policy with Finance is needed; none accepted |
 | U1, S5, S6, S7, I6 | Not tested |
 | D4, D5 festival calendar | Business decisions |
 
-## 11. Readiness verdict (revised)
+## 11. Readiness verdict (revised again)
 
 - **Certified in full:** nothing.
 - **Certified for existence only:** POS cube store-day rows on five named dates (24 Oct 2022, 12 Nov 2023, 1 Nov 2024, 14 Mar 2025, 31 Mar 2025).
-- **Passing within tested rows, with coverage unresolved:** store identity for 200 stores, 1 to 31 Aug 2026, non-void net, tax and quantity, POS cube.
-- **Not certified:** coverage, trading dates, view-versus-cube reconciliation (April 2026 anomaly), tax identity, discount identity.
+- **Passing within tested rows, coverage unresolved:** store identity for 200 stores, 1 to 31 Aug 2026, non-void, instance 809.
+- **Reconciles to rounding (identity only, not yet certified):** the net identity for August 2026 in instance 809 with `EXTRATAXAMT`; `SALE + RETURNS = BASIC` and `TOTALDISC` = its components.
+- **Explained, rule awaiting approval:** the April 2026 cube-versus-view difference (duplicate coverage from instance 196).
+- **Not certified:** coverage, trading dates, view-versus-cube store-day reconciliation, store 353 tax differences, April 2026 net-identity remainder, other months' identities.
 - **Still unavailable:** Bills, ABV, UPB, the real bridge, comparable-store growth, department contribution, footfall, targets, margin, festival-stage comparison.
 - **Prototype:** available for design review; every figure on it is sample data.

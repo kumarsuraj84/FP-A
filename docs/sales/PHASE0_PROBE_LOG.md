@@ -2,7 +2,7 @@
 
 All probes ran through the Inventory Automation broker, MISRETAIL only, sequentially, within the broker guard. Parameters are literal dates inside each SQL text (no bind variables). Durations are the broker's reported seconds (the manifest does not store them; a short query reports about 6 s because of 2 s polling plus job start). The guard hash is the query hash stored in the run manifest. Results are in the git-ignored inbox and are not committed.
 
-Service coordination: probes 03a to 03e ran between 16:18 and 16:28 IST, and probes 04a to 04c between 17:55 and 18:10 IST (04b and 04c read only the MISRETAIL POS cube), after the finance session's `run_20261005_022` had completed (14 of 14 datasets) and with no `broker.py` process active. No other run started during that window (the newest run folders were this work's own). Probes 01 and 02 overlapped with the finance session's runs 020 and 021, which failed with timeouts; causation is not established.
+Service coordination: probes 03a to 03e ran between 16:18 and 16:28 IST, probes 04a to 04c between 17:55 and 18:10 IST (04b and 04c read only the MISRETAIL POS cube), and probes 05a to 05e between 18:30 and 18:52 IST (they read the POS summary instance tables directly; each ran only after the other session confirmed its own run had finished), after the finance session's `run_20261005_022` had completed (14 of 14 datasets) and with no `broker.py` process active. No other run started during that window (the newest run folders were this work's own). Probes 01 and 02 overlapped with the finance session's runs 020 and 021, which failed with timeouts; causation is not established.
 
 ## sales_probe_01 (run_20261005_018, created 2026-10-05T10:03:13+00:00)
 
@@ -553,6 +553,112 @@ SELECT cube_code, cubename, TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS report_da
 
 ```sql
 SELECT cube_code, cubename, TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS report_date, TO_CHAR(MIN(start_date), 'YYYY-MM-DD') AS window_start, TO_CHAR(MAX(end_date), 'YYYY-MM-DD') AS window_end, COUNT(*) AS row_n, TO_CHAR(MIN(billdate), 'YYYY-MM-DD') AS first_bill_date, TO_CHAR(MAX(billdate), 'YYYY-MM-DD') AS last_bill_date FROM MISRETAIL.CUBE$POSBILLSUMM WHERE (billdate >= DATE '2022-10-24' AND billdate <= DATE '2022-10-24') OR (billdate >= DATE '2023-11-12' AND billdate <= DATE '2023-11-12') OR (billdate >= DATE '2024-11-01' AND billdate <= DATE '2024-11-01') OR (billdate >= DATE '2025-03-14' AND billdate <= DATE '2025-03-14') OR (billdate >= DATE '2025-03-31' AND billdate <= DATE '2025-03-31') GROUP BY cube_code, cubename FETCH FIRST 20 ROWS ONLY
+```
+
+## sales_probe_05a (run_20261005_036, created 2026-10-05T13:00:14+00:00)
+
+| dataset | kind | status | rows | cap | seconds | guard hash |
+|---|---|---|---|---|---|---|
+| a196_april_by_day | extract | ok | 4 | 200 | 6.5 | df7734b7f3 |
+| a809_april_by_day | extract | ok | 54 | 200 | 10.1 | 5166241ee6 |
+| a750_april_by_day | extract | ok | 0 | 200 | 10.1 | 7945b075f3 |
+
+Notes:
+
+SQL:
+
+### a196_april_by_day
+
+```sql
+SELECT cube_code, TO_CHAR(billdate, 'YYYY-MM-DD') AS bill_date, isvoid, COUNT(*) AS row_n, COUNT(DISTINCT sitecode) AS sites, TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS report_date, TO_CHAR(MIN(start_date), 'YYYY-MM-DD') AS window_start, TO_CHAR(MAX(end_date), 'YYYY-MM-DD') AS window_end, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(billqty), 'TM9') AS qty, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(taxamt), 'TM9') AS tax FROM MISRETAIL."T$POSBILLSUMM_196" WHERE billdate >= DATE '2026-04-01' AND billdate <= DATE '2026-04-30' GROUP BY cube_code, billdate, isvoid ORDER BY billdate, isvoid FETCH FIRST 200 ROWS ONLY
+```
+
+### a809_april_by_day
+
+```sql
+SELECT cube_code, TO_CHAR(billdate, 'YYYY-MM-DD') AS bill_date, isvoid, COUNT(*) AS row_n, COUNT(DISTINCT sitecode) AS sites, TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS report_date, TO_CHAR(MIN(start_date), 'YYYY-MM-DD') AS window_start, TO_CHAR(MAX(end_date), 'YYYY-MM-DD') AS window_end, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(billqty), 'TM9') AS qty, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(taxamt), 'TM9') AS tax FROM MISRETAIL."T$POSBILLSUMM_809" WHERE billdate >= DATE '2026-04-01' AND billdate <= DATE '2026-04-30' GROUP BY cube_code, billdate, isvoid ORDER BY billdate, isvoid FETCH FIRST 200 ROWS ONLY
+```
+
+### a750_april_by_day
+
+```sql
+SELECT cube_code, TO_CHAR(billdate, 'YYYY-MM-DD') AS bill_date, isvoid, COUNT(*) AS row_n, COUNT(DISTINCT sitecode) AS sites, TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS report_date, TO_CHAR(MIN(start_date), 'YYYY-MM-DD') AS window_start, TO_CHAR(MAX(end_date), 'YYYY-MM-DD') AS window_end, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(billqty), 'TM9') AS qty, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(taxamt), 'TM9') AS tax FROM MISRETAIL."T$POSBILLSUMM_750" WHERE billdate >= DATE '2026-04-01' AND billdate <= DATE '2026-04-30' GROUP BY cube_code, billdate, isvoid ORDER BY billdate, isvoid FETCH FIRST 200 ROWS ONLY
+```
+
+## sales_probe_05c (run_20261005_039, created 2026-10-05T13:20:48+00:00)
+
+| dataset | kind | status | rows | cap | seconds | guard hash |
+|---|---|---|---|---|---|---|
+| c1_aug_null_counts_and_sums | extract | ok | 2 | 5 | 10.5 | f7b4213187 |
+| c2_aug_by_tax_slab | extract | ok | 5 | 200 | 6.1 | 580647336f |
+| c3_aug_store_day_components | extract | ok | 6046 | 20000 | 6.1 | 853f9c3085 |
+
+Notes:
+
+SQL:
+
+### c1_aug_null_counts_and_sums
+
+```sql
+SELECT isvoid, COUNT(*) AS row_n, COUNT(mrpamt) AS n_mrpamt, COUNT(basicamt) AS n_basicamt, COUNT(saleamt) AS n_saleamt, COUNT(returnamt) AS n_returnamt, COUNT(promoamt) AS n_promoamt, COUNT(grossamt) AS n_grossamt, COUNT(itemdiscountamt) AS n_itemdiscountamt, COUNT(billdiscountamt) AS n_billdiscountamt, COUNT(lpdiscountamt) AS n_lpdiscountamt, COUNT(totaldiscountamt) AS n_totaldiscountamt, COUNT(netamt) AS n_netamt, COUNT(taxableamt) AS n_taxableamt, COUNT(taxamt) AS n_taxamt, COUNT(extrataxamt) AS n_extrataxamt, COUNT(taxpercent) AS n_taxpercent, COUNT(billqty) AS n_billqty, TO_CHAR(SUM(mrpamt), 'TM9') AS s_mrpamt, TO_CHAR(SUM(basicamt), 'TM9') AS s_basicamt, TO_CHAR(SUM(saleamt), 'TM9') AS s_saleamt, TO_CHAR(SUM(returnamt), 'TM9') AS s_returnamt, TO_CHAR(SUM(promoamt), 'TM9') AS s_promoamt, TO_CHAR(SUM(grossamt), 'TM9') AS s_grossamt, TO_CHAR(SUM(itemdiscountamt), 'TM9') AS s_itemdiscountamt, TO_CHAR(SUM(billdiscountamt), 'TM9') AS s_billdiscountamt, TO_CHAR(SUM(lpdiscountamt), 'TM9') AS s_lpdiscountamt, TO_CHAR(SUM(totaldiscountamt), 'TM9') AS s_totaldiscountamt, TO_CHAR(SUM(netamt), 'TM9') AS s_netamt, TO_CHAR(SUM(taxableamt), 'TM9') AS s_taxableamt, TO_CHAR(SUM(taxamt), 'TM9') AS s_taxamt, TO_CHAR(SUM(extrataxamt), 'TM9') AS s_extrataxamt, TO_CHAR(SUM(billqty), 'TM9') AS s_billqty FROM MISRETAIL."T$POSBILLSUMM_809" WHERE billdate >= DATE '2026-08-01' AND billdate <= DATE '2026-08-31' GROUP BY isvoid FETCH FIRST 5 ROWS ONLY
+```
+
+### c2_aug_by_tax_slab
+
+```sql
+SELECT taxpercent, taxdescription, COUNT(*) AS row_n, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(taxamt), 'TM9') AS tax, TO_CHAR(SUM(extrataxamt), 'TM9') AS extratax, TO_CHAR(SUM(grossamt), 'TM9') AS gross, TO_CHAR(SUM(totaldiscountamt), 'TM9') AS totaldisc, TO_CHAR(SUM(itemdiscountamt), 'TM9') AS itemdisc, TO_CHAR(SUM(billdiscountamt), 'TM9') AS billdisc, TO_CHAR(SUM(lpdiscountamt), 'TM9') AS lpdisc FROM MISRETAIL."T$POSBILLSUMM_809" WHERE billdate >= DATE '2026-08-01' AND billdate <= DATE '2026-08-31' AND isvoid = 'No' GROUP BY taxpercent, taxdescription FETCH FIRST 200 ROWS ONLY
+```
+
+### c3_aug_store_day_components
+
+```sql
+SELECT TO_CHAR(sitecode) AS site_code, TO_CHAR(billdate, 'YYYY-MM-DD') AS bill_date, TO_CHAR(SUM(mrpamt), 'TM9') AS mrp, TO_CHAR(SUM(basicamt), 'TM9') AS basic, TO_CHAR(SUM(saleamt), 'TM9') AS sale, TO_CHAR(SUM(returnamt), 'TM9') AS returns, TO_CHAR(SUM(promoamt), 'TM9') AS promo, TO_CHAR(SUM(grossamt), 'TM9') AS gross, TO_CHAR(SUM(itemdiscountamt), 'TM9') AS itemdisc, TO_CHAR(SUM(billdiscountamt), 'TM9') AS billdisc, TO_CHAR(SUM(lpdiscountamt), 'TM9') AS lpdisc, TO_CHAR(SUM(totaldiscountamt), 'TM9') AS totaldisc, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(taxamt), 'TM9') AS tax, TO_CHAR(SUM(extrataxamt), 'TM9') AS extratax, TO_CHAR(SUM(billqty), 'TM9') AS qty FROM MISRETAIL."T$POSBILLSUMM_809" WHERE billdate >= DATE '2026-08-01' AND billdate <= DATE '2026-08-31' AND isvoid = 'No' GROUP BY sitecode, billdate FETCH FIRST 20000 ROWS ONLY
+```
+
+## sales_probe_05e (run_20261005_040, created 2026-10-05T13:21:32+00:00)
+
+| dataset | kind | status | rows | cap | seconds | guard hash |
+|---|---|---|---|---|---|---|
+| e196_april_components | extract | ok | 1 | 5 | 6.2 | af60606364 |
+| e809_april_components | extract | ok | 1 | 5 | 6.1 | 5fab6148ec |
+
+Notes:
+
+SQL:
+
+### e196_april_components
+
+```sql
+SELECT 196 AS instance_code, COUNT(*) AS row_n, TO_CHAR(SUM(mrpamt), 'TM9') AS s_mrpamt, TO_CHAR(SUM(basicamt), 'TM9') AS s_basicamt, TO_CHAR(SUM(saleamt), 'TM9') AS s_saleamt, TO_CHAR(SUM(returnamt), 'TM9') AS s_returnamt, TO_CHAR(SUM(promoamt), 'TM9') AS s_promoamt, TO_CHAR(SUM(grossamt), 'TM9') AS s_grossamt, TO_CHAR(SUM(itemdiscountamt), 'TM9') AS s_itemdiscountamt, TO_CHAR(SUM(billdiscountamt), 'TM9') AS s_billdiscountamt, TO_CHAR(SUM(lpdiscountamt), 'TM9') AS s_lpdiscountamt, TO_CHAR(SUM(totaldiscountamt), 'TM9') AS s_totaldiscountamt, TO_CHAR(SUM(netamt), 'TM9') AS s_netamt, TO_CHAR(SUM(taxableamt), 'TM9') AS s_taxableamt, TO_CHAR(SUM(taxamt), 'TM9') AS s_taxamt, TO_CHAR(SUM(extrataxamt), 'TM9') AS s_extrataxamt, TO_CHAR(SUM(billqty), 'TM9') AS s_billqty FROM MISRETAIL."T$POSBILLSUMM_196" WHERE billdate >= DATE '2026-04-01' AND billdate <= DATE '2026-04-30' AND isvoid = 'No' FETCH FIRST 5 ROWS ONLY
+```
+
+### e809_april_components
+
+```sql
+SELECT 809 AS instance_code, COUNT(*) AS row_n, TO_CHAR(SUM(mrpamt), 'TM9') AS s_mrpamt, TO_CHAR(SUM(basicamt), 'TM9') AS s_basicamt, TO_CHAR(SUM(saleamt), 'TM9') AS s_saleamt, TO_CHAR(SUM(returnamt), 'TM9') AS s_returnamt, TO_CHAR(SUM(promoamt), 'TM9') AS s_promoamt, TO_CHAR(SUM(grossamt), 'TM9') AS s_grossamt, TO_CHAR(SUM(itemdiscountamt), 'TM9') AS s_itemdiscountamt, TO_CHAR(SUM(billdiscountamt), 'TM9') AS s_billdiscountamt, TO_CHAR(SUM(lpdiscountamt), 'TM9') AS s_lpdiscountamt, TO_CHAR(SUM(totaldiscountamt), 'TM9') AS s_totaldiscountamt, TO_CHAR(SUM(netamt), 'TM9') AS s_netamt, TO_CHAR(SUM(taxableamt), 'TM9') AS s_taxableamt, TO_CHAR(SUM(taxamt), 'TM9') AS s_taxamt, TO_CHAR(SUM(extrataxamt), 'TM9') AS s_extrataxamt, TO_CHAR(SUM(billqty), 'TM9') AS s_billqty FROM MISRETAIL."T$POSBILLSUMM_809" WHERE billdate >= DATE '2026-04-01' AND billdate <= DATE '2026-04-30' AND isvoid = 'No' FETCH FIRST 5 ROWS ONLY
+```
+
+## sales_probe_05d (run_20261005_041, created 2026-10-05T13:21:59+00:00)
+
+| dataset | kind | status | rows | cap | seconds | guard hash |
+|---|---|---|---|---|---|---|
+| d1_store353_aug_daily | extract | ok | 31 | 40 | 6.5 | a9d28cc3e9 |
+| d2_store353_exception_days_by_slab | extract | ok | 10 | 200 | 6.1 | f88242aec2 |
+
+Notes:
+
+SQL:
+
+### d1_store353_aug_daily
+
+```sql
+SELECT TO_CHAR(billdate, 'YYYY-MM-DD') AS bill_date, COUNT(*) AS row_n, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(taxamt), 'TM9') AS tax, TO_CHAR(SUM(extrataxamt), 'TM9') AS extratax, TO_CHAR(SUM(grossamt), 'TM9') AS gross, TO_CHAR(SUM(totaldiscountamt), 'TM9') AS totaldisc, TO_CHAR(SUM(returnamt), 'TM9') AS returns, TO_CHAR(SUM(billqty), 'TM9') AS qty FROM MISRETAIL."T$POSBILLSUMM_809" WHERE billdate >= DATE '2026-08-01' AND billdate <= DATE '2026-08-31' AND isvoid = 'No' AND sitecode = 353 GROUP BY billdate ORDER BY billdate FETCH FIRST 40 ROWS ONLY
+```
+
+### d2_store353_exception_days_by_slab
+
+```sql
+SELECT TO_CHAR(billdate, 'YYYY-MM-DD') AS bill_date, taxpercent, taxdescription, COUNT(*) AS row_n, TO_CHAR(SUM(netamt), 'TM9') AS net, TO_CHAR(SUM(taxableamt), 'TM9') AS taxable, TO_CHAR(SUM(taxamt), 'TM9') AS tax, TO_CHAR(SUM(extrataxamt), 'TM9') AS extratax, TO_CHAR(SUM(billqty), 'TM9') AS qty FROM MISRETAIL."T$POSBILLSUMM_809" WHERE ((billdate >= DATE '2026-08-06' AND billdate <= DATE '2026-08-06') OR (billdate >= DATE '2026-08-22' AND billdate <= DATE '2026-08-22') OR (billdate >= DATE '2026-08-27' AND billdate <= DATE '2026-08-27')) AND isvoid = 'No' AND sitecode = 353 GROUP BY billdate, taxpercent, taxdescription ORDER BY billdate, taxpercent FETCH FIRST 200 ROWS ONLY
 ```
 
 ## Guard and timeout events
