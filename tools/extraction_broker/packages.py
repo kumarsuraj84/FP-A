@@ -1121,20 +1121,20 @@ _KEY = "(r.sitecode, r.entry_type_short, r.entry_no)"
 
 def _sel(name: str) -> tuple[str, str, str, str]:
     """-> (register table, extra FROM item, date window predicate on r, key predicate): the entries of one selection.
-    The selection that picks entries by LEDGER (bank) uses a join to a DISTINCT inline view, not a tuple IN: the IN form ran as a per-row filter and exceeded the broker time limit.
+    Every selection (creditors, bank) uses a join to a DISTINCT inline view, not a tuple IN: the IN form ran as a per-row filter and exceeded the broker time limit.
     There is no till selection: the till drill ends at the store-day (l2_till_day), so the ~500k POS Cash Drawer lines are not extracted."""
     cur, old = _ENTRY_SITE, _ALLYEARS
     if name == "creditors_cur":
         win = "r.entry_date >= DATE '2026-04-01'"
-        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {cur} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
+        sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n FROM {cur} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
                f"AND r2.entry_glcode IN ({_CRED_IN}) AND r2.entry_date >= DATE '2026-04-01' AND o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 AND o.document_date >= DATE '2026-04-01'")
-        return cur, "", win, f"{_KEY} IN ({sub})"
+        return cur, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n"
     if name == "creditors_old":
         win = "r.entry_date >= DATE '2023-04-01' AND r.entry_date <= DATE '2026-03-31'"
-        sub = (f"SELECT r2.sitecode, r2.entry_type_short, r2.entry_no FROM {old} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
+        sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n FROM {old} r2, {_O} o WHERE r2.entry_glcode = o.ledger_code AND r2.entry_slcode = o.sub_ledger_code AND r2.entry_no = o.document_no "
                f"AND r2.entry_glcode IN ({_CRED_IN}) AND r2.entry_date >= DATE '2023-04-01' AND r2.entry_date <= DATE '2026-03-31' AND o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 "
                "AND o.document_date >= DATE '2023-04-01' AND o.document_date <= DATE '2026-03-31'")
-        return old, "", win, f"{_KEY} IN ({sub})"
+        return old, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n"
     if name == "bank":
         win = f"r.entry_date >= DATE '2026-04-01' AND r.entry_date <= {_CUT}"
         # a join to the ledger master, not a nested IN: the nested form could not be unnested and ran past the broker time limit
@@ -1269,3 +1269,122 @@ PACKAGE_META["cash_pilot_01"] = CASH_META
 PACKAGE_META["entry_pilot_01"] = ENTRY_META
 
 PACKAGES: dict[str, tuple[Dataset, ...]] = {"discovery_01": DISCOVERY_01, "ageing_probe_01": AGEING_PROBE_01, "payables_probe_01": PAYABLES_PROBE_01, "payables_probe_02": PAYABLES_PROBE_02, "payables_probe_03": PAYABLES_PROBE_03, "creditors_pilot_01": CREDITORS_PILOT_01, "profit_cash_probe_01": PROFIT_CASH_PROBE_01, "profit_cash_probe_02": PROFIT_CASH_PROBE_02, "cash_wc_probe_02": CASH_WC_PROBE_02, "receivables_probe_01": RECEIVABLES_PROBE_01, "cash_pilot_01": CASH_PILOT_01, "voucher_probe_01": VOUCHER_PROBE_01, "voucher_probe_03": VOUCHER_PROBE_03, "entry_pilot_01": ENTRY_PILOT_01, "entry_timing_probe": ENTRY_TIMING_PROBE, "c3_debug": C3_DEBUG}
+
+
+# ───────────── sales_probe_01: Operations / Sales Comparison, Phase 0 metadata only ─────────────
+# Dictionary views only (ALL_*), restricted to owner MISRETAIL: which sales-comparison objects exist, how big, how fresh, which keys and indexes they have,
+# what they depend on, whether their procedure source is visible, and whether a calendar / festival / day-shift mapping table exists. No transaction data.
+_SALES_OBJECTS = (
+    "T_SALE_COMPARE_ABV_ASP", "V_SALE_COMPARE_ABV_ASP", "T_SALE_COMPARE_ASP_ABV", "V_SALE_COMPARE_ASP_ABV", "T_SALE_COMPARE_DAY_WISE", "T_SALE_COMPARE_CONSOLIDATED",
+    "T_SALE_COMPARE_BILL_CUT", "V_SALE_COMPARE_BILL_CUT", "T_STORE_WISE_DAY_SALE", "V_DAYWISE_BILLCUT", "V_CFO_DASHBOARD_SL_V", "CUBE$POSBILLSUMM",
+    "T_STORE_OPENING_DATE", "T_STORE_SALE_TARGET", "T_CUSTOM_COGS", "ITEM_MV", "T_FINANCIAL_YEAR_NEW",
+)
+_SALES_IN = ", ".join(f"'{n}'" for n in _SALES_OBJECTS)
+_CAL_RE = "(FEST|HOLI|DIWALI|CALEND|SHIFT|DATE_?MAP|LY_?DATE|EVENT|FINANCIAL_YEAR|DAY_?MAP|COMPARE_?DATE|NEW_?BILLDATE|DAY_?TYPE|WEEK_?MAP)"
+_CAL_OBJECTS = (f"SELECT object_name FROM all_objects WHERE {_SCOPE} AND object_type IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW') AND REGEXP_LIKE(object_name, '{_CAL_RE}', 'i')")
+_SALES_SET = f"(object_name IN ({_SALES_IN}) OR object_name IN ({_CAL_OBJECTS}))"
+_SALES_TSET = f"(table_name IN ({_SALES_IN}) OR table_name IN ({_CAL_OBJECTS}))"
+
+SALES_PROBE_01: tuple[Dataset, ...] = (
+    Dataset("s1_objects", "metadata", "The candidate sales-comparison objects: type, status, created, last DDL time.",
+            sql=f"SELECT owner, object_name, object_type, status, TO_CHAR(created, 'YYYY-MM-DD') AS created, TO_CHAR(last_ddl_time, 'YYYY-MM-DD') AS last_ddl FROM all_objects WHERE {_SCOPE} AND object_name IN ({_SALES_IN}) FETCH FIRST 500 ROWS ONLY"),
+    Dataset("s2_calendar_candidates", "metadata", "Any table or view whose name suggests a calendar, festival, day-shift, date-mapping or event table.",
+            sql=f"SELECT owner, object_name, object_type, TO_CHAR(created, 'YYYY-MM-DD') AS created, TO_CHAR(last_ddl_time, 'YYYY-MM-DD') AS last_ddl FROM all_objects WHERE {_SCOPE} AND object_type IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW') AND REGEXP_LIKE(object_name, '{_CAL_RE}', 'i') FETCH FIRST 2000 ROWS ONLY"),
+    Dataset("s3_table_stats", "metadata", "Row estimates and last-analyzed date (statistics, no scan) for the candidates and any calendar-like table.",
+            sql=f"SELECT owner, table_name, num_rows, TO_CHAR(last_analyzed, 'YYYY-MM-DD') AS last_analyzed, partitioned FROM all_tables WHERE {_SCOPE} AND {_SALES_TSET} FETCH FIRST 500 ROWS ONLY"),
+    Dataset("s4_columns", "metadata", "Columns and datatypes of the candidates and calendar-like tables.",
+            sql=f"SELECT owner, table_name, column_name, data_type, data_length, nullable, column_id FROM all_tab_columns WHERE {_SCOPE} AND {_SALES_TSET} FETCH FIRST 20000 ROWS ONLY"),
+    Dataset("s5_indexes", "metadata", "Indexes on the candidate tables (whether a date filter is cheap).",
+            sql=f"SELECT owner, index_name, table_name, uniqueness, status, num_rows, TO_CHAR(last_analyzed, 'YYYY-MM-DD') AS last_analyzed FROM all_indexes WHERE table_owner = '{OWNER}' AND {_SALES_TSET} FETCH FIRST 2000 ROWS ONLY"),
+    Dataset("s6_index_columns", "metadata", "Index column order for the candidate tables.",
+            sql=f"SELECT index_name, table_name, column_name, column_position FROM all_ind_columns WHERE table_owner = '{OWNER}' AND {_SALES_TSET} FETCH FIRST 5000 ROWS ONLY"),
+    Dataset("s7_view_dependencies", "metadata", "What the candidate views read from (their referenced objects).",
+            sql=f"SELECT name, type, referenced_owner, referenced_name, referenced_type FROM all_dependencies WHERE owner = '{OWNER}' AND name IN ({_SALES_IN}) FETCH FIRST 5000 ROWS ONLY"),
+    Dataset("s8_procedures", "metadata", "Procedures or packages that look like they build the comparison tables.",
+            sql=f"SELECT owner, object_name, object_type, status, TO_CHAR(last_ddl_time, 'YYYY-MM-DD') AS last_ddl FROM all_objects WHERE {_SCOPE} AND object_type IN ('PROCEDURE', 'PACKAGE', 'PACKAGE BODY', 'FUNCTION') AND REGEXP_LIKE(object_name, '(COMPAR|CONSOLID|BILL_?CUT|ABV|DAY_?SALE)', 'i') FETCH FIRST 500 ROWS ONLY"),
+    Dataset("s9_procedure_source", "metadata", "Source text of the two comparison builders, if the extraction login can see it (the LY mapping logic). Empty means not visible.",
+            sql=f"SELECT name, type, line, text FROM all_source WHERE owner = '{OWNER}' AND name IN ('PROC_T_SALES_COMPARISION', 'PROC_T_SALE_CONSOLIDATED') ORDER BY name, type, line FETCH FIRST 20000 ROWS ONLY"),
+    Dataset("s10_table_comments", "metadata", "Table comments on the candidates (sometimes carry definitions).",
+            sql=f"SELECT table_name, table_type, comments FROM all_tab_comments WHERE {_SCOPE} AND {_SALES_TSET} AND comments IS NOT NULL FETCH FIRST 500 ROWS ONLY"),
+    Dataset("s11_column_comments", "metadata", "Column comments on the candidates and calendar-like tables.",
+            sql=f"SELECT table_name, column_name, comments FROM all_col_comments WHERE {_SCOPE} AND {_SALES_TSET} AND comments IS NOT NULL FETCH FIRST 5000 ROWS ONLY"),
+)
+PACKAGES["sales_probe_01"] = SALES_PROBE_01
+
+
+# ───────────── sales_probe_02: Operations / Sales Comparison, Phase 0 bounded evidence ─────────────
+# (1) the small date-mapping / festival / store-eligibility tables, dumped whole (reference data, no customer or finance values);
+# (2) date-bounded aggregates over the candidate sales sources, with exact numbers as text. No customer columns are ever selected (the POS summary cube
+# carries customer name / mobile / email: they are not named anywhere here). Sequential; the broker's own time limits apply.
+_M = OWNER
+_SC = f"{_M}.T_SALE_COMPARE_ABV_ASP"
+_DW = f"{_M}.T_SALE_COMPARE_DAY_WISE"
+_CO = f"{_M}.T_SALE_COMPARE_CONSOLIDATED"
+_SD = f"{_M}.T_STORE_WISE_DAY_SALE"
+_CFO = f"{_M}.V_CFO_DASHBOARD_SL_V"
+_PS = f"{_M}.CUBE$POSBILLSUMM"
+_DT = lambda col, alias: f"TO_CHAR({col}, 'YYYY-MM-DD') AS {alias}"  # noqa: E731
+_MON = lambda col, alias: f"TO_CHAR(TRUNC({col}, 'MM'), 'YYYY-MM-DD') AS {alias}"  # noqa: E731
+_QCD = '"CURRENT_DATE"'
+
+SALES_PROBE_02: tuple[Dataset, ...] = (
+    Dataset("k1_calendar_date_plan", "master", "Current date -> last-year mapped date (455 rows expected).",
+            sql=f"SELECT {_DT(_QCD, 'current_date_v')}, {_DT('ly_mapped_date', 'ly_mapped_date')} FROM {_M}.T_CALENDER_DATE_PLAN FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("k2_festival_data", "master", "Festival dates by year type.", sql=f"SELECT festival_date, year_type, diwali, chat, modified_date FROM {_M}.T_FESTIVAL_DATA FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("k3_festival_detail", "master", "Holiday names with 15 / 20 day prior dates.", sql=f"SELECT festival_date, holiday_name, prior_date_15_days, prior_date_20_days, holiday FROM {_M}.T_FESTIVAL_DETAIL FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("k4_newdate_fest", "master", "Two-year festival date mapping (old date -> new date).", sql=f"SELECT {_DT('old_date', 'old_date')}, {_DT('new_date', 'new_date')}, week_no FROM {_M}.T_NEW_DATE_TWO_YEAR_COMP_FEST FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("k5_newdate_festo", "master", "Second two-year festival date mapping.", sql=f"SELECT {_DT('old_date', 'old_date')}, {_DT('new_date', 'new_date')}, week_no FROM {_M}.T_NEW_DATE_TWO_YEAR_COMP_FESTO FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("k6_holi_ly", "master", "Holi: this year vs last year date mapping.", sql=f"SELECT {_DT('old_date', 'old_date')}, {_DT('new_date', 'new_date')} FROM {_M}.T_NEW_DATE_HOLI_TY_VS_LY FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("k7_holi_lly", "master", "Holi: this year vs last-last year date mapping.", sql=f"SELECT {_DT('old_date', 'old_date')}, {_DT('new_date', 'new_date')} FROM {_M}.T_NEW_DATE_HOLI_TY_VS_LLY FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("k8_key_events", "master", "Key events list.", sql=f"SELECT event, type, priority_type FROM {_M}.T_KEY_LODGER_EVENT FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("k9_store_festival_filter", "master", "Store festival filter.", sql=f"SELECT site_code, store_name, festival_filter FROM {_M}.T_STORE_FESTIVAL_FILTER FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("k10_store_compare_festival", "master", "Stores eligible for festival comparison.", sql=f"SELECT site_code, store_name, store_eligible, city, district, new_state FROM {_M}.T_STORE_COMPARE_FESTIVAL FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("k11_bi_store_compare", "master", "BI store comparison flags by date.", sql=f"SELECT site_code, store_name, {_DT('store_date', 'store_date')}, year_comparision FROM {_M}.T_BI_STORE_COMPARE_FESTIVE FETCH FIRST 1000 ROWS ONLY"),
+    Dataset("k12_store_master", "master", "Store master: opening date, status, region, festival group, last bill date.",
+            sql=(f"SELECT site_code, store_name, {_DT('opening_date', 'opening_date')}, store_status, store_current_status, cluster_type, region_type, state, festival_grouping, holi_group, dc_status, store_type, "
+                 f"{_DT('last_bill_date', 'last_bill_date')} FROM {_M}.T_STORE_OPENING_DATE FETCH FIRST 1000 ROWS ONLY")),
+    Dataset("a1_abvasp_by_day", "extract", "ABV_ASP table: per day, rows, stores, buckets and TY/LY/LLY bills, value, quantity.",
+            sql=(f"SELECT {_DT('new_billdate', 'new_billdate_v')}, COUNT(*) AS row_n, COUNT(DISTINCT store_name) AS stores, COUNT(DISTINCT sale_bucket) AS buckets, {_TM9('SUM(ty_bill_count)', 'ty_bills')}, {_TM9('SUM(ly_bill_count)', 'ly_bills')}, "
+                 f"{_TM9('SUM(lly_bill_count)', 'lly_bills')}, {_TM9('SUM(ty_sl_v)', 'ty_sl_v')}, {_TM9('SUM(ly_sl_v)', 'ly_sl_v')}, {_TM9('SUM(lly_sl_v)', 'lly_sl_v')}, {_TM9('SUM(ty_sl_q)', 'ty_sl_q')}, {_TM9('SUM(ly_sl_q)', 'ly_sl_q')} "
+                 f"FROM {_SC} WHERE new_billdate >= DATE '2024-01-01' GROUP BY new_billdate ORDER BY new_billdate FETCH FIRST 3000 ROWS ONLY")),
+    Dataset("a2_abvasp_status_values", "extract", "ABV_ASP table: what the comparison status columns hold.",
+            sql=(f"SELECT year_comparison, ly_status, final_status, cashback_filter, COUNT(*) AS row_n, {_DT('MIN(new_billdate)', 'first_day')}, {_DT('MAX(new_billdate)', 'last_day')} "
+                 f"FROM {_SC} WHERE new_billdate >= DATE '2024-01-01' GROUP BY year_comparison, ly_status, final_status, cashback_filter FETCH FIRST 500 ROWS ONLY")),
+    Dataset("a3_abvasp_grain", "extract", "ABV_ASP table: is (store, day, bucket) unique, and null counts of the measures.",
+            sql=(f"SELECT COUNT(*) AS row_n, COUNT(DISTINCT store_name || '|' || TO_CHAR(new_billdate, 'YYYYMMDD') || '|' || sale_bucket) AS distinct_keys, COUNT(ty_bill_count) AS n_ty_bills, COUNT(ly_bill_count) AS n_ly_bills, "
+                 f"COUNT(ty_sl_v) AS n_ty_v, COUNT(ly_sl_v) AS n_ly_v, {_DT('MIN(new_billdate)', 'first_day')}, {_DT('MAX(new_billdate)', 'last_day')} FROM {_SC} WHERE new_billdate >= DATE '2000-01-01' FETCH FIRST 5 ROWS ONLY")),
+    Dataset("a4_daywise_by_month", "extract", "DAY_WISE table: per month and year-comparison flag, rows, stores, TY/LY/LLY value, quantity, tax, COGS.",
+            sql=(f"SELECT {_MON('bill_date', 'bill_month')}, year_comparison, COUNT(*) AS row_n, COUNT(DISTINCT store_name) AS stores, {_DT('MIN(bill_date)', 'first_day')}, {_DT('MAX(bill_date)', 'last_day')}, "
+                 f"{_TM9('SUM(ty_sl_v)', 'ty_sl_v')}, {_TM9('SUM(ty_sl_q)', 'ty_sl_q')}, {_TM9('SUM(ty_sl_tax)', 'ty_tax')}, {_TM9('SUM(ty_sl_cogs)', 'ty_cogs')}, {_TM9('SUM(ly_sl_v)', 'ly_sl_v')}, {_TM9('SUM(ly_sl_q)', 'ly_sl_q')}, "
+                 f"{_TM9('SUM(lly_sl_v)', 'lly_sl_v')}, {_TM9('SUM(lly_sl_q)', 'lly_sl_q')} FROM {_DW} WHERE bill_date >= DATE '2025-04-01' GROUP BY TRUNC(bill_date, 'MM'), year_comparison FETCH FIRST 500 ROWS ONLY")),
+    Dataset("a5_daywise_by_day", "extract", "DAY_WISE table: daily totals for Sep-Oct 2026 (TY date with the LY / LLY value attached to it).",
+            sql=(f"SELECT {_DT('bill_date', 'bill_date_v')}, COUNT(*) AS row_n, COUNT(DISTINCT store_name) AS stores, {_TM9('SUM(ty_sl_v)', 'ty_sl_v')}, {_TM9('SUM(ty_sl_q)', 'ty_sl_q')}, {_TM9('SUM(ly_sl_v)', 'ly_sl_v')}, "
+                 f"{_TM9('SUM(ly_sl_q)', 'ly_sl_q')}, {_TM9('SUM(lly_sl_v)', 'lly_sl_v')} FROM {_DW} WHERE bill_date >= DATE '2026-09-01' AND bill_date <= DATE '2026-10-05' GROUP BY bill_date ORDER BY bill_date FETCH FIRST 100 ROWS ONLY")),
+    Dataset("a6_storedaysale_by_month", "extract", "T_STORE_WISE_DAY_SALE: per month rows, stores, quantity and value.",
+            sql=(f"SELECT {_MON('billdate', 'bill_month')}, COUNT(*) AS row_n, COUNT(DISTINCT store_name) AS stores, {_DT('MIN(billdate)', 'first_day')}, {_DT('MAX(billdate)', 'last_day')}, "
+                 f"{_TM9('SUM(qty)', 'qty')}, {_TM9('SUM(value)', 'value')} FROM {_SD} WHERE billdate >= DATE '2025-04-01' GROUP BY TRUNC(billdate, 'MM') FETCH FIRST 100 ROWS ONLY")),
+    Dataset("a7_cfo_by_day", "extract", "V_CFO_DASHBOARD_SL_V: daily rows, stores, bills, value, quantity, tax for Aug-Oct 2025 and Aug-Oct 2026.",
+            sql=(f"SELECT {_DT('billdate', 'bill_date_v')}, COUNT(*) AS row_n, COUNT(DISTINCT admsite_code) AS stores, {_TM9('SUM(bill_count)', 'bills')}, {_TM9('SUM(sl_v)', 'sl_v')}, {_TM9('SUM(sl_q)', 'sl_q')}, {_TM9('SUM(tax_v)', 'tax_v')} "
+                 f"FROM {_CFO} WHERE (billdate >= DATE '2025-08-25' AND billdate <= DATE '2025-10-10') OR (billdate >= DATE '2026-08-25' AND billdate <= DATE '2026-10-05') GROUP BY billdate ORDER BY billdate FETCH FIRST 200 ROWS ONLY")),
+    Dataset("a8_cfo_by_month", "extract", "V_CFO_DASHBOARD_SL_V: monthly totals from Apr 2025.",
+            sql=(f"SELECT {_MON('billdate', 'bill_month')}, COUNT(*) AS row_n, COUNT(DISTINCT admsite_code) AS stores, {_TM9('SUM(bill_count)', 'bills')}, {_TM9('SUM(sl_v)', 'sl_v')}, {_TM9('SUM(sl_q)', 'sl_q')}, {_TM9('SUM(tax_v)', 'tax_v')} "
+                 f"FROM {_CFO} WHERE billdate >= DATE '2025-04-01' GROUP BY TRUNC(billdate, 'MM') FETCH FIRST 100 ROWS ONLY")),
+    Dataset("a9_cfo_site_in_master", "extract", "V_CFO_DASHBOARD_SL_V store key: for three days, how many ADMSITE_CODE values are also SITE_CODE in the store master.",
+            sql=(f"SELECT {_DT('billdate', 'bill_date_v')}, COUNT(*) AS row_n, COUNT(CASE WHEN admsite_code IN (SELECT site_code FROM {_M}.T_STORE_OPENING_DATE) THEN 1 END) AS in_store_master, "
+                 f"COUNT(CASE WHEN admsite_code IN (SELECT site_code FROM {_M}.T_STORE_OPENING_DATE WHERE store_status = 'ACTIVE') THEN 1 END) AS in_active_master FROM {_CFO} "
+                 "WHERE (billdate >= DATE '2025-09-15' AND billdate <= DATE '2025-09-15') OR (billdate >= DATE '2026-09-15' AND billdate <= DATE '2026-09-15') OR (billdate >= DATE '2026-09-30' AND billdate <= DATE '2026-09-30') GROUP BY billdate FETCH FIRST 10 ROWS ONLY")),
+    Dataset("a10_pos_by_month", "extract", "POS bill summary: per month and void flag, bills (rows vs distinct bill keys), negative-net bills, return amounts, net, taxable, tax, quantity.",
+            sql=(f"SELECT {_MON('billdate', 'bill_month')}, isvoid, COUNT(*) AS row_n, COUNT(DISTINCT sitecode || '|' || billno) AS distinct_bills, COUNT(CASE WHEN netamt < 0 THEN 1 END) AS negative_net_bills, "
+                 f"COUNT(CASE WHEN returnamt <> 0 THEN 1 END) AS bills_with_returns, COUNT(CASE WHEN billqty < 0 THEN 1 END) AS negative_qty_bills, {_TM9('SUM(netamt)', 'net')}, {_TM9('SUM(returnamt)', 'returns')}, {_TM9('SUM(taxableamt)', 'taxable')}, "
+                 f"{_TM9('SUM(taxamt)', 'tax')}, {_TM9('SUM(billqty)', 'qty')}, COUNT(DISTINCT sitecode) AS sites FROM {_PS} WHERE billdate >= DATE '2025-04-01' GROUP BY TRUNC(billdate, 'MM'), isvoid FETCH FIRST 200 ROWS ONLY")),
+    Dataset("a11_pos_store_day", "extract", "POS bill summary, store level for 2026-09-15 (non-void): bills, net, quantity, for reconciliation with the dashboard view.",
+            sql=(f"SELECT TO_CHAR(sitecode) AS site_code, COUNT(DISTINCT billno) AS bills, {_TM9('SUM(netamt)', 'net')}, {_TM9('SUM(billqty)', 'qty')}, {_TM9('SUM(taxamt)', 'tax')} FROM {_PS} "
+                 "WHERE billdate >= DATE '2026-09-15' AND billdate <= DATE '2026-09-15' AND isvoid = 'N' GROUP BY sitecode FETCH FIRST 1000 ROWS ONLY")),
+    Dataset("a12_cfo_store_day", "extract", "Dashboard view, store level for 2026-09-15.",
+            sql=(f"SELECT TO_CHAR(admsite_code) AS site_code, {_TM9('SUM(bill_count)', 'bills')}, {_TM9('SUM(sl_v)', 'net')}, {_TM9('SUM(sl_q)', 'qty')}, {_TM9('SUM(tax_v)', 'tax')} FROM {_CFO} "
+                 "WHERE billdate >= DATE '2026-09-15' AND billdate <= DATE '2026-09-15' GROUP BY admsite_code FETCH FIRST 1000 ROWS ONLY")),
+    Dataset("a13_consolidated_by_month", "extract", "CONSOLIDATED table: per month rows, stores, TY/LY value and quantity (largest scan; last).",
+            sql=(f"SELECT {_MON('bill_date', 'bill_month')}, COUNT(*) AS row_n, COUNT(DISTINCT store_name) AS stores, {_TM9('SUM(ty_sl_v)', 'ty_sl_v')}, {_TM9('SUM(ly_sl_v)', 'ly_sl_v')}, {_TM9('SUM(ty_sl_q)', 'ty_sl_q')} "
+                 f"FROM {_CO} WHERE bill_date >= DATE '2025-04-01' GROUP BY TRUNC(bill_date, 'MM') FETCH FIRST 100 ROWS ONLY")),
+)
+PACKAGES["sales_probe_02"] = SALES_PROBE_02
