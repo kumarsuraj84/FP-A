@@ -67,6 +67,21 @@ describe("Liquidity & Working Capital Control: the verified strip", () => {
   });
 });
 
+describe("Liquidity & Working Capital Control: freshness", () => {
+  it("the shell shows the real run's own as-of date, not the demo freshness", async () => {
+    mount(q("/cash"));
+    await waitFor(() => expect(screen.getByTestId("freshness")).toHaveTextContent(/Real data as of 04 Oct 2026/), T);
+    expect(screen.getByTestId("freshness")).not.toHaveTextContent(/03 Oct 2026, 06:00/);
+    expect(screen.getByTestId("freshness")).toHaveAttribute("data-real", "verified_candidate");
+  });
+
+  it("demo pages keep their demo freshness", async () => {
+    mount(q("/"));
+    await waitFor(() => expect(screen.getByTestId("freshness")).toHaveTextContent(/Data as of/), T);
+    expect(screen.getByTestId("freshness")).not.toHaveAttribute("data-real");
+  });
+});
+
 describe("Liquidity & Working Capital Control: Store Till Cash and creditors", () => {
   it("lists stores by till cash and pages in more", async () => {
     mount(q("/cash"));

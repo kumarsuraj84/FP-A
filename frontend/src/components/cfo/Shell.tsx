@@ -8,6 +8,9 @@ import { PROFIT_ORIGIN } from "@/lib/profitNodes";
 import { CASH_ORIGIN } from "@/lib/cashNodes";
 import type { DrillOrigin } from "@/types/cfo";
 import { useFreshness } from "@/api/hooks";
+import { useCashRun } from "@/api/cashLiveHooks";
+import { useLiveRun } from "@/api/creditorsLiveHooks";
+import { fmtDate } from "@/lib/format";
 import { COMPARISON_ORDER, COMPARISONS, PERIOD_ORDER, PERIODS, SCENARIOS, SCENARIO_ORDER } from "@/mocks/scenarios";
 import type { ComparisonId, DataStateId, PeriodId, ScenarioId } from "@/types/cfo";
 import { cn } from "@/lib/utils";
@@ -84,10 +87,24 @@ export function DemoBanner() {
   );
 }
 
+/** Real-data pages state their OWN as-of date (from the API), not the demo shell's freshness. */
+function useRealFreshness(): { label: string; state: string } | null {
+  const path = useRouterState({ select: (r) => r.location.pathname });
+  const cash = useCashRun();
+  const cred = useLiveRun();
+  const run = path.startsWith("/cash") ? cash : path.startsWith("/creditors") ? cred : null;
+  if (!run) return null;
+  if (run.isError) return { label: "Real data unavailable", state: "error" };
+  if (!run.data) return { label: "Checking real data…", state: "pending" };
+  const stamp = "source_updated_at" in run.data && run.data.source_updated_at ? ` · extracted ${new Date(run.data.source_updated_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : "";
+  return { label: `Real data as of ${fmtDate(run.data.as_of_date)}${stamp}`, state: run.data.data_state };
+}
+
 export function TopBar() {
   const { state, dispatch } = useCfo();
   const fresh = useFreshness();
-  const f = fresh.data;
+  const real = useRealFreshness();
+  const f = real ? { label: real.label, stale: real.state === "error" || real.state === "pending" } : fresh.data;
   return (
     <header className="flex h-12 items-center gap-4 border-b bg-card px-4">
       <Link to="/" onClick={() => dispatch({ type: "home" })} className="flex items-center gap-2.5" aria-label="CityKart CFO OS home">
@@ -105,6 +122,7 @@ export function TopBar() {
       </div>
       <div
         data-testid="freshness"
+        data-real={real ? real.state : undefined}
         className={cn("flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium", f?.stale ? "bg-[oklch(0.96_0.05_85)] text-[oklch(0.42_0.1_75)]" : "bg-[oklch(0.96_0.03_155)] text-[oklch(0.38_0.1_155)]")}
       >
         <span className={cn("h-1.5 w-1.5 rounded-full", f?.stale ? "bg-[oklch(0.7_0.15_75)]" : "bg-[oklch(0.62_0.16_155)]")} />
