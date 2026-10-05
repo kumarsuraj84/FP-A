@@ -8,7 +8,7 @@ from packages import PACKAGES  # noqa: E402
 
 def test_voucher_probe_is_aggregate_only_capped_and_never_reads_names_paths_or_narration():
     ds = PACKAGES["voucher_probe_03"]
-    assert len(ds) == 12
+    assert len(ds) == 13
     for d in ds:
         c = guard.check(d.sql, d.kind)
         assert c.row_cap <= 2000, d.name
@@ -20,6 +20,7 @@ def test_voucher_probe_is_aggregate_only_capped_and_never_reads_names_paths_or_n
 
 def test_bridge_probes_restrict_the_register_to_the_four_creditor_ledgers_and_classify_by_distinct_entry_identity():
     for d in PACKAGES["voucher_probe_03"]:
-        if d.name.startswith("b"):
+        if d.name.startswith("b") and not d.name.startswith("b9"):
             assert "entry_glcode IN (1000000026, 1000000024, 1000000092, 1000000025)" in d.sql, d.name
-            assert "COUNT(DISTINCT r.st || '|' || r.t || '|' || r.n)" in d.sql, d.name   # (site, entry type, entry number)
+            # (site, entry type, entry number); an unmatched item must count as 0 entries, never as an entry made of NULLs
+            assert "COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END)" in d.sql, d.name

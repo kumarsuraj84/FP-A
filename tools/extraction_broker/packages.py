@@ -1048,7 +1048,7 @@ def _bridge(register: str, since: str, until: str | None, key: str, label: str, 
          f"WHERE entry_glcode IN ({_CRED_IN}) AND entry_date >= DATE '{since}'{reg_until} GROUP BY entry_glcode, entry_slcode, entry_no, entry_reference_no, entry_type_short, sitecode{rg}")
     o = (f"SELECT document_initial AS di, document_code AS dc, sub_ledger_code AS s, ledger_code AS g, document_no AS dn, ref_no AS rn, amount AS amt{', created_by_site AS cbs' if site else ''} FROM {_O} "
          f"WHERE report_date >= DATE '2026-01-01' AND ledger_code IN ({_CRED_IN}) AND pending <> 0 AND document_date >= DATE '{since}'" + (f" AND document_date <= DATE '{until}'" if until else ""))
-    per_item = (f"SELECT o.di, o.dc, o.s, COUNT(DISTINCT r.st || '|' || r.t || '|' || r.n) AS m, MAX(CASE WHEN ABS(r.dr - r.cr) = ABS(o.amt) THEN 1 ELSE 0 END) AS amt_ok "
+    per_item = (f"SELECT o.di, o.dc, o.s, COUNT(DISTINCT CASE WHEN r.n IS NOT NULL THEN r.st || '|' || r.t || '|' || r.n END) AS m, MAX(CASE WHEN ABS(r.dr - r.cr) = ABS(o.amt) THEN 1 ELSE 0 END) AS amt_ok "
                 f"FROM ({o}) o LEFT JOIN ({r}) r ON {key} AND r.g = o.g AND r.s = o.s GROUP BY o.di, o.dc, o.s")
     return (f"SELECT '{label}' AS candidate_key, di AS document_type, COUNT(*) AS open_items, SUM(CASE WHEN m = 1 THEN 1 ELSE 0 END) AS exact, SUM(CASE WHEN m > 1 THEN 1 ELSE 0 END) AS ambiguous, "
             f"SUM(CASE WHEN m = 0 THEN 1 ELSE 0 END) AS not_linked, SUM(CASE WHEN m = 1 AND amt_ok = 1 THEN 1 ELSE 0 END) AS exact_and_amount_agrees FROM ({per_item}) GROUP BY di ORDER BY di FETCH FIRST 100 ROWS ONLY")
@@ -1066,6 +1066,11 @@ VOUCHER_PROBE_03: tuple[Dataset, ...] = (
             sql=_bridge(_ENTRY_SITE, *_CUR, "r.n = o.dn AND r.t = o.di AND r.cbs = o.cbs", "document_no = entry_no, initial = type, created_by_site = created_by_site", site=True)),
     Dataset("b6_old_doc_no_eq_entry_no", "extract", "FY23-24 to FY25-26 open creditor items against the all-years site register: document number = entry number.", sql=_bridge(_ALLYEARS, *_OLD, "r.n = o.dn", "document_no = entry_no (all years)")),
     Dataset("b7_old_doc_no_and_type", "extract", "FY23-24 to FY25-26: document number = entry number AND initial = type.", sql=_bridge(_ALLYEARS, *_OLD, "r.n = o.dn AND r.t = o.di", "document_no = entry_no and initial = type (all years)")),
+    Dataset("b9_type_mapping_of_exact_matches", "extract", "For the document-number = entry-number matches (FY26-27): which register entry type short code each outstanding-cube document initial resolves to, and how many distinct entries.",
+            sql=(f"SELECT o.document_initial AS document_initial, r.entry_type_short AS entry_type_short, COUNT(DISTINCT o.document_code || '|' || o.sub_ledger_code) AS open_items, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no) AS entries "
+                 f"FROM {_O} o, {_ENTRY_SITE} r WHERE o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 AND o.document_date >= DATE '2026-04-01' "
+                 f"AND r.entry_glcode IN ({_CRED_IN}) AND r.entry_date >= DATE '2026-04-01' AND r.entry_no = o.document_no AND r.entry_glcode = o.ledger_code AND r.entry_slcode = o.sub_ledger_code "
+                 "GROUP BY o.document_initial, r.entry_type_short ORDER BY o.document_initial FETCH FIRST 200 ROWS ONLY")),
     Dataset("t1_drawer_by_ledger_type_cube", "extract", "Store cash drawer view, 1 Apr to 3 Oct 2026: lines, stores and exact Dr/Cr by ledger name, entry type, source cube and type.",
             sql=("SELECT glname, entry_type_long, cubename, type, COUNT(*) AS lines, COUNT(DISTINCT sitecode) AS sites, " + _TM9("SUM(debit)", "sum_debit") + ", " + _TM9("SUM(credit)", "sum_credit") +
                  f" FROM {OWNER}.V_FINANCE_CASH_DRAWER WHERE entry_date >= DATE '2026-04-01' AND entry_date <= DATE '2026-10-03' GROUP BY glname, entry_type_long, cubename, type ORDER BY glname, entry_type_long FETCH FIRST 2000 ROWS ONLY")),
