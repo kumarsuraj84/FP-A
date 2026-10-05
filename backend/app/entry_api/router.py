@@ -7,7 +7,6 @@
   /api/v1/entries/runs/{run}/bank/ledgers/{code}/entries?status=posted|unposted|opening&cash_run=
   /api/v1/entries/runs/{run}/till/stores?cash_run=             stores, reconciled to Store Till Cash
   /api/v1/entries/runs/{run}/till/stores/{site}/days?cash_run=
-  /api/v1/entries/runs/{run}/till/stores/{site}/days/{day}/entries?cash_run=
   /api/v1/entries/runs/{run}/creditors/items/{item_ref}/link?creditors_run=
   /api/v1/entries/runs/{run}/creditors/links?creditors_run=    link counts by status and coverage
 
@@ -168,18 +167,8 @@ def till_days(request: Request, run_id: str, site: str, cash_run: str):
         raise HTTPException(404, "unknown store")
     net = sum((d["debit"] - d["credit"] for d in days), repo.ZERO)
     return ok({**header(run), "site_code": site, "balance_date": run["till_balance_date"], "parent": {"balance": top["cumulative_balance"]}, "children_sum": {"balance": net},
-               "reconciles": net == top["cumulative_balance"], "days": days})
-
-
-@router.get("/runs/{run_id}/till/stores/{site}/days/{day}/entries")
-def till_entries(request: Request, run_id: str, site: str, day: date, cash_run: str):
-    with open_run(request, run_id, cash_run=cash_run) as (conn, run):
-        d = repo.till_day_row(conn, run, site, day)
-        if d is None:
-            raise HTTPException(404, "unknown store or day")
-        res = repo.till_entries(conn, run, site, day)
-    return ok({**header(run), "site_code": site, "day": day, "parent": {"debit": d["debit"], "credit": d["credit"], "cumulative_balance": d["cumulative_balance"]},
-               "children_sum": {"debit": res["debit"], "credit": res["credit"]}, "reconciles": (res["debit"], res["credit"]) == (d["debit"], d["credit"]), "entries": res["entries"]})
+               "reconciles": net == top["cumulative_balance"], "deepest_level": "till_day",
+               "note": "The till drill ends at the store-day: individual POS cash lines are not part of the entry layer.", "days": days})
 
 
 # ───────────── creditors ─────────────

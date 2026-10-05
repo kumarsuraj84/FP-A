@@ -3,7 +3,7 @@ One-time administrator step for the Creditors API, run in YOUR OWN terminal (one
 
     python tools/creditors_mart/install_api.py            # database defaults to fpa_pilot
 
-  1. applies any pending mart migrations (002 verified-candidate views, 003 shared run model, 004 cash schema, 005 entry layer) through the reviewed migration path;
+  1. applies any pending mart migrations (002 verified-candidate views, 003 shared run model, 004 cash schema, 005 entry layer, 006 till-day-only entry layer) through the reviewed migration path;
   2. creates (or re-keys) the login `cred_api_login`: a member of cred_verifier, cred_finance_reader, cred_api_reader, cash_verifier, cash_api_reader, entry_verifier, entry_api_reader and entry_finance_reader ONLY, set
      NOINHERIT so it holds no privilege of its own: the API must `SET ROLE` into exactly one of them per request, and the database
      decides what each role may read. It is not a member of any loader, owner or promoter role and has no admin attributes;

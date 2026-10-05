@@ -21,18 +21,20 @@ def test_package_is_registered_guarded_capped_misretail_only_and_pre_post_identi
     assert PACKAGE_META["entry_pilot_01"]["halt_on_failure"] is True
     assert [d.role for d in ENTRY_PILOT_01][:3] == ["control_pre"] * 3 and [d.role for d in ENTRY_PILOT_01][-3:] == ["control_post"] * 3
     caps = {d.name: guard.check(d.sql, d.kind).row_cap for d in ENTRY_PILOT_01}
-    assert caps["h3_lines_till"] == 1_000_000 and caps["h1_lines_creditors_cur"] == 400_000 and all(c <= 5_000_000 for c in caps.values())
+    assert "h3_lines_till" not in caps and caps["l2_till_day"] == 100_000 and caps["h1_lines_creditors_cur"] == 400_000 and all(c <= 5_000_000 for c in caps.values())
     by = {d.name: d.sql for d in ENTRY_PILOT_01}
-    for k in ("c1_totals", "c2_histogram", "c3_bills", "c4_register"):
+    for k in ("c1_totals", "c3_bills", "c4_register"):
         assert by[f"{k}_pre"] == by[f"{k}_post"]
+    assert "c2_histogram_post" not in by and "c2_histogram_pre" in by
     for name, sql in by.items():
         assert "SSRK" not in sql.upper() and "PUBLIC" not in sql.upper(), name
         for obj in re.findall(r"(?i)\b(?:from|join)\s+([\w$#\".]+)", sql):
             assert obj.upper().startswith("MISRETAIL.") or obj == "(", (name, obj)
         if name.startswith("h"):  # numbers and dates leave Oracle as exact text
             assert "TO_CHAR(r.debit, 'TM9')" in sql and "TO_CHAR(r.entry_date, 'YYYY-MM-DD')" in sql
-    # creditors are restricted to the four ledgers; the till selection is the Cash Drawer ledger, not CASH IN HAND
-    assert "1000000026, 1000000024, 1000000092, 1000000025" in by["h1_lines_creditors_cur"] and "glname = 'Cash Drawer'" in by["h3_lines_till"]
+    # creditors are restricted to the four ledgers; the till drill ends at the store-day, so no Cash Drawer line is extracted anywhere
+    assert "1000000026, 1000000024, 1000000092, 1000000025" in by["h1_lines_creditors_cur"]
+    assert not any("Cash Drawer" in sql for name, sql in by.items() if name != "l2_till_day") and "h3_lines_till" not in by
 
 
 def run_and_report(tmp_path, **kw):
@@ -90,9 +92,9 @@ def test_sensitive_text_never_reaches_a_report_or_a_message(tmp_path):
 
 def test_a_parse_error_names_the_field_and_row_but_never_echoes_the_value(tmp_path):
     def tweak(files, b):
-        rows, cols = files["h3_lines_till"]
+        rows, cols = files["h2_lines_bank"]
         rows[0]["debit"] = "SENTINEL_BAD_AMOUNT"
-        files["h3_lines_till"] = (rows, cols)
+        files["h2_lines_bank"] = (rows, cols)
 
     run, _, rep = run_and_report(tmp_path, tweak=tweak)
     assert rep["verdict"] == "FAILED" and any("not a plain decimal number" in f for f in rep["hard_failures"])
@@ -153,7 +155,7 @@ def test_a_link_to_an_entry_that_was_not_extracted_is_refused(tmp_path):
 
 
 def test_capped_or_failed_dataset_fails_the_run(tmp_path):
-    _, _, rep = run_and_report(tmp_path, statuses={"h3_lines_till": "capped"})
+    _, _, rep = run_and_report(tmp_path, statuses={"h2_lines_bank": "capped"})
     assert rep["verdict"] == "FAILED" and any("capped" in f for f in rep["hard_failures"])
 
 

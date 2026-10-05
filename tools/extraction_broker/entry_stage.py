@@ -37,11 +37,11 @@ _NUM = re.compile(r"^-?([0-9]+(\.[0-9]+)?|\.[0-9]+)$")
 _DATE = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$")
 EXPECTED = {
     "c1_totals_pre": "control_pre", "c2_histogram_pre": "control_pre", "c3_bills_pre": "control_pre", "c4_register_pre": "control_pre",
-    "h1_lines_creditors_cur": "extract", "h1b_lines_creditors_old": "extract", "h2_lines_bank": "extract", "h3_lines_till": "extract",
+    "h1_lines_creditors_cur": "extract", "h1b_lines_creditors_old": "extract", "h2_lines_bank": "extract",
     "l1a_links_current": "extract", "l1b_links_prior": "extract", "l1c_bills_before_coverage": "extract", "l2_till_day": "extract",
-    "c1_totals_post": "control_post", "c2_histogram_post": "control_post", "c3_bills_post": "control_post", "c4_register_post": "control_post",
+    "c1_totals_post": "control_post", "c3_bills_post": "control_post", "c4_register_post": "control_post",
 }
-LINE_DATASETS = {"h1_lines_creditors_cur": "creditors_cur", "h1b_lines_creditors_old": "creditors_old", "h2_lines_bank": "bank", "h3_lines_till": "till"}
+LINE_DATASETS = {"h1_lines_creditors_cur": "creditors_cur", "h1b_lines_creditors_old": "creditors_old", "h2_lines_bank": "bank"}
 LINE_COLUMNS = ["site_code", "entry_type_short", "entry_type_long", "entry_no", "entry_date", "seq", "glcode", "glname", "glnature", "slcode", "debit", "credit", "release_status", "created_by_site",
                 "cubename", "narration", "reference_no", "reference_date", "cheque_no", "cheque_date", "counter_ledgers", "prepared_by", "prepared_on", "modified_by", "modified_on", "released_by", "released_on"]
 TEXT_FIELDS = ["narration", "reference_no", "reference_date", "cheque_no", "cheque_date", "counter_ledgers", "prepared_by", "prepared_on", "modified_by", "modified_on", "released_by", "released_on"]
@@ -174,7 +174,7 @@ def validate(run_dir: Path, write: bool = True) -> dict:
     report["manifest_sha256"] = mf.sha256_file(run_dir / "manifest.json")
     report["contract"] = contract
     try:
-        for kind in ("c1_totals", "c2_histogram", "c3_bills", "c4_register"):
+        for kind in ("c1_totals", "c3_bills", "c4_register"):
             if _norm(load(run_dir, f"{kind}_pre")) != _norm(load(run_dir, f"{kind}_post")):
                 fail(f"REFRESH RACE: {kind} differs between PRE and POST")
         c3 = load(run_dir, "c3_bills_pre")
@@ -228,7 +228,7 @@ def validate(run_dir: Path, write: bool = True) -> dict:
         # E1 / E2: source controls
         rc = Recon()
         c1 = {r["selection"]: r for r in load(run_dir, "c1_totals_pre")}
-        for sel in ("creditors_cur", "creditors_old", "bank", "till"):
+        for sel in ("creditors_cur", "creditors_old", "bank"):
             ex_lines = [ln for ln in lines.values() if sel in ln["selections"]]
             ex_entries = {(ln["site_code"], ln["entry_type_short"], ln["entry_no"]) for ln in ex_lines}
             s = c1.get(sel)
@@ -312,7 +312,7 @@ def validate(run_dir: Path, write: bool = True) -> dict:
     by_status = Counter(k["link_status"] for k in links)
     report["aggregates"] = {
         "register_report_date": as_of.isoformat(), "till_balance_date": max(t["day"] for t in till).isoformat(), "entries": len(headers), "lines": len(entry_lines),
-        "lines_by_selection": {s: sum(1 for ln in lines.values() if s in ln["selections"]) for s in ("creditors_cur", "creditors_old", "bank", "till")},
+        "lines_by_selection": {s: sum(1 for ln in lines.values() if s in ln["selections"]) for s in ("creditors_cur", "creditors_old", "bank")},
         "total_dr": str(sum((h["total_dr"] for h in headers), ZERO)), "total_cr": str(sum((h["total_cr"] for h in headers), ZERO)), "links": len(links), "links_by_status": dict(by_status),
         "links_by_coverage": dict(counts_by_window), "till_days": len(till),
     }

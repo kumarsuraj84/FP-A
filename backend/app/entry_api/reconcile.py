@@ -6,7 +6,7 @@ Entry layer: mart = API reconciliation gate (controls E10, E11, E12 at the API l
 
 Everything is read back through the API and compared, exactly and with zero tolerance, against the mart read with differently shaped SQL:
   * every bank ledger, and every posted / unposted / opening entry list of every ledger, reconciles to the cash review card;
-  * the till: all stores reconcile to Store Till Cash; every store's days reconcile to its balance; a sample of store-days reconciles entry by entry;
+  * the till: all stores reconcile to Store Till Cash; every store's days reconcile to its balance; the drill ends at the store-day (no POS lines);
   * the creditor bridge: link counts by status and coverage; a sample of bills per status; Exact always resolves to one fetchable entry, Ambiguous and Not linked never to any;
   * entries: a sample of entries returns every line the mart holds; masked responses carry none of the restricted fields and none of the Finance-only text values;
   * a drill that names the wrong domain run is refused (409).
@@ -115,13 +115,6 @@ def reconcile(client, db, run_id: str, cash_run: str, creditors_run: str, financ
         active = [d for d in md[s["site_code"]] if D(d["debit"]) or D(d["credit"])]
         bad_days += int(len(res["days"]) != len(active))
     add("ENT-TILL", "stores whose day list does not reconcile to their balance", 0, bad_days)
-    pool = [(d["site_code"], d["day"]) for d in mart["till_days"] if D(d["debit"]) or D(d["credit"])]
-    bad_entries = 0
-    for site, day in rnd.sample(pool, min(sample, len(pool))):
-        res = client.get(f"{base}/till/stores/{site}/days/{day}/entries", params={"cash_run": cash_run}).json()
-        bad_entries += int(not res["reconciles"])
-    add("ENT-TILL", f"sampled store-days whose entries do not reconcile (of {min(sample, len(pool))})", 0, bad_entries)
-
     # ── creditor bridge (E4, E5, E6) ──
     summ = client.get(base + "/creditors/links", params={"creditors_run": creditors_run}).json()
     api_counts = {(r["link_status"], r["coverage"]): r["bills"] for r in summ["by_status_and_coverage"]}

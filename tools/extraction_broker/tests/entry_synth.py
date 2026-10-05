@@ -48,7 +48,7 @@ def window(doc_date: str | None) -> str:
     return "CURRENT_FY" if doc_date >= "2026-04-01" else "PRIOR_YEARS_IN_COVERAGE"
 
 
-def build(tmp_path: Path, name: str = "run_20261005_960", tweak=None, statuses=None, bank_delta: bool = False, till_delta: bool = False, rows=None):
+def build(tmp_path: Path, name: str = "run_20261005_960", tweak=None, statuses=None, bank_delta: bool = False, rows=None):
     b = Builder()
     rows = rows if rows is not None else tcp.synth_rows()
     cur = [r for r in rows if window(r["document_date"]) == "CURRENT_FY"]
@@ -125,18 +125,12 @@ def build(tmp_path: Path, name: str = "run_20261005_960", tweak=None, statuses=N
             if not (dr or cr):
                 continue
             typ, tl = ("OPN", " Opening") if d == "2026-04-01" else (("RTL", "Retail Sale") if dr else ("POS", "POS Journal"))
-            no = f"T{k}-{d[-5:]}"
-            b.line(["till"], site, typ, tl, no, d, "9100", "Cash Drawer", None, None, dr, cr)
-            b.line(["till"], site, typ, tl, no, d, "8101", "Sales" if dr else "Bank Deposit In Transit", None, None, cr, dr)
         run_bal = Decimal(0)
         for d in till_days:
             dr, cr = day_amounts.get(d, (Decimal(0), Decimal(0)))
             run_bal += dr - cr
             till_rows.append({"site_code": site, "day": d, "debit": str(dr), "credit": str(cr), "cumulative_balance": str(run_bal)})
 
-    if till_delta:    # a Cash Drawer line the till view does not carry
-        b.line(["till"], "S002", "RTL", "Retail Sale", "TX1", "2026-10-03", "9100", "Cash Drawer", None, None, 1, 0)
-        b.line(["till"], "S002", "RTL", "Retail Sale", "TX1", "2026-10-03", "8101", "Sales", None, None, 0, 1)
     return finish(tmp_path, name, b, rows, till_rows, expected_status, tweak, statuses)
 
 
@@ -155,7 +149,7 @@ def finish(tmp_path, name, b, rows, till_rows, expected_status, tweak, statuses)
     run = tmp_path / name
     run.mkdir()
     S = lambda xs, k: str(sum((Decimal(x[k]) for x in xs), Decimal(0)))  # noqa: E731
-    sels = {"creditors_cur": "h1_lines_creditors_cur", "creditors_old": "h1b_lines_creditors_old", "bank": "h2_lines_bank", "till": "h3_lines_till"}
+    sels = {"creditors_cur": "h1_lines_creditors_cur", "creditors_old": "h1b_lines_creditors_old", "bank": "h2_lines_bank"}
     files = {}
     c1, c2 = [], []
     for sel, ds in sels.items():
@@ -194,7 +188,8 @@ def finish(tmp_path, name, b, rows, till_rows, expected_status, tweak, statuses)
     files["l2_till_day"] = (till_rows, ["site_code", "day", "debit", "credit", "cumulative_balance"])
     for pre in ("pre", "post"):
         files[f"c1_totals_{pre}"] = (c1, ["selection", "entries", "lines", "sum_debit", "sum_credit"])
-        files[f"c2_histogram_{pre}"] = (c2, ["selection", "lines_per_entry", "entries"])
+        if pre == "pre":
+            files["c2_histogram_pre"] = (c2, ["selection", "lines_per_entry", "entries"])
         files[f"c3_bills_{pre}"] = (c3, list(c3[0].keys()))
         files[f"c4_register_{pre}"] = ([{"register_report_date": AS_OF}], ["register_report_date"])
     if tweak:
@@ -206,5 +201,5 @@ def finish(tmp_path, name, b, rows, till_rows, expected_status, tweak, statuses)
         entries.append({"dataset": ds, "kind": "extract", "role": es.EXPECTED[ds], "source_object": "MISRETAIL.X", "logical_source": None, "copy_id": None, "query_id": 1, "query_hash": "a" * 64,
                         "extracted_at": "2026-10-05T10:00:00", "row_count": len(data), "row_cap": 1_000_000, "min_date": None, "max_date": None, "file_name": f.name, "file_size": f.stat().st_size,
                         "sha256": mf.sha256_file(f), "status": (statuses or {}).get(ds, "ok")})
-    mf.write_manifest(run, {"run_id": name, "package": "entry_pilot_01", "created_at": "x", "broker_version": "1", "manifest_version": 2, "contract": {**PACKAGE_META["entry_pilot_01"]["contract"]}, "datasets": entries})
+    mf.write_manifest(run, {"run_id": name, "package": "entry_pilot_01", "created_at": "x", "broker_version": "1", "manifest_version": 2, "contract": {k: v for k, v in PACKAGE_META["entry_pilot_01"]["contract"].items() if not (k == "as_of_cutoff" and getattr(b, "unpinned", False))}, "datasets": entries})
     return run, expected_status

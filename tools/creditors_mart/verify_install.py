@@ -105,7 +105,7 @@ def verify_cash(conn, add, one) -> None:
 ENTRY_ROLES = ["entry_owner", "entry_loader", "entry_verifier", "entry_promoter", "entry_api_reader", "entry_finance_reader"]
 ENTRY_TABLES = ["run", "entry_header", "entry_line", "entry_identity", "entry_line_text", "creditor_bill_link", "till_day", "control_result", "run_event", "load_rejection", "live_run", "promotion"]
 ENTRY_LOADER_INSERTS = {"run", "entry_header", "entry_line", "entry_identity", "entry_line_text", "creditor_bill_link", "till_day", "load_rejection"}
-ENTRY_MASKED_VIEWS = ["v_serving_run", "v_entry_header", "v_entry_line", "v_creditor_bill_link", "v_till_day", "v_control", "v_cash_drawer_entry", "v_bank_entry"]
+ENTRY_MASKED_VIEWS = ["v_serving_run", "v_entry_header", "v_entry_line", "v_creditor_bill_link", "v_till_day", "v_control", "v_bank_entry"]
 
 
 def verify_entry(conn, add, one) -> None:
@@ -211,7 +211,7 @@ def verify(conn) -> list[tuple[str, bool, str]]:
     pol = conn.execute("SELECT require_api_layer, require_ui_layer FROM cred.policy_change ORDER BY change_id DESC LIMIT 1").fetchone()
     add("initial policy: API layer required, UI layer not yet", pol == (True, False), str(pol))
     ledger = [r[0] for r in conn.execute("SELECT version FROM cred.schema_migration ORDER BY version")]
-    add("migration ledger records 001 to 005", ledger == ["001", "002", "003", "004", "005"], str(ledger))
+    add("migration ledger records 001 to 006", ledger == ["001", "002", "003", "004", "005", "006"], str(ledger))
     verify_cash(conn, add, one)
     verify_entry(conn, add, one)
     empty = {t: conn.execute(f"SELECT count(*) FROM cred.{t}").fetchone()[0] for t in TABLES if t not in ("policy_change", "schema_migration")}

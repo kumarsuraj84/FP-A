@@ -161,8 +161,8 @@ def test_n01_load_succeeds_with_every_control_and_cross_domain_check_green(env):
     assert rep["verdict"] == "PASSED", rep["hard_failures"]
     res = load_entry(env, run)
     assert (res["recon_state"], res["publication_state"]) == ("loaded", "unpublished")
-    assert res["controls"]["pass"] == res["controls"]["total"] > 40 and res["controls"]["max_abs_variance"] == "0.0000"
-    assert all(v == 0 for v in res["checks"].values()) and {"M07_E3_entry_balances", "M13_E8_till_cumulative_and_day_totals", "X04_E7_bank_lines_equal_the_review_card", "X05_E8_till_equals_the_cash_card"} <= set(res["checks"])
+    assert res["controls"]["pass"] == res["controls"]["total"] > 30 and res["controls"]["max_abs_variance"] == "0.0000"
+    assert all(v == 0 for v in res["checks"].values()) and {"M07_E3_entry_balances", "M13_E8_till_cumulative_running_balance", "X04_E7_bank_lines_equal_the_review_card", "X05_E8_till_equals_the_cash_card"} <= set(res["checks"])
     ev("N01", "load", entries=res["entries"], lines=res["lines"], links=res["links_by_status"], controls=res["controls"], checks=len(res["checks"]))
 
 
@@ -222,12 +222,17 @@ def test_n04_e7_bank_lines_that_do_not_sum_to_the_review_card_are_refused(env):
     ev("N04", "E7 bank drill must equal the review card", refused_by="X04", rows_left=0)
 
 
-def test_n05_e8_a_cash_drawer_line_the_till_view_does_not_carry_is_refused(env):
-    run, _, rep = staged(env, till_delta=True)
+def test_n05_e8_a_till_day_whose_debit_disagrees_with_the_running_balance_is_refused(env):
+    def tweak(files, b):
+        rows, cols = files["l2_till_day"]
+        rows[2]["debit"] = str(Decimal(rows[2]["debit"]) + 1)
+        files["l2_till_day"] = (rows, cols)
+
+    run, _, rep = staged(env, tweak=tweak)
     assert rep["verdict"] == "PASSED"
     e = refused(env, run)
-    assert "M13_E8_till_cumulative_and_day_totals" in e.failed or "M14_drawer_lines_without_a_till_day" in e.failed
-    ev("N05", "E8 till day totals must equal the day's lines", refused_by=sorted(k for k in e.failed if k.startswith("M1")))
+    assert "M13_E8_till_cumulative_running_balance" in e.failed
+    ev("N05", "E8 a till day's Dr/Cr must reproduce the cumulative balance", refused_by=sorted(k for k in e.failed if k.startswith("M1")))
 
 
 def test_n06_e8_cumulative_day_reconciliation_catches_a_wrong_running_balance(env):
@@ -239,12 +244,13 @@ def test_n06_e8_cumulative_day_reconciliation_catches_a_wrong_running_balance(en
     run, _, rep = staged(env, tweak=tweak)
     assert rep["verdict"] == "PASSED"
     e = refused(env, run)
-    assert "M13_E8_till_cumulative_and_day_totals" in e.failed
-    ev("N06", "E8 cumulative-day reconciliation", refused_by="M13 (running balance of all Cash Drawer lines up to the day)")
+    assert "M13_E8_till_cumulative_running_balance" in e.failed
+    ev("N06", "E8 cumulative-day reconciliation", refused_by="M13 (cumulative balance equals the running total of the store's days)")
 
 
 def test_n07_e11_a_different_snapshot_is_refused(env):
     def tweak(files, b):
+        b.unpinned = True   # staging has its own as-of gate (see test_entry_stage); here the MART lineage check must refuse on its own
         for k in ("c3_bills_pre", "c3_bills_post"):
             d, cols = files[k]
             files[k] = ([{**d[0], "cube_report_date": "2026-10-05"}], cols)
@@ -341,7 +347,7 @@ def test_n11_e12_the_database_refuses_restricted_text_to_every_role_but_finance(
     a.execute("RESET ROLE")
     a.execute("SET ROLE entry_api_reader")
     assert a.execute("SELECT count(*) FROM entry.v_entry_line").fetchone()[0] > 0
-    cols = {r[0] for r in a.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'entry' AND table_name IN ('v_entry_line', 'v_entry_header', 'v_creditor_bill_link', 'v_till_day', 'v_bank_entry', 'v_cash_drawer_entry')").fetchall()}
+    cols = {r[0] for r in a.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'entry' AND table_name IN ('v_entry_line', 'v_entry_header', 'v_creditor_bill_link', 'v_till_day', 'v_bank_entry')").fetchall()}
     a.execute("RESET ROLE")
     assert not cols & {"narration", "reference_no", "cheque_no", "prepared_by", "released_by", "entry_no", "sub_ledger_code", "counter_ledgers"}
     ev("N11", "E12 at the database privilege layer", denied_combinations=denied, finance_reads_text_only_through_the_view=True, masked_views_have_no_restricted_column=True)
@@ -467,17 +473,14 @@ def test_n16_till_drill_reconciles_store_day_entry(env):
     c = env["client"]
     ts = c.get(base("/till/stores"), params={"cash_run": CASH_RUN}).json()
     assert ts["reconciles"] and ts["label"] == "Store Till Cash" and Decimal(ts["children_sum"]["store_till_cash"]) == Decimal("11850.25")
-    n_days = n_entries = 0
+    n_days = 0
     for s in ts["stores"]:
         days = c.get(base(f"/till/stores/{s['site_code']}/days"), params={"cash_run": CASH_RUN}).json()
-        assert days["reconciles"], s["site_code"]
-        for d in days["days"]:
-            res = c.get(base(f"/till/stores/{s['site_code']}/days/{d['day']}/entries"), params={"cash_run": CASH_RUN}).json()
-            assert res["reconciles"] and res["entries"]
-            n_days += 1
-            n_entries += len(res["entries"])
-    assert n_days >= 7 and c.get(base("/till/stores/S001/days/2026-10-02/entries"), params={"cash_run": "run_19990101_001"}).status_code == 409
-    ev("N16", "till drill", stores=len(ts["stores"]), store_days_reconciled=n_days, entries=n_entries)
+        assert days["reconciles"] and days["deepest_level"] == "till_day", s["site_code"]
+        n_days += len(days["days"])
+    assert n_days >= 7 and c.get(base("/till/stores/S001/days"), params={"cash_run": "run_19990101_001"}).status_code == 409
+    assert c.get(base("/till/stores/S001/days/2026-10-02/entries"), params={"cash_run": CASH_RUN}).status_code == 404   # the POS lines are not in the layer
+    ev("N16", "till drill", stores=len(ts["stores"]), store_days_reconciled=n_days, deepest_level="till_day")
 
 
 def test_n17_creditor_bridge_semantics_are_exposed_exactly(env):
@@ -548,7 +551,7 @@ def test_n20_the_shared_run_model_shows_all_three_domains_and_creditors_is_uncha
     rows = {r[0]: r[1:] for r in a.execute("SELECT domain, run_id, mart_state FROM core.v_domain_run ORDER BY domain").fetchall()}
     assert set(rows) == {"cash", "creditors", "entries"}
     assert a.execute("SELECT recon_state, publication_state FROM cred.run").fetchone() == ("verified", "unpublished")
-    assert [r[0] for r in a.execute("SELECT version FROM cred.schema_migration ORDER BY version").fetchall()] == ["001", "002", "003", "004", "005"]
+    assert [r[0] for r in a.execute("SELECT version FROM cred.schema_migration ORDER BY version").fetchall()] == ["001", "002", "003", "004", "005", "006"]
     assert env["client"].get(f"/api/v1/creditors/runs/{CRED_RUN}/summary").status_code == 200 and env["client"].get(f"/api/v1/cash/runs/{CASH_RUN}/summary").status_code == 200
     ev("N20", "shared run model and untouched domains", domains=sorted(rows), creditors_state="verified / unpublished")
 

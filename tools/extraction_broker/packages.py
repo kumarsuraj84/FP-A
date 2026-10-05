@@ -1091,8 +1091,8 @@ VOUCHER_PROBE_03: tuple[Dataset, ...] = (
 
 # ───────────── entry_pilot_01: the entry-level extract behind the drill (contract drill-1.0) ─────────────
 # Row-level, but ONLY the entries the three pages already show: every line of every entry that (1) carries an open creditor bill, (2) touches a bank or cash ledger,
-# (3) touches the "Cash Drawer" ledger, up to the register report date; plus one link row per open creditor bill and the till view per store per day.
-# Numbers and dates leave Oracle as exact text. Source controls (entries, lines, exact Dr/Cr, lines-per-entry histogram) are computed in a different shape before and after.
+# up to the register report date; plus one link row per open creditor bill and the till view per store per day (the till drill ends at the store-day: no Cash Drawer lines).
+# Numbers and dates leave Oracle as exact text. Source controls (entries, lines, exact Dr/Cr, lines-per-entry histogram) are computed before the extract; the totals and the report dates again after it (the refresh-race guard).
 # Narration and the other free-text / identifying fields are extracted (they are needed for the Finance-only entry view) but NEVER summarised, logged or reported by any tool.
 ENTRY_RULES = {
     "contract": "drill-1.0",
@@ -1121,7 +1121,8 @@ _KEY = "(r.sitecode, r.entry_type_short, r.entry_no)"
 
 def _sel(name: str) -> tuple[str, str, str, str]:
     """-> (register table, extra FROM item, date window predicate on r, key predicate): the entries of one selection.
-    The two selections that pick entries by LEDGER (bank, till) use a join to a DISTINCT inline view, not a tuple IN: the IN form ran as a per-row filter and exceeded the broker time limit."""
+    The selection that picks entries by LEDGER (bank) uses a join to a DISTINCT inline view, not a tuple IN: the IN form ran as a per-row filter and exceeded the broker time limit.
+    There is no till selection: the till drill ends at the store-day (l2_till_day), so the ~500k POS Cash Drawer lines are not extracted."""
     cur, old = _ENTRY_SITE, _ALLYEARS
     if name == "creditors_cur":
         win = "r.entry_date >= DATE '2026-04-01'"
@@ -1140,11 +1141,6 @@ def _sel(name: str) -> tuple[str, str, str, str]:
         sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n FROM {cur} r2, {_FINGL} g2 WHERE g2.glcode = r2.entry_glcode AND g2.nature IN ('Bank', 'Cash') "
                f"AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_CUT}")
         return cur, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n"
-    if name == "till":
-        win = f"r.entry_date >= DATE '2026-04-01' AND r.entry_date <= {_CUT}"
-        sub = (f"SELECT DISTINCT r2.sitecode AS st, r2.entry_type_short AS t, r2.entry_no AS n FROM {cur} r2, {_FINGL} g2 WHERE g2.glcode = r2.entry_glcode AND g2.glname = 'Cash Drawer' "
-               f"AND r2.entry_date >= DATE '2026-04-01' AND r2.entry_date <= {_CUT}")
-        return cur, f", ({sub}) k", win, "r.sitecode = k.st AND r.entry_type_short = k.t AND r.entry_no = k.n"
     raise KeyError(name)
 
 
@@ -1159,7 +1155,7 @@ def _lines_sql(name: str, cap: int) -> str:
 
 def _totals_sql() -> str:
     parts = []
-    for name in ("creditors_cur", "creditors_old", "bank", "till"):
+    for name in ("creditors_cur", "creditors_old", "bank"):
         reg, extra, win, key = _sel(name)
         parts.append(f"SELECT '{name}' AS selection, COUNT(DISTINCT r.sitecode || '|' || r.entry_type_short || '|' || r.entry_no) AS entries, COUNT(*) AS lines, {_TM9('SUM(r.debit)', 'sum_debit')}, {_TM9('SUM(r.credit)', 'sum_credit')} "
                      f"FROM {reg} r{extra} WHERE {win} AND {key}")
@@ -1168,7 +1164,7 @@ def _totals_sql() -> str:
 
 def _histogram_sql() -> str:
     parts = []
-    for name in ("creditors_cur", "creditors_old", "bank", "till"):
+    for name in ("creditors_cur", "creditors_old", "bank"):
         reg, extra, win, key = _sel(name)
         parts.append(f"SELECT '{name}' AS selection, lines_per_entry, COUNT(*) AS entries FROM (SELECT COUNT(*) AS lines_per_entry FROM {reg} r{extra} WHERE {win} AND {key} GROUP BY r.sitecode, r.entry_type_short, r.entry_no) GROUP BY lines_per_entry")
     return _cte() + " UNION ALL ".join(parts) + " ORDER BY selection, lines_per_entry FETCH FIRST 2000 ROWS ONLY"
@@ -1220,18 +1216,16 @@ def _entry_datasets() -> tuple[Dataset, ...]:
     Dataset("h1_lines_creditors_cur", "extract", "All lines of every FY26-27 entry that carries an open creditor bill.", sql=_lines_sql("creditors_cur", 400_000), role="extract"),
     Dataset("h1b_lines_creditors_old", "extract", "All lines of every FY23-24 to FY25-26 entry that carries an open creditor bill (all-years register).", sql=_lines_sql("creditors_old", 400_000), role="extract"),
     Dataset("h2_lines_bank", "extract", "All lines of every entry that touches a bank or cash ledger, to the register report date.", sql=_lines_sql("bank", 200_000), role="extract"),
-    Dataset("h3_lines_till", "extract", "All lines of every entry that touches the Cash Drawer ledger, to the register report date.", sql=_lines_sql("till", 1_000_000), role="extract"),
     Dataset("l1a_links_current", "extract", "One row per open creditor bill dated FY26-27: the distinct register entries matched by ledger + sub-ledger + document number = entry number.", sql=_links_sql(_ENTRY_SITE, "2026-04-01", None), role="extract"),
     Dataset("l1b_links_prior", "extract", "The same for bills dated FY23-24 to FY25-26 against the all-years register.", sql=_links_sql(_ALLYEARS, "2023-04-01", "2026-03-31"), role="extract"),
     Dataset("l1c_bills_before_coverage", "extract", "Open creditor bills dated before April 2023 or without a document date: identity only (the register coverage does not reach them).", sql=_L1C_SQL, role="extract"),
     Dataset("l2_till_day", "extract", "The till view per store per day, 1 Apr 2026 to the register report date.", sql=_l2_sql(), role="extract"),
     Dataset("c1_totals_post", "extract", "The same totals after the extract.", sql=_totals_sql(), role="control_post"),
-    Dataset("c2_histogram_post", "extract", "The same histogram after the extract.", sql=_histogram_sql(), role="control_post"),
     Dataset("c3_bills_post", "extract", "The same bill counts after the extract.", sql=_bills_sql(), role="control_post"),
     Dataset("c4_register_post", "extract", "The same register report date after the extract.", sql=_register_sql(), role="control_post"),
 )
 def _entry_meta() -> dict:
-    return {"halt_on_failure": True, "contract": {**ENTRY_RULES, "caps": {"h1_lines_creditors_cur": 400_000, "h1b_lines_creditors_old": 400_000, "h2_lines_bank": 200_000, "h3_lines_till": 1_000_000, "l2_till_day": 100_000}}}
+    return {"halt_on_failure": True, "contract": {**ENTRY_RULES, "caps": {"h1_lines_creditors_cur": 400_000, "h1b_lines_creditors_old": 400_000, "h2_lines_bank": 200_000, "l2_till_day": 100_000}}}
 
 
 ENTRY_PILOT_01: tuple[Dataset, ...] = _entry_datasets()
@@ -1261,7 +1255,7 @@ def _one_total(name: str) -> str:
 
 
 # four separate timings of the source controls (the combined query exceeded the broker time limit once): evidence for where the cost is
-ENTRY_TIMING_PROBE: tuple[Dataset, ...] = tuple(Dataset(f"t_{n}", "extract", f"Totals of the {n} selection alone.", sql=_one_total(n)) for n in ("bank", "creditors_cur", "creditors_old", "till"))
+ENTRY_TIMING_PROBE: tuple[Dataset, ...] = tuple(Dataset(f"t_{n}", "extract", f"Totals of the {n} selection alone.", sql=_one_total(n)) for n in ("bank", "creditors_cur", "creditors_old"))
 
 _B = f"FROM {_O} o WHERE o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) AND o.pending <> 0 FETCH FIRST 5 ROWS ONLY"
 C3_DEBUG: tuple[Dataset, ...] = (

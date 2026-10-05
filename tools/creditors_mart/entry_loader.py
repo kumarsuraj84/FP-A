@@ -40,7 +40,7 @@ FORBIDDEN_LOGINS = {"postgres", "entry_owner", "entry_promoter", "entry_verifier
 OTHER_ROLES = ["entry_owner", "entry_promoter", "entry_verifier", "entry_api_reader", "entry_finance_reader", "cash_owner", "cash_loader", "cash_promoter", "cash_verifier", "cash_api_reader",
                "cred_owner", "cred_loader", "cred_promoter", "cred_verifier", "cred_api_reader", "cred_finance_reader"]
 SECRET_FILE = HERE.parents[1] / ".secrets" / "entry_loader.env"
-SELECTIONS = ("creditors_cur", "creditors_old", "bank", "till")
+SELECTIONS = ("creditors_cur", "creditors_old", "bank")
 
 HEADER_COLUMNS = ["entry_run_id", "entry_ref", "site_code", "entry_type_short", "entry_type_long", "entry_date", "release_status", "line_count", "total_dr", "total_cr", "selections"]
 LINE_COLUMNS = ["entry_run_id", "entry_ref", "line_no", "source_seq", "ledger_code", "ledger_name", "ledger_nature", "sub_ledger_ref", "debit", "credit", "release_status", "cube_name"]

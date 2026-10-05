@@ -126,10 +126,3 @@ def till_days(conn, run: dict, site: str) -> list[dict]:
 
 def till_day_row(conn, run: dict, site: str, day) -> dict | None:
     return conn.execute("SELECT day, debit, credit, cumulative_balance FROM entry.v_till_day WHERE entry_run_id = %s AND site_code = %s AND day = %s", (run["entry_run_id"], site, day)).fetchone()
-
-
-def till_entries(conn, run: dict, site: str, day) -> dict:
-    rows = conn.execute(
-        "SELECT entry_ref, entry_type_short, entry_type_long, sum(debit) AS debit, sum(credit) AS credit, min(release_status) AS release_status FROM entry.v_cash_drawer_entry "
-        "WHERE entry_run_id = %s AND site_code = %s AND day = %s GROUP BY entry_ref, entry_type_short, entry_type_long ORDER BY entry_type_long, entry_ref", (run["entry_run_id"], site, day)).fetchall()
-    return {"entries": rows, "debit": sum((r["debit"] for r in rows), ZERO), "credit": sum((r["credit"] for r in rows), ZERO)}
