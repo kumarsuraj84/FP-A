@@ -1228,6 +1228,13 @@ def _entry_meta() -> dict:
     return {"halt_on_failure": True, "contract": {**ENTRY_RULES, "caps": {"h1_lines_creditors_cur": 400_000, "h1b_lines_creditors_old": 400_000, "h2_lines_bank": 200_000, "l2_till_day": 100_000}}}
 
 
+# the readiness probe (see readiness.py): two tiny guarded queries, run before the package and never written to a run folder
+ENTRY_READINESS: tuple[Dataset, ...] = (
+    Dataset("ready_register", "extract", "Readiness: the current-year site register's row count and report date.",
+            sql=f"SELECT COUNT(*) AS register_rows, TO_CHAR(MAX(report_date), 'YYYY-MM-DD') AS register_report_date FROM {_ENTRY_SITE} WHERE entry_date >= DATE '2026-04-01' FETCH FIRST 5 ROWS ONLY", role="readiness"),
+    Dataset("ready_cube", "extract", "Readiness: the outstanding cube's report date.",
+            sql=f"SELECT TO_CHAR(MAX(o.report_date), 'YYYY-MM-DD') AS cube_report_date FROM {_O} o WHERE o.report_date >= DATE '2026-01-01' AND o.ledger_code IN ({_CRED_IN}) FETCH FIRST 5 ROWS ONLY", role="readiness"),
+)
 ENTRY_PILOT_01: tuple[Dataset, ...] = _entry_datasets()
 ENTRY_META = _entry_meta()
 

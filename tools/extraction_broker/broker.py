@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import guard  # noqa: E402
 import manifest as mf  # noqa: E402
 import packages  # noqa: E402
+import readiness  # noqa: E402
 from packages import PACKAGE_META, PACKAGES, Dataset  # noqa: E402
 
 BROKER_VERSION = "1"
@@ -226,6 +227,31 @@ def cmd_plan(package: str) -> int:
     return 1 if bad else 0
 
 
+BASELINE = INBOX / ".entry_register_baseline.json"
+
+
+def _probe(conn_id: int, d) -> dict | None:
+    """Run one readiness query and read its single row straight from the app's output file (nothing is copied into the inbox). None = it did not complete."""
+    try:
+        checked = guard.check(d.sql, d.kind)
+        qid = ensure_query(conn_id, f"FPA__entry_readiness__{d.name}__{checked.query_hash[:8]}", checked, f"FP&A extraction broker | readiness | {d.description}", 120)
+        st = run_and_wait(qid, 120)
+        if st["status"] != "success" or not Path(st["output_path"]).exists():
+            return None
+        rows = read_rows(Path(st["output_path"]))
+        return {k.lower(): v for k, v in rows[0].items()} if len(rows) == 1 else None
+    except (BrokerError, guard.GuardError, LookupError, OSError):
+        return None
+
+
+def check_entry_readiness(conn_id: int) -> tuple[bool, str]:
+    reg, cube = (_probe(conn_id, d) for d in packages.ENTRY_READINESS)
+    ready, reason = readiness.assess(reg, cube, readiness.load_baseline(BASELINE))
+    if ready:
+        readiness.record_baseline(BASELINE, int(float(reg["register_rows"])), str(reg["register_report_date"]))
+    return ready, reason
+
+
 def cmd_run(package: str, only: set[str] | None) -> int:
     datasets = [d for d in PACKAGES[package] if not only or d.name in only]
     if not datasets:
@@ -238,6 +264,12 @@ def cmd_run(package: str, only: set[str] | None) -> int:
     conn_id = find_oracle_connection()
     backup = backup_platform_db()
     print(f"Backed up platform.db -> {backup.name}")
+    if package == "entry_pilot_01":
+        ready, reason = check_entry_readiness(conn_id)   # before any run folder exists: a not-ready source leaves nothing that looks like a candidate run
+        if not ready:
+            print(f"SOURCE_NOT_READY — {reason}. Nothing was extracted and no run folder was created.")
+            return 3
+        print("Source ready: register non-empty, report date present and equal to the cube's.\n")
     run_id, run_dir = next_run_dir()
     print(f"Run {run_id} -> {run_dir}\n")
     m = {
