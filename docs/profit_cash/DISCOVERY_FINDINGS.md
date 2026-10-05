@@ -119,3 +119,16 @@ Sundry Debtors (ledger 1000000014) in the OUTSTANDING cube (`T$FINOTSD_533`, rep
 | Business identity | Customers (35 Dr sub-ledgers, 27 Cr) plus small SIS and non-trading supplier balances, as found earlier. Dr is almost entirely Sale Service Invoices. |
 
 **Read:** receivables behave exactly like creditors at the cube level, so a `receivables-pilot-1.0` contract can reuse the creditors rules (Document Age and Due Status as separate dimensions, due-date unavailable reported not estimated, Dr and Cr never netted, Cr side unclassified). No extract or mart has been built.
+
+---
+
+# Drill-to-entry evidence (voucher_probe_01 and voucher_probe_03)
+
+Entry identity in the registers is (site, entry type, entry number): the number alone repeats across sites and types. Entries have several lines (up to 155 on a purchase invoice).
+
+| Drill path | Result |
+|---|---|
+| Creditor bill -> GL entry | Key (ledger, sub-ledger, DOCUMENT_NO = ENTRY_NO): **FY26-27 10,239 of 10,239 open items Exact (100%), 0 ambiguous, 0 not linked, all amount-corroborated.** FY23-24 to FY25-26: 1,565 of 1,599 Exact (97.9%), 34 not linked (PI 12, PS 19, DN 2, VP 1). Document initial and entry type are different code sets (PI -> PIM, PS -> PSM, VP -> VDP, DN -> JMD, CN -> JMC, TDS -> JDT/JDR ...), so equality on type fails by design; type and site are read from the resolved entry. Reference-number keys are rejected (document no = entry reference no: 54.8% exact, 92 ambiguous, 0 amount-corroborated). Open items older than April 2023 are not covered by this register. |
+| Store Till Cash -> GL entry | The till view is the register ledger **"Cash Drawer"** (not CASH IN HAND (STORES)): drawer = register for that ledger to the paisa, per entry type (Dr 3,712,827,202.98, Cr 3,698,032,656.33, difference 0.00), including unposted entries. The register has 19,172 more zero-amount POS Journal lines than the view. |
+| Bank ledger -> GL entry | Exact by construction (the position is computed from the register lines). |
+| Attachments | Only vendor-portal objects: credit notes (44 rows, all with a name and path), invoices (43 of 7,489 with an attachment name), statement uploads (6). Portal invoices carry PINUMBER, INVOICENUMBER, CNNUMBER, DEBITNOTENUMBER, SLID and VENDORID, and credit notes carry INVOICE_ID, CN_NUMBER and DN_NUMBER: link keys exist but the match to creditor bills is unmeasured. No attachment source exists for journals, vouchers or bank entries. |
