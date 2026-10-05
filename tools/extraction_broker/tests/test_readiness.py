@@ -91,3 +91,27 @@ def test_a_ready_source_proceeds_to_the_run_and_records_the_baseline(monkeypatch
         broker.cmd_run("entry_pilot_01", None)
     assert rd.load_baseline(tmp_path / "inbox" / ".b.json")["register_rows"] == 1_000_000
     assert len(list((tmp_path / "inbox").glob("run_*"))) == 1
+
+
+def test_a_timeout_is_retried_once_but_any_other_failure_is_not(monkeypatch):
+    calls = []
+
+    def fake(answers):
+        it = iter(answers)
+        monkeypatch.setattr(broker, "run_and_wait", lambda qid, t: (calls.append(qid), next(it))[1])
+        calls.clear()
+
+    fake([{"status": "failed", "error_message": broker.TIMEOUT_MESSAGE}, {"status": "success"}])
+    assert broker.run_with_retry(1, 150, 2)["status"] == "success" and len(calls) == 2
+    fake([{"status": "failed", "error_message": broker.TIMEOUT_MESSAGE}, {"status": "failed", "error_message": broker.TIMEOUT_MESSAGE}])
+    assert broker.run_with_retry(1, 150, 2)["status"] == "failed" and len(calls) == 2          # two timeouts still halt the run
+    fake([{"status": "failed", "error_message": "ORA-00942 something real"}])
+    assert broker.run_with_retry(1, 150, 2)["status"] == "failed" and len(calls) == 1          # a real error is never retried
+    fake([{"status": "failed", "error_message": broker.TIMEOUT_MESSAGE}])
+    assert broker.run_with_retry(1, 150, 1)["status"] == "failed" and len(calls) == 1          # packages that do not ask for a retry get none
+
+
+def test_the_entry_package_asks_for_a_short_timeout_and_one_retry():
+    packages.configure_entry("2026-10-05")
+    meta = packages.PACKAGE_META["entry_pilot_01"]
+    assert meta["timeout_s"] == 150 and meta["attempts"] == 2 and meta["halt_on_failure"] is True

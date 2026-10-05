@@ -1246,7 +1246,8 @@ def _entry_datasets() -> tuple[Dataset, ...]:
     Dataset("c4_register_post", "extract", "The same register report date after the extract.", sql=_register_sql(), role="control_post"),
 )
 def _entry_meta() -> dict:
-    return {"halt_on_failure": True, "contract": {**ENTRY_RULES, "caps": {"h1_lines_creditors_cur": 400_000, "h1b_lines_creditors_old": 400_000, "h2_lines_bank": 200_000, "l2_till_day": 100_000}}}
+    # entry queries normally finish in 6-25 s; a query that has run 150 s is cancelled and tried once more (the same statement was fast on one attempt and hung on the next)
+    return {"halt_on_failure": True, "timeout_s": 150, "attempts": 2, "contract": {**ENTRY_RULES, "caps": {"h1_lines_creditors_cur": 400_000, "h1b_lines_creditors_old": 400_000, "h2_lines_bank": 200_000, "l2_till_day": 100_000}}}
 
 
 # the readiness probe (see readiness.py): two tiny guarded queries, run before the package and never written to a run folder
@@ -1604,3 +1605,17 @@ SALES_PROBE_05D: tuple[Dataset, ...] = (
                  f"{_TM9('SUM(billqty)', 'qty')} FROM {_INST(809)} WHERE {_D353} AND isvoid = 'No' AND sitecode = 353 GROUP BY billdate, taxpercent, taxdescription ORDER BY billdate, taxpercent FETCH FIRST 200 ROWS ONLY")),
 )
 PACKAGES["sales_probe_05d"] = SALES_PROBE_05D
+
+
+# ───────────── sales_probe_05e: April 2026 component sums per instance (identity check with consistent instance selection) ─────────────
+_APR = "billdate >= DATE '2026-04-01' AND billdate <= DATE '2026-04-30'"
+
+
+def _inst_sums(code: int) -> str:
+    cols = ("mrpamt", "basicamt", "saleamt", "returnamt", "promoamt", "grossamt", "itemdiscountamt", "billdiscountamt", "lpdiscountamt", "totaldiscountamt", "netamt", "taxableamt", "taxamt", "extrataxamt", "billqty")
+    sums = ", ".join(_TM9(f"SUM({c})", f"s_{c}") for c in cols)
+    return f"SELECT {code} AS instance_code, COUNT(*) AS row_n, {sums} FROM {_INST(code)} WHERE {_APR} AND isvoid = 'No' FETCH FIRST 5 ROWS ONLY"
+
+
+SALES_PROBE_05E: tuple[Dataset, ...] = tuple(Dataset(f"e{c}_april_components", "extract", f"Instance {c}, April 2026, non-void: sum of every amount component.", sql=_inst_sums(c)) for c in (196, 809))
+PACKAGES["sales_probe_05e"] = SALES_PROBE_05E

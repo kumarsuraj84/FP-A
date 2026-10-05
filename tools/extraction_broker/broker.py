@@ -165,6 +165,21 @@ def run_and_wait(qid: int, timeout_s: int) -> dict:
         raise
 
 
+TIMEOUT_MESSAGE = "broker timeout: cancelled"
+
+
+def run_with_retry(qid: int, timeout_s: int, attempts: int = 1) -> dict:
+    """run_and_wait, repeated ONLY after the broker's own timeout cancel (the queries are read-only SELECTs, so a repeat is safe). Any other failure ends it at once."""
+    st = {}
+    for n in range(1, attempts + 1):
+        st = run_and_wait(qid, timeout_s)
+        if st["status"] == "success" or st.get("error_message") != TIMEOUT_MESSAGE:
+            break
+        if n < attempts:
+            print(f"      (timed out after {timeout_s}s: attempt {n} of {attempts}, trying again)")
+    return st
+
+
 # ───────────── helpers over parquet (pyarrow is only needed here and in manifest checks) ─────────────
 
 
@@ -309,11 +324,11 @@ def cmd_run(package: str, only: set[str] | None) -> int:
             checked = guard.check(sql, d.kind)
             entry.update(source_object=first_object(checked.sql), query_hash=checked.query_hash, row_cap=checked.row_cap)
             name = f"FPA__{package}__{d.name}__{checked.query_hash[:8]}"
-            timeout_s = 300 if d.kind == "metadata" else 600
+            timeout_s = int(meta.get("timeout_s") or (300 if d.kind == "metadata" else 600))
             qid = ensure_query(conn_id, name, checked, f"FP&A extraction broker | {package} | {d.kind} | {d.description}", timeout_s)
             entry["query_id"] = qid
             t0 = time.monotonic()
-            st = run_and_wait(qid, timeout_s)
+            st = run_with_retry(qid, timeout_s, int(meta.get("attempts") or 1))
             if st["status"] != "success":
                 raise BrokerError(redact(st.get("error_message") or f"run ended with status {st['status']}"))
             out = Path(st["output_path"])
