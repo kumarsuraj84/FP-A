@@ -166,17 +166,23 @@ def run_and_wait(qid: int, timeout_s: int) -> dict:
 
 
 TIMEOUT_MESSAGE = "broker timeout: cancelled"
+ODBC_FAULT_MARKER = "returned a result with an exception set"   # the generic driver fault the same statement raised once and not the next time
+
+
+def _retryable(st: dict) -> bool:
+    msg = str(st.get("error_message") or "")
+    return msg == TIMEOUT_MESSAGE or ODBC_FAULT_MARKER in msg
 
 
 def run_with_retry(qid: int, timeout_s: int, attempts: int = 1) -> dict:
-    """run_and_wait, repeated ONLY after the broker's own timeout cancel (the queries are read-only SELECTs, so a repeat is safe). Any other failure ends it at once."""
+    """run_and_wait, repeated ONLY after the broker's own timeout cancel or the generic ODBC fault (the queries are read-only SELECTs, so a repeat is safe). Any other failure ends it at once."""
     st = {}
     for n in range(1, attempts + 1):
         st = run_and_wait(qid, timeout_s)
-        if st["status"] == "success" or st.get("error_message") != TIMEOUT_MESSAGE:
+        if st["status"] == "success" or not _retryable(st):
             break
         if n < attempts:
-            print(f"      (timed out after {timeout_s}s: attempt {n} of {attempts}, trying again)")
+            print(f"      (attempt {n} of {attempts} failed with a timeout or the generic ODBC fault: trying again)")
     return st
 
 

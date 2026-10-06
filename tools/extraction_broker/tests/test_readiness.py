@@ -115,3 +115,10 @@ def test_the_entry_package_asks_for_a_short_timeout_and_one_retry():
     packages.configure_entry("2026-10-05")
     meta = packages.PACKAGE_META["entry_pilot_01"]
     assert meta["timeout_s"] == 150 and meta["attempts"] == 2 and meta["halt_on_failure"] is True
+
+
+def test_the_generic_odbc_fault_is_retried_once_a_real_oracle_error_is_not(monkeypatch):
+    seq = iter([{"status": "failed", "error_message": "<class 'pyodbc.Error'> returned a result with an exception set"}, {"status": "success"}])
+    n = []
+    monkeypatch.setattr(broker, "run_and_wait", lambda qid, t: (n.append(1), next(seq))[1])
+    assert broker.run_with_retry(1, 150, 2)["status"] == "success" and len(n) == 2
