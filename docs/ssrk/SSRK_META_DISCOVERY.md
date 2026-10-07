@@ -59,3 +59,17 @@ Runs: `run_20261007_009` (`ssrk_meta_probe_02`) and `run_20261007_010` (`misreta
 2. Find the **`POSTCODE` range** for a month once (a bounded probe by `YCODE`), then read `FINPOST` and `FINCOSTTAG` by `POSTCODE BETWEEN` (primary key and indexed): this avoids repeated full scans of 8 M rows.
 3. Join `FINCOSTTAG` to `FINPOST` by `POSTCODE` (both indexed), never by `ENTNO`/`ENTDT` text.
 4. Run one query at a time, off business peaks if possible, and keep every statement under the broker timeout.
+
+---
+
+# Part 3: SSRK range probe (2026-10-07, 16:24)
+
+Runs `run_20261007_011` (`ssrk_range_probe_01`: financial-year master + `MIN/MAX(POSTCODE)` from the primary-key index) and `run_20261007_012` (`ssrk_range_probe_02`: 40 single-row primary-key lookups). No posting was scanned.
+
+- `ADMYEAR` (83 rows): `YCODE` 50 = FY 25-26 (2025-04-01 to 2026-03-31), **`YCODE` 51 = FY 26-27** (2026-04-01 to 2027-03-31).
+- `FINPOST.POSTCODE` runs 1,112,747,022 to 1,133,985,088 and is **monotonic with the entry date** at all 40 sample points (2016-01-20 up to 2026-10-07). It is therefore a usable range key.
+- Month windows (approximate, from the sample): FY 26-27 starts between `POSTCODE` 1,131,262,259 (2026-03-30) and 1,131,807,157 (2026-05-08); about 2.5 M of the 8.07 M postings belong to FY 26-27. Exact month boundaries come from a second, narrower lookup, not from interpolation.
+- The `POSTCODE` ranges are only an access path. The reads still carry `YCODE` and the exact `ENTDT` window as the real predicates, and every figure still has to reconcile to the verified MISRETAIL runs before anything is used.
+
+# Grant request for the DBA (read-only, SELECT only)
+The pipelines read these MISRETAIL objects, which `SSRK_RO` cannot currently see: `MAS$FINGL`, `T$FINREGSITE_844`, `T$FINREGSITE_877`, `T$FINREG_901`, `T$FINREG_886`, `T$FINOTSD_533`, `T_FINANCE_P_AND_L_STORE_MAP`, `T_FINANCE_P_AND_L_BUDGET`, `T_FINANCE_P_AND_L_BASE_*`, `T_STORE_OPENING_DATE` (and the cash / entry cubes if they are other `T$` objects). Grant `SELECT` on each to role `SSRK_READ_ONLY`; nothing else.
