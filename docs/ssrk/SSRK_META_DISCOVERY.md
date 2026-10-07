@@ -71,7 +71,8 @@ Runs `run_20261007_011` (`ssrk_range_probe_01`: financial-year master + `MIN/MAX
 - Month windows (approximate, from the sample): FY 26-27 starts between `POSTCODE` 1,131,262,259 (2026-03-30) and 1,131,807,157 (2026-05-08); about 2.5 M of the 8.07 M postings belong to FY 26-27. Exact month boundaries come from a second, narrower lookup, not from interpolation.
 - The `POSTCODE` ranges are only an access path. The reads still carry `YCODE` and the exact `ENTDT` window as the real predicates, and every figure still has to reconcile to the verified MISRETAIL runs before anything is used.
 
-# Grant request for the DBA (read-only, SELECT only)
+# (Withdrawn 2026-10-07) Grant request for the DBA
+The user confirmed the MISRETAIL `T$` registers are temporary tables and are not needed; the source of truth is the live SSRK tables. No grant is required. The text below is kept only as a record.
 The pipelines read these MISRETAIL objects, which `SSRK_RO` cannot currently see: `MAS$FINGL`, `T$FINREGSITE_844`, `T$FINREGSITE_877`, `T$FINREG_901`, `T$FINREG_886`, `T$FINOTSD_533`, `T_FINANCE_P_AND_L_STORE_MAP`, `T_FINANCE_P_AND_L_BUDGET`, `T_FINANCE_P_AND_L_BASE_*`, `T_STORE_OPENING_DATE` (and the cash / entry cubes if they are other `T$` objects). Grant `SELECT` on each to role `SSRK_READ_ONLY`; nothing else.
 
 ---
@@ -87,3 +88,16 @@ Runs `run_20261007_013` (`ssrk_range_probe_03`, finer key-to-date grid) and `run
 - **FINCOSTTAG**: 7,683 rows covering 7,486 of the 8,101 postings (the rest carry no cost-centre split); the cost-tag debit and credit totals (₹27.77 Cr, ₹26.81 Cr) differ because only some postings are tagged.
 - **Not reconciled yet**: the MISRETAIL registers are not visible to `SSRK_RO` (grant pending), so this day could not be compared with the register. The comparison is the gate before any SSRK figure feeds a page: re-sample a day that exists in a verified run (for example 2026-10-05) after the grant, and compare posting-by-posting and by ledger.
 - Tooling note: the broker marks a one-row aggregate with `FETCH FIRST 1 ROWS ONLY` as "capped" (`d2_totals`). The row is complete (8,101 postings, matching `d1`); the warning is a false positive of the cap check on cap = 1.
+
+---
+
+# Part 5: live-table review (2026-10-07, 17:00)
+
+Direction from the user: the MISRETAIL `T`/`T$` objects are temporary tables; review the live SSRK tables. The user's schema-browser screenshots (filter `*fin*`) confirm the finance family: `FINPOST`, `FINCOSTTAG`, `FINVCHMAIN/DET/DN`, `FINJRN*`, `FINSL*`, `FINGL*`, `FINGLBUD`, `FINTAG`, `FINTAG_SITEWISE(_ADJ)`, `FINENTTYPE`, `FINENTGRP`, `FINCOST`, `FINDOC_AGE_SLAB`, `FINTDS*`, `FINTAX*`, plus `GLOBAL_FIN_BALANCESHEET`, `GLOBAL_FIN_CASH_FLOW`, `GLOBAL_FIN_DOC_ADJ/POST` (global/working tables, not sources) and many `*_BKP`, `*_24_02`, `*_CHECK`, `*_DELETED`, `AUD2_*` copies (ignored). New masters worth reading: `FINENTTYPE` / `FINENTGRP` (entry-type codes such as TIA, CSM, PJN) and `FINCOST` (cost-centre master).
+
+Run `run_20261007_015` (`ssrk_logic_probe_01`, metadata) and `run_20261007_016` (`ssrk_masters_01`, small masters plus sales headers):
+- **No stored dependency leads from SSRK to the MISRETAIL `T_*` tables** (no program or view references `T_CUSTOM_COGS`), so how COGS is built there cannot be read from the dictionary; COGS has to be defined from the SSRK sources.
+- **`ADMSITE` (457 sites)**: 300 POS sites. `STORE_SIZE` is filled for only 106 sites, `STORE_STARTDT` for 180, `STORE_CLOSEDT` for 5. This is **weaker than `T_STORE_OPENING_DATE`, which gave area for 234 sites**, so `ADMSITE` does not close the area gap by itself; the two should be compared before choosing a source.
+- **`FINGL` (577 rows) and `FINGRP` (115 rows)** read cleanly (ledger name, group, type; group tree with parent and sequence): enough to rebuild the Major Group, Group, Ledger hierarchy from the live masters.
+- **`SALCSMAIN` (consignment-sale headers) is the daily consolidated sale document**: one document per site per day (202 sites on 2026-10-06, all `RELEASE_STATUS` U, net ₹3.00 Cr), monthly net ₹70 to 155 Cr. `NETAMT` is the sales value; `EXTAXAMT` is a small separate figure. **`SITE_COSTAMT` is 0 on every header, so COGS is not at header level**: it sits on the lines (`SALCSDET`: `SITE_COSTAMT`, `SITE_COSTRATE`, `COSTRATE`, 186 M rows). Whether header net equals GL "Sales - POS" (with or without GST) is not established yet.
+- Reading `SALCSDET` is the expensive step (about 130 k lines per day). If pursued it must go by `CSCODE` range for one day at a time, never a month scan.
