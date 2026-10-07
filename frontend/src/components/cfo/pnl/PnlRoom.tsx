@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, CheckCircle2, ChevronRight, X } from "lucide-react";
+import { CheckCircle2, ChevronRight, X } from "lucide-react";
 import { usePnlHierarchy, usePnlLedgers, usePnlReconciliation, usePnlRun, usePnlStore, usePnlStores, usePnlSummary, usePnlTrend } from "@/api/pnlLiveHooks";
 import { fmtDate } from "@/lib/format";
 import { DASH, fmtCr, fmtPct } from "@/lib/format";
@@ -9,6 +9,7 @@ import { Skeleton } from "../common";
 import { DataStateBadge, LiveBoundary, NotAvailable } from "../creditors/parts";
 import { Panel, WorkspaceHeader } from "../panels";
 import { monthLabel, PnlTrendChart, PnlWaterfall } from "./PnlCharts";
+import { GrowthMarginQuadrant, reference } from "./PnlQuadrant";
 
 /**
  * Store P&L actuals, on REAL data (the verified pnl mart).
@@ -65,18 +66,19 @@ function Strip({ q, filtered }: { q: PnlQuery; filtered: boolean }) {
         const g = c?.growth;
         return (
           <section aria-label="Verified figures" data-testid="pnl-strip" className="border-b bg-card">
-            <div className="grid grid-cols-6 divide-x @max-[1100px]:grid-cols-3 @max-[1100px]:divide-y @max-[640px]:grid-cols-2">
+            <div className="grid grid-cols-7 divide-x @max-[1300px]:grid-cols-4 @max-[1300px]:divide-y @max-[640px]:grid-cols-2">
               <Cell testId="strip-sales" label="Net sales ex-GST" value={cr(t.revenue)} exact={t.revenue} sub={`${monthLabel(d.scope.from_month)} to ${monthLabel(d.scope.to_month)}${d.scope.partial_last_month ? " (last month partial)" : ""}`} />
               <Cell testId="strip-gm" label="Gross margin" value={cr(t.gross_margin)} exact={t.gross_margin} sub={`${pct(t.gross_margin_pct)} of sales`} />
               <Cell testId="strip-opex" label="Store opex" value={cr(t.opex)} exact={t.opex} sub={`${pct(t.opex_pct)} of sales`} tone="" />
               <Cell testId="strip-contribution" label="Contribution" value={cr(t.contribution)} exact={t.contribution} sub={`${pct(t.contribution_pct)} of sales`} tone={tone(t.contribution)} />
               <Cell testId="strip-growth" label="Sales growth vs last year" value={g ? pct(g.revenue_pct, true) : DASH} exact={g?.revenue_pct ?? undefined} sub={c ? `${monthLabel(c.period.from_month)} to ${monthLabel(c.period.to_month)} · complete months` : "no last-year data for these months"} tone={tone(g?.revenue_pct)} />
               <Cell testId="strip-stores" label={filtered ? "Stores in this view" : "Stores trading"} value={d.stores_in_scope.toLocaleString("en-IN")} sub={filtered ? "after the filters" : "sites with sales"} />
+              <Cell testId="strip-budget" label="Budget" value="Not available" sub="no FY26-27 plan in the sources" tone="text-muted-foreground" />
             </div>
             <div data-testid="strip-note" className="border-t bg-[oklch(0.985_0.006_265)] px-4 py-1.5 text-[11.5px] text-muted-foreground">
               <span className="font-semibold text-foreground">Contribution is before other income, finance cost and head-office allocation.</span> Budget: not available (blank). {d.flags.cogs_lags_books && <>COGS runs to {fmtDate(d.flags.cogs_through)}, the books to {fmtDate(d.flags.books_through)}. </>}
               {d.flags.provisional_months.length > 0 && <>Provisional (unposted sales): {d.flags.provisional_months.map(monthLabel).join(", ")}. </>}
-              {d.excluded_unmapped.ledgers > 0 && <>{d.excluded_unmapped.ledgers} ledgers without a finance group are excluded (see Reconciliation).</>}
+              {d.excluded_unmapped.ledgers > 0 && <>{d.excluded_unmapped.ledgers} ledgers are {d.excluded_unmapped.label}: excluded from every total and listed under Reconciliation.</>}
             </div>
           </section>
         );
@@ -247,45 +249,59 @@ function StorePanel({ site, q, onClose }: { site: string; q: PnlQuery; onClose: 
   );
 }
 
-type View = "top" | "bottom" | "all";
-const SORTS: { id: string; label: string }[] = [
-  { id: "contribution", label: "Contribution" },
-  { id: "contribution_pct", label: "Contribution %" },
-  { id: "gross_margin_pct", label: "Gross margin %" },
-  { id: "revenue", label: "Net sales" },
-  { id: "growth", label: "Growth" },
+interface LeagueView { id: string; label: string; sort: string; order: "asc" | "desc"; floor: boolean; note: string }
+const VIEWS: LeagueView[] = [
+  { id: "top", label: "Top contribution", sort: "contribution", order: "desc", floor: false, note: "highest contribution ₹" },
+  { id: "bottom", label: "Bottom contribution", sort: "contribution", order: "asc", floor: false, note: "lowest contribution ₹" },
+  { id: "gm_high", label: "Highest GM %", sort: "gross_margin_pct", order: "desc", floor: true, note: "highest gross margin %" },
+  { id: "gm_low", label: "Lowest GM %", sort: "gross_margin_pct", order: "asc", floor: true, note: "lowest gross margin %" },
+  { id: "opex_high", label: "Highest opex %", sort: "opex_pct", order: "desc", floor: true, note: "highest store opex as a share of sales" },
+  { id: "grow_fast", label: "Fastest growth", sort: "growth", order: "desc", floor: true, note: "fastest sales growth vs last year" },
+  { id: "grow_down", label: "Biggest decline", sort: "growth", order: "asc", floor: true, note: "biggest sales decline vs last year" },
+  { id: "all", label: "All stores", sort: "contribution", order: "desc", floor: false, note: "every store, by contribution" },
 ];
+const FLOORS = [0, 0.5, 1, 2, 5];
 
 function League({ q, onPick, picked }: { q: PnlQuery; onPick: (s: string) => void; picked: string | null }) {
-  const [view, setView] = useState<View>("top");
-  const [sort, setSort] = useState("contribution");
+  const [viewId, setViewId] = useState("top");
+  const [floor, setFloor] = useState(1);
   const [limit, setLimit] = useState(50);
-  const order = view === "bottom" ? "asc" : "desc";
-  const lim = view === "all" ? limit : 10;
-  const stores = usePnlStores(q, sort, order, lim);
-  const tab = (id: View, label: string) => (
-    <button key={id} data-testid={`league-${id}`} aria-pressed={view === id} onClick={() => setView(id)} className={cn("press px-2.5 py-1 text-[12px] font-medium", view === id ? "bg-foreground text-background" : "hover:bg-muted")}>{label}</button>
-  );
+  const v = VIEWS.find((x) => x.id === viewId) ?? VIEWS[0];
+  const lim = v.id === "all" ? limit : 10;
+  const stores = usePnlStores(q, v.sort, v.order, lim, v.floor ? floor * 1e7 : undefined);
   return (
     <Panel
       testId="league-panel"
       eyebrow="Real · verified"
       title="Store league: who earns their place"
       right={
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1 text-[11.5px]"><span className="eyebrow">Rank by</span>
-            <select aria-label="Rank by" data-testid="league-sort" value={sort} onChange={(e) => setSort(e.target.value)} className="h-7 rounded border bg-card px-1.5 text-[12px]">
-              {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+        <div className="flex flex-wrap items-center gap-2">
+          {v.floor && (
+            <label className="flex items-center gap-1 text-[11.5px]" title="Percentage and growth rankings ignore very small stores">
+              <span className="eyebrow">Min net sales</span>
+              <select aria-label="Minimum net sales" data-testid="league-floor" value={floor} onChange={(e) => setFloor(Number(e.target.value))} className="h-7 rounded border bg-card px-1.5 text-[12px]">
+                {FLOORS.map((f) => <option key={f} value={f}>{f === 0 ? "none" : `₹${f} Cr`}</option>)}
+              </select>
+            </label>
+          )}
+          <label className="flex items-center gap-1 text-[11.5px]"><span className="eyebrow">View</span>
+            <select aria-label="League view" data-testid="league-view" value={viewId} onChange={(e) => setViewId(e.target.value)} className="h-7 rounded border bg-card px-1.5 text-[12px] font-medium">
+              {VIEWS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
             </select>
           </label>
-          <div className="flex overflow-hidden rounded border">{tab("top", "Top 10")}{tab("bottom", "Bottom 10")}{tab("all", "All stores")}</div>
         </div>
       }
     >
+      <div role="tablist" aria-label="League views" className="flex flex-wrap gap-1 border-b px-3 py-1.5" data-testid="league-tabs">
+        {VIEWS.map((x) => (
+          <button key={x.id} role="tab" data-testid={`league-${x.id}`} aria-selected={viewId === x.id} aria-pressed={viewId === x.id} onClick={() => setViewId(x.id)}
+            className={cn("press rounded px-2 py-1 text-[12px] font-medium", viewId === x.id ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>{x.label}</button>
+        ))}
+      </div>
       <LiveBoundary query={stores} skeleton={<Skeleton className="m-4 h-[260px]" />}>
         {(p) => (
           <div className="overflow-x-auto">
-            <table className="w-full text-[12.5px]" data-testid="league-table">
+            <table className="w-full text-[12.5px]" data-testid="league-table" data-view={v.id}>
               <thead>
                 <tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground">
                   <th className="px-4 py-2 font-semibold">#</th>
@@ -302,7 +318,7 @@ function League({ q, onPick, picked }: { q: PnlQuery; onPick: (s: string) => voi
               <tbody>
                 {p.stores.map((s: PnlStoreRow) => (
                   <tr key={s.site_code} data-testid={`league-row-${s.site_code}`} data-exact={s.contribution} onClick={() => onPick(s.site_code)} className={cn("cursor-pointer border-b last:border-0 hover:bg-muted/50", picked === s.site_code && "bg-[oklch(0.95_0.025_265)]")}>
-                    <td className="px-4 py-1.5 text-muted-foreground">{view === "bottom" ? p.stores_total - s.rank + 1 : s.rank}</td>
+                    <td className="px-4 py-1.5 text-muted-foreground">{s.rank}</td>
                     <td className="px-3 py-1.5"><span className="font-medium">{s.store_name ?? `Site ${s.site_code}`}</span><span className="ml-1.5 text-[10.5px] text-muted-foreground">#{s.site_code}</span>{s.vintage === "NEW STORE" && <span className="ml-1.5 rounded bg-secondary px-1 text-[10px] font-semibold">new</span>}</td>
                     <td className="px-3 py-1.5 text-muted-foreground">{[s.region, s.cluster].filter((x) => x && x !== "-").join(" · ") || DASH}</td>
                     <td className="num-mono px-3 py-1.5 text-right">{cr(s.revenue)}</td>
@@ -313,15 +329,30 @@ function League({ q, onPick, picked }: { q: PnlQuery; onPick: (s: string) => voi
                     <td className={cn("num-mono px-3 py-1.5 text-right", tone(s.growth_pct))}>{pct(s.growth_pct, true)}</td>
                   </tr>
                 ))}
+                {p.stores.length === 0 && <tr><td colSpan={9} className="px-4 py-6 text-center text-muted-foreground" data-testid="league-empty">No store qualifies{v.floor && floor > 0 ? ` at a ₹${floor} Cr net-sales floor` : ""}.</td></tr>}
               </tbody>
             </table>
             <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2 text-[11.5px] text-muted-foreground">
-              <span data-testid="league-count">{p.returned} of {p.stores_total} stores · ranked by {SORTS.find((x) => x.id === p.sort)?.label.toLowerCase()} · {p.order === "desc" ? <ArrowDown className="inline h-3 w-3" /> : <ArrowUp className="inline h-3 w-3" />} · growth over {monthLabel(p.growth_basis.from_month)} to {monthLabel(p.growth_basis.to_month)}, last year's same months</span>
-              <span data-testid="league-reconciles" className={cn("inline-flex items-center gap-1", p.reconciles ? "text-[oklch(0.4_0.12_155)]" : "tone-bad")}><CheckCircle2 className="h-3 w-3" />{p.reconciles ? `all stores add up to ${cr(p.parent.contribution)} contribution` : "does not add up"}</span>
-              {view === "all" && p.returned < p.stores_total && <button className="press rounded border px-2 py-1 font-medium hover:bg-muted" onClick={() => setLimit((l) => l + 50)} data-testid="league-more">Show more</button>}
+              <span data-testid="league-count">{p.returned} of {p.stores_total} stores · {v.note}{v.floor && floor > 0 ? ` · stores under ₹${floor} Cr net sales left out` : ""} · growth over {monthLabel(p.growth_basis.from_month)} to {monthLabel(p.growth_basis.to_month)}, last year's same months · stores with no comparable last year come last</span>
+              <span data-testid="league-reconciles" className={cn("inline-flex items-center gap-1", p.reconciles ? "text-[oklch(0.4_0.12_155)]" : "tone-bad")}><CheckCircle2 className="h-3 w-3" />{v.floor && floor > 0 ? "ranking of the stores above the floor" : p.reconciles ? `all stores add up to ${cr(p.parent.contribution)} contribution` : "does not add up"}</span>
+              {v.id === "all" && p.returned < p.stores_total && <button className="press rounded border px-2 py-1 font-medium hover:bg-muted" onClick={() => setLimit((l) => l + 50)} data-testid="league-more">Show more</button>}
             </div>
           </div>
         )}
+      </LiveBoundary>
+    </Panel>
+  );
+}
+
+function Quadrant({ q, onPick, picked }: { q: PnlQuery; onPick: (s: string) => void; picked: string | null }) {
+  const stores = usePnlStores(q, "contribution", "desc", 500, 0.5e7);
+  return (
+    <Panel testId="quadrant-panel" eyebrow="Real · verified" title="Growth × contribution margin: strong, scale, mature, turnaround">
+      <LiveBoundary query={stores} skeleton={<Skeleton className="m-4 h-[380px]" />}>
+        {(p) => {
+          const ref = reference(p.stores);
+          return <GrowthMarginQuadrant stores={p.stores} refGrowth={ref.growth} refMargin={ref.margin} onPick={onPick} picked={picked} />;
+        }}
       </LiveBoundary>
     </Panel>
   );
@@ -340,9 +371,9 @@ function Reconciliation({ q }: { q: PnlQuery }) {
                 <tbody>{d.sales_tieout.months.map((m) => <tr key={m.month} className="border-b last:border-0"><td className="px-4 py-1">{monthLabel(m.month)}</td><td className="num-mono px-3 py-1 text-right">{m.tied}/{m.site_months}</td><td className={cn("num-mono px-3 py-1 text-right", Number(m.difference) !== 0 && "text-muted-foreground")}>{cr(m.difference)}</td></tr>)}</tbody></table>
             </div>
             <div data-testid="recon-excluded">
-              <div className="border-b px-4 py-2 text-[12px]"><span className="font-semibold">{d.excluded_unmapped.count} ledgers excluded</span> (net {cr(d.excluded_unmapped.net)}): the finance mapping has no group for them. Mostly purchases and stock transfers, which reach the P&L through COGS.</div>
+              <div className="border-b px-4 py-2 text-[12px]"><span className="font-semibold">{d.excluded_unmapped.label}: {d.excluded_unmapped.count} ledgers in this period</span> ({d.excluded_unmapped.run_ledgers} across the run; net {cr(d.excluded_unmapped.net)} in the period). The finance mapping has no group for them, so none is in any total. Mostly purchases and stock transfers, which reach the P&L through COGS.</div>
               <table className="w-full text-[12px]"><tbody>{d.excluded_unmapped.ledgers.slice(0, 12).map((l) => <tr key={l.glcode} className="border-b last:border-0"><td className="px-4 py-1">{l.ledger_name}</td><td className={cn("num-mono px-3 py-1 text-right", tone(l.net))}>{cr(l.net)}</td></tr>)}</tbody></table>
-              <div className="px-4 py-1.5 text-[11px] text-muted-foreground">Finance needs to assign each to a group before it can enter the P&L.</div>
+              <div className="px-4 py-1.5 text-[11px] text-muted-foreground">Finance needs to classify each one before it can enter the P&L. None is assigned automatically.</div>
             </div>
             <div data-testid="recon-missing">
               <div className="border-b px-4 py-2 text-[12px]"><span className="font-semibold">{d.sites_without_books_sales.count} sites have sales in the COGS table but none in the books</span> ({cr(d.sites_without_books_sales.sales_ex_gst)} ex-GST). They are not stores in the league: their costs and COGS count for the company, not for a store.</div>
@@ -381,7 +412,7 @@ export function PnlRoom() {
     <div data-testid="pnl-room" className="@container flex min-w-0 flex-1 flex-col overflow-y-auto bg-background">
       <WorkspaceHeader
         eyebrow="Performance"
-        title="Store P&L"
+        title="Profitability"
         subtitle="Net sales ex-GST and store opex from the books; COGS from the COGS table. Contribution is before head-office allocation. Budget is not available."
         right={run.data ? <DataStateBadge state={run.data.data_state} run={run.data.run_id} asOf={run.data.as_of_date} /> : undefined}
       />
@@ -405,6 +436,7 @@ export function PnlRoom() {
               <LiveBoundary query={trend} skeleton={<Skeleton className="m-4 h-[300px]" />}>{(d) => <><PnlTrendChart months={d.months} /><CogsWatch months={d.months} /></>}</LiveBoundary>
             </Panel>
           </div>
+          <div className="px-3 pb-3"><Quadrant q={q} onPick={setSite} picked={site} /></div>
           <div className="grid grid-cols-[1.6fr_1fr] gap-3 px-3 pb-3 @max-[1000px]:grid-cols-1">
             <League q={q} onPick={setSite} picked={site} />
             <Panel testId="lines-panel" eyebrow="Real · verified" title="P&L lines (finance groups)">

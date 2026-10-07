@@ -73,7 +73,7 @@ export interface PnlSummary extends PnlHeader {
   comparison: PnlComparison | null;
   lines: PnlLine[];
   below_contribution: { other_income: string; finance_cost: string; after_below_the_line: string };
-  excluded_unmapped: { ledgers: number; net: string; gross_abs: string; note: string };
+  excluded_unmapped: { ledgers: number; run_ledgers: number; label: string; net: string; gross_abs: string; note: string };
   flags: PnlFlags;
   reconciliation?: {
     parent: { revenue: string; contribution: string };
@@ -172,7 +172,7 @@ export interface PnlReconciliation extends PnlHeader {
     not_tied: number;
     largest_gaps: { site_code: string; store_name: string | null; month: string; books_sales: string; cogs_table_sales_ex_gst: string; difference: string }[];
   };
-  excluded_unmapped: { explanation: string; count: number; net: string; gross_abs: string; ledgers: { glcode: string; ledger_name: string; net: string; debit: string; credit: string; sites: number }[] };
+  excluded_unmapped: { label: string; run_ledgers: number; explanation: string; count: number; net: string; gross_abs: string; ledgers: { glcode: string; ledger_name: string; net: string; debit: string; credit: string; sites: number }[] };
   sites_without_books_sales: { count: number; sales_ex_gst: string; sites: { site_code: string; store_name: string | null; sales_ex_gst: string; cogs: string }[] };
   flags: PnlFlags;
 }

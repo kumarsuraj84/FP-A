@@ -9,7 +9,7 @@ import { installPnlApi, STORES, TOTALS } from "@/test/pnlFixture";
 
 const T = { timeout: 5000 };
 
-function mount(href = "/pnl") {
+function mount(href = "/profitability") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
   const history = createMemoryHistory({ initialEntries: [href] });
   const router = createRouter({ routeTree, history, context: { queryClient } });
@@ -45,14 +45,15 @@ describe("Store P&L: the verified strip", () => {
     expect(note).toMatch(/Budget: not available \(blank\)/);
     expect(note).toMatch(/COGS runs to 06 Oct 2026, the books to 07 Oct 2026/);
     expect(note).toMatch(/Provisional \(unposted sales\): Oct 26/);
-    expect(note).toMatch(/2 ledgers without a finance group are excluded/);
+    expect(note).toMatch(/2 ledgers are Unmapped \/ Finance classification required/);
   });
 
   it("states real data and the data state, and shows no inactive Period / Compare / Scenario controls", async () => {
     mount();
     await screen.findByTestId("pnl-strip", {}, T);
     expect(screen.getByTestId("demo-banner")).toHaveAttribute("data-real", "true");
-    expect(text("demo-banner")).toMatch(/Store P&L shows REAL data \(verified candidate, not live\)/);
+    expect(text("demo-banner")).toMatch(/Profitability shows REAL data \(verified candidate, not live\)/);
+    expect(text("demo-banner")).toMatch(/Command Center is still demo data and waits for a synchronized run/);
     expect(screen.getByTestId("real-asof")).toHaveTextContent("07 Oct 2026");
     expect(screen.getByTestId("real-state")).toHaveAttribute("data-state", "verified_candidate");
     expect(screen.getByTestId("real-refresh")).toBeInTheDocument();
@@ -63,6 +64,8 @@ describe("Store P&L: the verified strip", () => {
   it("never invents a budget: the budget is a stated gap, not a figure or a variance", async () => {
     mount();
     await screen.findByTestId("unavailable-budget", {}, T);
+    await screen.findByTestId("strip-budget", {}, T);
+    expect(text("strip-budget-value")).toBe("Not available");                                  // never zero
     const room = screen.getByTestId("pnl-room");
     expect(screen.getByTestId("unavailable-budget")).toHaveTextContent(/nothing is estimated/i);
     expect(room.textContent ?? "").not.toMatch(/vs budget|budget variance|% of budget/i);
@@ -110,8 +113,7 @@ describe("Store P&L: the store league and the drill", () => {
     fireEvent.click(screen.getByTestId("league-bottom"));
     await waitFor(() => expect(rowsOf()[0]).toBe("league-row-20"), T);
     expect(calls.some((c) => c.includes("/stores") && c.includes("order=asc") && c.includes("limit=10"))).toBe(true);
-    // the bottom view numbers the worst store last, not first
-    expect(within(screen.getByTestId("league-row-20")).getAllByRole("cell")[0]).toHaveTextContent("3");
+    expect(within(screen.getByTestId("league-row-20")).getAllByRole("cell")[0]).toHaveTextContent("1");   // rank 1 of this view: the weakest store
   });
 
   it("opens a store, then the ledgers behind a group, and says each adds up", async () => {
@@ -127,6 +129,64 @@ describe("Store P&L: the store league and the drill", () => {
     expect(calls.some((c) => c.includes("/stores/10/groups/02-Employee%20Cost/ledgers"))).toBe(true);
     fireEvent.click(screen.getByTestId("store-close"));
     await waitFor(() => expect(screen.queryByTestId("store-panel")).toBeNull(), T);
+  });
+});
+
+describe("Profitability: the CFO league views", () => {
+  const tabs = ["top", "bottom", "gm_high", "gm_low", "opex_high", "grow_fast", "grow_down", "all"];
+  it("offers top and bottom contribution, highest and lowest GM %, highest opex %, fastest growth and biggest decline", async () => {
+    mount();
+    await screen.findByTestId("league-table", {}, T);
+    for (const t of tabs) expect(screen.getByTestId(`league-${t}`)).toBeInTheDocument();
+    expect(screen.getByTestId("league-tabs")).toHaveTextContent(/Top contribution.*Bottom contribution.*Highest GM %.*Lowest GM %.*Highest opex %.*Fastest growth.*Biggest decline/);
+  });
+
+  it("each view asks the API for the right ranking, and percentage and growth rankings apply a small-store floor", async () => {
+    mount();
+    await screen.findByTestId("league-table", {}, T);
+    const last = () => calls.filter((c) => c.includes("/stores?")).at(-1) ?? "";
+    for (const [tab, sort, order] of [["gm_high", "gross_margin_pct", "desc"], ["gm_low", "gross_margin_pct", "asc"], ["opex_high", "opex_pct", "desc"], ["grow_fast", "growth", "desc"], ["grow_down", "growth", "asc"]]) {
+      fireEvent.click(screen.getByTestId(`league-${tab}`));
+      await waitFor(() => expect(last()).toContain(`sort=${sort}`), T);
+      expect(last()).toContain(`order=${order}`);
+      expect(last()).toContain("min_revenue=10000000");                         // the default floor: ₹1 Cr of net sales
+      expect(screen.getByTestId("league-floor")).toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByTestId("league-top"));
+    await waitFor(() => expect(screen.getByTestId("league-table")).toHaveAttribute("data-view", "top"), T);
+    expect(screen.queryByTestId("league-floor")).toBeNull();                    // an absolute ranking needs no floor
+  });
+
+  it("puts stores with no comparable last year last in a growth ranking, never first", async () => {
+    mount();
+    await screen.findByTestId("league-table", {}, T);
+    fireEvent.click(screen.getByTestId("league-grow_down"));
+    await waitFor(() => expect(screen.getAllByTestId(/^league-row-/).map((r) => r.getAttribute("data-testid"))).toEqual(["league-row-30", "league-row-10", "league-row-20"]), T);   // -3.0%, +12.5%, then the store with no last year
+  });
+});
+
+describe("Profitability: growth × contribution margin", () => {
+  it("plots stores against the view's own growth and margin, names the quadrants, and says how many are not plotted", async () => {
+    mount();
+    await screen.findByTestId("pnl-quadrant", {}, T);
+    for (const id of ["strong", "scale", "mature", "turnaround"]) expect(screen.getByTestId(`quad-${id}`)).toBeInTheDocument();
+    // like-for-like reference of the two plotted stores: growth = (100 x 1.125 + 93 x 0.97) / 193 - 1 = 5.03%, margin = (30 + 18) / (120 + 90) = 22.86%
+    expect(Number(screen.getByTestId("ref-growth").getAttribute("data-value"))).toBeCloseTo(5.0311, 3);
+    expect(Number(screen.getByTestId("ref-margin").getAttribute("data-value"))).toBeCloseTo(22.8571, 3);
+    expect(screen.getByTestId("dot-10")).toHaveAttribute("data-quad", "strong");                 // 12.5% growth above 5.03%, 25% margin above 22.86%
+    expect(screen.getByTestId("dot-30")).toHaveAttribute("data-quad", "turnaround");             // -3% growth below, 20% margin below
+    expect(screen.queryByTestId("dot-20")).toBeNull();                                           // a new store has no comparable last year
+    expect(screen.getByTestId("quadrant-unplotted")).toHaveTextContent("1 stores are not plotted");
+    expect(screen.getByTestId("quad-strong")).toHaveAttribute("data-count", "1");
+    expect(screen.getByTestId("quad-turnaround")).toHaveAttribute("data-count", "1");
+    expect(screen.getByTestId("quad-mature")).toHaveAttribute("data-count", "0");
+  });
+
+  it("opens the store when its dot is clicked", async () => {
+    mount();
+    fireEvent.click(await screen.findByTestId("dot-10", {}, T));
+    await screen.findByTestId("store-reconciles", {}, T);
+    expect(screen.getByTestId("store-panel")).toHaveTextContent("ALPHA");
   });
 });
 
@@ -151,7 +211,8 @@ describe("Store P&L: period, filters and basis", () => {
     await screen.findByTestId("recon-panel", {}, T);
     await screen.findByTestId("recon-excluded", {}, T);
     expect(text("recon-tieout")).toMatch(/2 of 3 store-months agree within ₹1,000/);
-    expect(text("recon-excluded")).toMatch(/1 ledgers excluded/);
+    expect(text("recon-excluded")).toMatch(/Unmapped \/ Finance classification required: 1 ledgers in this period \(3 across the run/);
+    expect(text("recon-excluded")).toMatch(/None is assigned automatically/);
     expect(text("recon-excluded")).toMatch(/Mystery Fee/);
     expect(text("recon-missing")).toMatch(/1 sites have sales in the COGS table but none in the books/);
     expect(STORES.length).toBe(3);

@@ -181,7 +181,7 @@ def summary(request: Request, run_id: str, q: dict = Depends(common)):
         cogs_only = repo.cogs_only_sites(conn, run_id)
         body = {**header(run), "scope": sc.echo(), "stores_in_scope": sum(1 for c in sc.stores if sc.store_in_scope(c)), "totals": money_keys(company), "comparison": comparison(sc, (lambda c: True) if not sc.filtered else sc.store_in_scope),
                 "lines": lines, "below_contribution": {"other_income": company["other_income"], "finance_cost": company["finance_cost"], "after_below_the_line": company["contribution"] + company["other_income"] + company["finance_cost"]},
-                "excluded_unmapped": {"ledgers": unm["count"], "net": unm["net"], "gross_abs": unm["gross_abs"], "note": "Ledgers the finance mapping does not know (mainly purchases and stock transfers, which reach the P&L through COGS). Never in a total; listed on the reconciliation view."},
+                "excluded_unmapped": {"ledgers": unm["count"], "run_ledgers": repo.unmapped_run_count(conn, run_id), "label": "Unmapped / Finance classification required", "net": unm["net"], "gross_abs": unm["gross_abs"], "note": "Ledgers the finance mapping does not know (mainly purchases and stock transfers, which reach the P&L through COGS). Never in a total; listed on the reconciliation view."},
                 "flags": flags(sc, cogs_only)}
         if not sc.filtered:
             body["reconciliation"] = {"parent": {"revenue": company["revenue"], "contribution": company["contribution"]}, "children_sum": {"revenue": stores["revenue"] + non_store["revenue"], "contribution": stores["contribution"] + non_store["contribution"]},
@@ -215,7 +215,7 @@ def trend(request: Request, run_id: str, q: dict = Depends(common)):
 
 
 SORTS = {"revenue": "revenue", "gross_margin": "gross_margin", "gross_margin_pct": "gross_margin_pct", "contribution": "contribution", "contribution_pct": "contribution_pct", "opex": "opex",
-         "growth": "growth_pct", "name": "store_name", "cogs": "cogs"}
+         "opex_pct": "opex_pct", "growth": "growth_pct", "name": "store_name", "cogs": "cogs"}
 
 
 @router.get("/runs/{run_id}/stores")
@@ -352,7 +352,7 @@ def reconciliation(request: Request, run_id: str, q: dict = Depends(common)):
                    "sales_tieout": {"basis": "books (ledger 'Sales - POS', ex-GST) against the COGS table's SL_V less TAXAMT", "months": months,
                                     "site_months": sum(m["site_months"] for m in months), "tied": sum(m["tied"] for m in months), "not_tied": sum(m["site_months"] - m["tied"] for m in months),
                                     "largest_gaps": repo.untied(conn, run_id, sc.lo, sc.hi)},
-                   "excluded_unmapped": {"explanation": "Ledgers the finance mapping does not know. Excluded from every total and shown here; Finance needs to assign each to a group.", **unm},
+                   "excluded_unmapped": {"label": "Unmapped / Finance classification required", "run_ledgers": repo.unmapped_run_count(conn, run_id), "explanation": "Ledgers the finance mapping does not know. Excluded from every total and shown here; Finance needs to assign each to a group. None is assigned automatically.", **unm},
                    "sites_without_books_sales": {"count": len(cogs_only), "sales_ex_gst": sum((r["sales_ex_gst"] for r in cogs_only), ZERO), "sites": cogs_only[:25]},
                    "flags": flags(sc, cogs_only)})
 

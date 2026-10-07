@@ -38,7 +38,7 @@ describe("Navigation: one operating system", () => {
   it("each destination opens its workspace and keeps period, comparison and scenario", async () => {
     const m = mount(q("/", { period: "q2fy27", compare: "ly", scenario: "margin_pressure" }));
     fireEvent.click(await screen.findByTestId("nav-profitability", {}, T));
-    await screen.findByTestId("profitability-room", {}, T);
+    await screen.findByTestId("pnl-room", {}, T);
     await waitFor(() => expect(path(m)).toBe("/profitability"), T);
     await waitFor(() => expect(search(m)).toMatchObject({ period: "q2fy27", compare: "ly", scenario: "margin_pressure" }), T);
     expect(screen.getByTestId("nav-profitability")).toHaveAttribute("aria-current", "page");
@@ -55,57 +55,26 @@ describe("Navigation: one operating system", () => {
 });
 
 describe("Stage 3: Store Profitability", () => {
-  it("shows one dot per store, the four quadrants, and filters stores when a quadrant is chosen", async () => {
-    const m = mount(q("/profitability"));
-    await screen.findByTestId("portfolio-map", {}, T);
-    expect(screen.getAllByTestId(/^dot-/)).toHaveLength(24);
-    for (const id of ["grow", "fix", "defend", "turnaround"]) expect(screen.getByTestId(`quadrant-${id}`)).toBeInTheDocument();
-    expect(screen.getAllByTestId(/^store-row-/)).toHaveLength(24);
-
-    fireEvent.click(screen.getByTestId("quadrant-turnaround"));
-    await waitFor(() => expect(screen.getByTestId("quadrant-turnaround")).toHaveAttribute("aria-pressed", "true"), T);
-    expect(search(m).drill).toBe("profitability.portfolio/Quadrant:turnaround");
-    const rows = screen.getAllByTestId(/^store-row-/);
-    expect(rows.length).toBeLessThan(24);
-    expect(rows.length).toBeGreaterThan(0);
-    expect(crumbs()).toBe("CityKartCFO Command CenterProfitabilityTurnaround");
-
-    // clicking the active quadrant clears it, and neither step stacks browser history entries
-    fireEvent.click(screen.getByTestId("clear-quadrant-filter"));
-    await waitFor(() => expect(screen.getAllByTestId(/^store-row-/)).toHaveLength(24), T);
-    expect(search(m).drill).toBeUndefined();
-  });
-
-  it("clicking a quadrant area on the map filters too", async () => {
-    mount(q("/profitability"));
-    await screen.findByTestId("portfolio-map", {}, T);
-    fireEvent.click(screen.getByTestId("quad-area-fix"));
-    await waitFor(() => expect(screen.getByTestId("quadrant-fix")).toHaveAttribute("aria-pressed", "true"), T);
-  });
-
-  it("store → movement → driver → GL → ledger → voucher, then Back all the way, keeping the quadrant filter", async () => {
-    const m = mount(q("/profitability"));
-    await screen.findByTestId("portfolio-map", {}, T);
-    fireEvent.click(screen.getByTestId("quadrant-turnaround"));
-    fireEvent.click(await screen.findByTestId("store-row-rohini", {}, T));
+  it("store → movement → driver → GL → ledger → voucher, then Back all the way", async () => {
+    const m = mount(q("/profitability/store", { drill: "profitability.portfolio/Store:rohini" }));
 
     // store workspace: header strip, dominant bridge, trajectory, expense pressure, network comparison, why
     await screen.findByTestId("store-workspace", {}, T);
     expect(path(m)).toBe("/profitability/store");
-    expect(search(m).drill).toBe("profitability.portfolio/Quadrant:turnaround/Store:rohini");
-    expect(await screen.findByTestId("store-title", {}, T)).toHaveTextContent("Rohini");
+    expect(search(m).drill).toBe("profitability.portfolio/Store:rohini");
+    await waitFor(() => expect(screen.getByTestId("store-title")).toHaveTextContent("Rohini"), T);
     for (const k of ["revenue", "gm", "opex", "contribution", "contributionPct"]) expect(await screen.findByTestId(`kpi-${k}`, {}, T)).toBeInTheDocument();
     for (const id of ["budget_contribution", "sales_var", "gm_var", "payroll", "rent", "electricity", "logistics", "other_opex", "actual_contribution"]) expect(screen.getByTestId(`bar-${id}`)).toHaveAttribute("role", "button");
     for (const id of ["store-trajectory", "expense-pressure", "network-comparison", "why-gap"]) expect(screen.getByTestId(id)).toBeInTheDocument();
     expect(screen.queryByTestId("investigation-drawer")).toBeNull();
-    expect(crumbs()).toBe("CityKartCFO Command CenterProfitabilityTurnaroundRohini");
+    expect(crumbs()).toBe("CityKartCFO Command CenterProfitabilityRohini");
 
     // movement opens the drawer on the same page
     fireEvent.click(screen.getByTestId("bar-gm_var"));
     await within(await screen.findByTestId("investigation-drawer", {}, T)).findByTestId("drawer-amount", {}, T);
     expect(path(m)).toBe("/profitability/store");
     expect(within(drawer()).getByTestId("drawer-title")).toHaveTextContent("GM Variance");
-    expect(search(m).drill).toBe("profitability.portfolio/Quadrant:turnaround/Store:rohini/Movement:gm_var");
+    expect(search(m).drill).toBe("profitability.portfolio/Store:rohini/Movement:gm_var");
 
     // driver then GL account (terminal)
     fireEvent.click(await within(drawer()).findByTestId("drill-row-Department:Menswear", {}, T));
@@ -141,12 +110,10 @@ describe("Stage 3: Store Profitability", () => {
     await waitFor(() => expect(screen.queryByTestId("investigation-drawer")).toBeNull(), T);
     expect(await screen.findByTestId("store-title", {}, T)).toHaveTextContent("Rohini");
 
-    // Back to the portfolio: the quadrant filter is still there
+    // Back leaves the demo store workspace for the real Profitability page
     fireEvent.click(screen.getByTestId("store-back"));
-    await screen.findByTestId("profitability-room", {}, T);
+    await screen.findByTestId("pnl-room", {}, T);
     expect(path(m)).toBe("/profitability");
-    expect(search(m).drill).toBe("profitability.portfolio/Quadrant:turnaround");
-    expect(screen.getByTestId("quadrant-turnaround")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("every driver, expense and bridge bar opens a drawer for that movement", async () => {
@@ -172,14 +139,14 @@ describe("Stage 3: Store Profitability", () => {
 
   it("a store that no longer exists falls back to the portfolio, same filters", async () => {
     const m = mount(q("/profitability/store", { scenario: "cash_pressure", drill: "profitability.portfolio/Store:no-such-store" }));
-    await screen.findByTestId("profitability-room", {}, T);
+    await screen.findByTestId("pnl-room", {}, T);
     expect(path(m)).toBe("/profitability");
     expect(search(m).scenario).toBe("cash_pressure");
   });
 
   it("the store page without any drill context returns to the portfolio", async () => {
     const m = mount(q("/profitability/store"));
-    await screen.findByTestId("profitability-room", {}, T);
+    await screen.findByTestId("pnl-room", {}, T);
     expect(path(m)).toBe("/profitability");
   });
 
@@ -198,10 +165,6 @@ describe("Stage 3: Store Profitability", () => {
     expect(await screen.findByTestId("store-title", {}, T)).toHaveTextContent("Rohini");
   });
 
-  it("states: unavailable and error render honestly, never as zero", async () => {
-    mount(q("/profitability", { data: "unavailable" }));
-    expect(await screen.findByTestId("state-unavailable", {}, T)).toBeInTheDocument();
-  });
 });
 
 // Stage 4 (Cash) is now served from the verified cash mart: see cash.ui.test.tsx
@@ -216,23 +179,5 @@ describe("Polish: evidence wording, terminology, map emphasis", () => {
     for (const k of ["Source system", "Source object", "Source record key", "Extraction run", "Mart record key", "Reconciliation status", "Source last updated"]) expect(ev).toHaveTextContent(k);
     expect(ev).toHaveTextContent("Sample attachments");
     expect(ev).toHaveTextContent("Sample audit trail");
-  });
-
-  it("the hover tooltip identifies the store, its cluster and its gap", async () => {
-    mount(q("/profitability"));
-    const dot = await screen.findByTestId("dot-rohini", {}, T);
-    fireEvent.mouseEnter(dot);
-    const tip = await screen.findByTestId("quadrant-tooltip", {}, T);
-    expect(tip).toHaveTextContent("Rohini");
-    expect(tip).toHaveTextContent("Delhi NCR · Delhi");
-    expect(tip).toHaveTextContent(/Gap vs plan/);
-    expect(dot.getAttribute("opacity")).toBe("1");
-    expect(screen.getByTestId("dot-karol-bagh").getAttribute("opacity")).toBe("0.38");
-  });
-
-  it("uses one term per level: Contribution for stores, Operating profit with a pending-definition note for the company", async () => {
-    mount(q("/profitability"));
-    expect(await screen.findByTestId("pf-contribution", {}, T)).toHaveTextContent("Contribution");
-    expect(screen.getByTestId("pf-contribution")).not.toHaveTextContent("Store contribution");
   });
 });

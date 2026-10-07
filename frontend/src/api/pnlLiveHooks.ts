@@ -16,7 +16,8 @@ function useRunQuery<T>(key: string, fn: (run: string) => Promise<T>, extra: unk
 
 export const usePnlSummary = (p: PnlQuery) => useRunQuery("summary", (run) => livePnl.summary(run, p), [p]);
 export const usePnlTrend = (p: PnlQuery) => useRunQuery("trend", (run) => livePnl.trend(run, p), [p]);
-export const usePnlStores = (p: PnlQuery, sort: string, order: "asc" | "desc", limit: number) => useRunQuery("stores", (run) => livePnl.stores(run, p, { sort, order, limit }), [p, sort, order, limit]);
+export const usePnlStores = (p: PnlQuery, sort: string, order: "asc" | "desc", limit: number, minRevenueRupees?: number) =>
+  useRunQuery("stores", (run) => livePnl.stores(run, p, { sort, order, limit, min_revenue: minRevenueRupees }), [p, sort, order, limit, minRevenueRupees]);
 export const usePnlStore = (site: string | null, p: PnlQuery) => useRunQuery("store", (run) => livePnl.store(run, site as string, p), [site, p.from_month, p.to_month, p.basis], !!site);
 export const usePnlLedgers = (site: string | null, group: string | null, p: PnlQuery) =>
   useRunQuery("ledgers", (run) => livePnl.ledgers(run, site as string, group as string, p), [site, group, p.from_month, p.to_month, p.basis], !!site && !!group);

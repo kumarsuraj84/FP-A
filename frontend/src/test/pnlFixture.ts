@@ -55,7 +55,7 @@ export function installPnlApi(opts: Opts = {}) {
             { section: "STORE_OPEX", section_label: "Store operating expenses", group_label: "01-Rent", amount: String(-100 * CR), ledgers: 2 },
           ],
           below_contribution: { other_income: "0", finance_cost: "0", after_below_the_line: TOTALS.contribution },
-          excluded_unmapped: { ledgers: 2, net: String(-500 * CR), gross_abs: String(1500 * CR), note: "x" }, flags: FLAGS,
+          excluded_unmapped: { ledgers: 2, run_ledgers: 3, label: "Unmapped / Finance classification required", net: String(-500 * CR), gross_abs: String(1500 * CR), note: "x" }, flags: FLAGS,
           ...(filtered ? {} : { reconciliation: { parent: { revenue: TOTALS.revenue, contribution: TOTALS.contribution }, children_sum: { revenue: TOTALS.revenue, contribution: TOTALS.contribution }, stores: money(900 * CR, 550 * CR, -230 * CR), non_store: money(100 * CR, 50 * CR, -20 * CR), reconciles: true } }),
         });
       if (rest === "trend") {
@@ -69,8 +69,15 @@ export function installPnlApi(opts: Opts = {}) {
       if (rest === "stores") {
         const order = q.get("order") ?? "desc";
         let list = [...STORES].filter((s) => (!q.get("region") || s.region === q.get("region")) && (!q.get("vintage") || s.vintage === q.get("vintage")));
-        list.sort((a, b) => Number(a.contribution) - Number(b.contribution));
-        if (order === "desc") list.reverse();
+        const key = ({ gross_margin_pct: "gross_margin_pct", opex_pct: "opex_pct", growth: "growth_pct", contribution_pct: "contribution_pct", revenue: "revenue" } as Record<string, string>)[q.get("sort") ?? ""] ?? "contribution";
+        const floor = Number(q.get("min_revenue") ?? 0);
+        list = list.filter((s) => Number(s.revenue) >= floor);
+        const val = (s: Record<string, unknown>) => (s[key] === null || s[key] === undefined ? null : Number(s[key]));
+        list.sort((a, b) => {
+          const x = val(a), y = val(b);
+          if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;   // missing values always last
+          return order === "desc" ? y - x : x - y;
+        });
         list = list.map((s, i) => ({ ...s, rank: i + 1 }));
         const limit = Number(q.get("limit") ?? 50);
         const total = list.reduce((a, s) => a + Number(s.contribution), 0);
@@ -90,7 +97,7 @@ export function installPnlApi(opts: Opts = {}) {
       if (gl) return json({ ...HEADER, site_code: gl[1], group_label: decodeURIComponent(gl[2]), ledgers: [LEDGERS], parent: { amount: LEDGERS.amount }, children_sum: { amount: LEDGERS.amount }, reconciles: true });
       if (rest === "reconciliation")
         return json({ ...HEADER, tolerance_rupees: "1000.0000", sales_tieout: { basis: "x", months: [{ month: "2026-09-01", site_months: 3, tied: 2, books_sales: "1", table_sales: "1", difference: "0", max_abs_difference: "0" }], site_months: 3, tied: 2, not_tied: 1, largest_gaps: [] },
-          excluded_unmapped: { explanation: "x", count: 1, net: String(-5 * CR), gross_abs: String(5 * CR), ledgers: [{ glcode: "9", ledger_name: "Mystery Fee", net: String(-5 * CR), debit: "1", credit: "0", sites: 1 }] },
+          excluded_unmapped: { label: "Unmapped / Finance classification required", run_ledgers: 3, explanation: "x", count: 1, net: String(-5 * CR), gross_abs: String(5 * CR), ledgers: [{ glcode: "9", ledger_name: "Mystery Fee", net: String(-5 * CR), debit: "1", credit: "0", sites: 1 }] },
           sites_without_books_sales: { count: 1, sales_ex_gst: String(2 * CR), sites: [{ site_code: "96", store_name: "HO", sales_ex_gst: String(2 * CR), cogs: "1" }] }, flags: FLAGS });
       return json({}, 404);
     }),

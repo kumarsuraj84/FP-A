@@ -173,6 +173,11 @@ def unmapped_ledgers(conn, run_id: str, basis: str, lo: date, hi: date, limit: i
     return {"count": len(rows), "net": sum((r["net"] for r in rows), ZERO), "gross_abs": sum((abs(r["net"]) for r in rows), ZERO), "ledgers": rows[:limit]}
 
 
+def unmapped_run_count(conn, run_id: str) -> int:
+    """Ledgers with no finance group anywhere in the run (every loaded month): the period view can show fewer."""
+    return conn.execute("SELECT count(DISTINCT glcode) AS n FROM pnl.v_gl_site_month WHERE run_id = %s AND section = 'UNMAPPED'", (run_id,)).fetchone()["n"]
+
+
 def provisional_months(data: dict, lo: date, hi: date) -> list[date]:
     seen = {m for (s, m), a in data.items() if lo <= m <= hi and a["unposted_revenue"] != 0}
     return sorted(seen)

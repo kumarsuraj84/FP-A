@@ -88,6 +88,7 @@ def test_summary_defines_every_line_and_reconciles(env):
     t = {k: Decimal(str(v)) for k, v in s["totals"].items() if v is not None}
     assert t["revenue"] == 1500 and t["cogs"] == 660 and t["opex"] == -300 and t["gross_margin"] == 840 and t["contribution"] == 540
     assert s["excluded_unmapped"]["ledgers"] == 1 and Decimal(str(s["excluded_unmapped"]["net"])) == -40                  # never in a total, always shown
+    assert s["excluded_unmapped"]["run_ledgers"] == 1 and s["excluded_unmapped"]["label"] == "Unmapped / Finance classification required"
     assert s["reconciliation"]["reconciles"] is True and s["budget"] is None and "not available" in s["budget_note"]
     assert s["data_state"] == "verified_candidate" and s["scope"]["basis"] == "all" and "unposted" in s["scope"]["basis_label"]
     assert "Before other income" in s["flags"]["contribution_definition"]
@@ -196,3 +197,10 @@ def test_last_year_is_compared_over_complete_months_only_and_provisional_means_u
     t = get(env, "/trend")
     assert t["months"][-1]["growth_revenue_pct"] is None and t["months"][-1]["partial"] is True
     assert get(env, "/stores")["growth_basis"]["to_month"] == "2026-09"
+
+
+def test_the_league_can_rank_by_opex_share_and_ignore_tiny_stores(env):
+    r = get(env, "/stores", sort="opex_pct", order="desc")
+    assert r["sort"] == "opex_pct" and r["stores"][0]["site_code"] == "10"
+    big = get(env, "/stores", min_revenue="999999999999")
+    assert big["stores_total"] == 0                                              # a floor on net sales removes small stores from a percentage ranking

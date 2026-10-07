@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Banknote, BarChart3, ChevronRight, CircleDot, Landmark, LayoutDashboard, LayoutGrid, Lock, PiggyBank, RefreshCw, Scale, Store, Truck, Wallet } from "lucide-react";
+import { Banknote, ChevronRight, CircleDot, Landmark, LayoutDashboard, LayoutGrid, Lock, PiggyBank, RefreshCw, Scale, Store, Truck, Wallet } from "lucide-react";
 import { useCfo } from "@/context/CfoContext";
 import { searchFromState } from "@/context/drillUrl";
 import { CREDITORS_ORIGIN } from "@/lib/creditorNodes";
@@ -50,14 +50,14 @@ function Select<T extends string>({ label, value, options, onChange, testId, wid
 export function DemoBanner() {
   const { state, dispatch } = useCfo();
   const path = useRouterState({ select: (r) => r.location.pathname });
-  const realPage = path.startsWith("/creditors") ? "Creditors" : path.startsWith("/cash") ? "Liquidity" : path.startsWith("/pnl") ? "Store P&L" : null;
+  const realPage = path.startsWith("/creditors") ? "Creditors" : path.startsWith("/cash") ? "Liquidity" : path === "/profitability" ? "Profitability" : null;
   if (realPage) {
     // this page runs on a verified mart; every module not yet connected is still demo data and the banner says so
     return (
       <div data-testid="demo-banner" data-real="true" className="flex h-6 items-center bg-[oklch(0.94_0.06_155)] px-4 text-[11px] font-medium text-[oklch(0.32_0.1_155)]">
         <span className="flex items-center gap-1.5">
           <CircleDot className="h-3 w-3" />
-          {realPage} shows REAL data (verified candidate, not live). Command Center and the demo Profitability page are still demo data, so their figures will not match.
+          {realPage} shows REAL data (verified candidate, not live). Command Center is still demo data and waits for a synchronized run: the real pages carry different as-of dates, so their figures are not one CFO position.
         </span>
       </div>
     );
@@ -98,7 +98,7 @@ function useRealMeta(): RealMeta | null {
   const cash = useCashRun();
   const cred = useLiveRun();
   const pnl = usePnlRun();
-  const scope = path.startsWith("/cash") ? "cash" : path.startsWith("/creditors") ? "cred" : path.startsWith("/pnl") ? "pnl" : null;
+  const scope = path.startsWith("/cash") ? "cash" : path.startsWith("/creditors") ? "cred" : path === "/profitability" ? "pnl" : null;
   if (!scope) return null;
   const run = scope === "cash" ? cash : scope === "pnl" ? pnl : cred;
   if (run.isError) return { asOf: null, state: "error", stateLabel: "Real data unavailable", updated: null, scope, status: "error" };
@@ -180,21 +180,20 @@ const FUTURE = [
   { label: "Balance Sheet", icon: Landmark },
 ];
 
-type NavId = "command" | "profitability" | "pnl" | "cash" | "creditors";
+type NavId = "command" | "profitability" | "cash" | "creditors";
 
-const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: "/" | "/profitability" | "/pnl" | "/cash" | "/creditors"; testId: string; icon: typeof Truck }[] }[] = [
+const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: "/" | "/profitability" | "/cash" | "/creditors"; testId: string; icon: typeof Truck }[] }[] = [
   { group: "Command", items: [{ id: "command", label: "CFO Command Center", title: "CFO Command Center", to: "/", testId: "nav-command-center", icon: LayoutDashboard }] },
-  { group: "Performance", items: [{ id: "pnl", label: "Store P&L", title: "Store P&L actuals (verified data)", to: "/pnl", testId: "nav-pnl", icon: BarChart3 }, { id: "profitability", label: "Profitability (demo)", title: "Store Profitability (demo data)", to: "/profitability", testId: "nav-profitability", icon: Store }] },
+  { group: "Performance", items: [{ id: "profitability", label: "Profitability", title: "Store Profitability (verified data)", to: "/profitability", testId: "nav-profitability", icon: Store }] },
   { group: "Liquidity", items: [{ id: "cash", label: "Liquidity & Working Capital", title: "Liquidity & Working Capital Control", to: "/cash", testId: "nav-cash", icon: Banknote }] },
   { group: "Exposure", items: [{ id: "creditors", label: "Creditors", title: "Creditors Control", to: "/creditors", testId: "nav-creditors", icon: Truck }] },
 ];
 
-const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, pnl: null, profitability: PROFIT_ORIGIN, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN };
+const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN };
 
 /** The destination the current investigation belongs to, so a ledger or voucher still highlights its own area. */
 function activeNav(scope: string | undefined, path: string): NavId {
   if (scope === "creditors" || path.startsWith("/creditors")) return "creditors";
-  if (path.startsWith("/pnl")) return "pnl";
   if (scope === "profitability" || path.startsWith("/profitability")) return "profitability";
   if (scope === "cashroom" || path === "/cash") return "cash";
   return "command";
@@ -206,7 +205,6 @@ export function SideNav() {
   const active = activeNav(state.origin?.scope, path);
   const go: Record<NavId, () => void> = {
     command: () => dispatch({ type: "home" }),
-    pnl: () => undefined,
     profitability: () => enterRoom("profitability"),
     cash: () => enterRoom("cashroom"),
     creditors: () => enterCreditors(),
@@ -255,12 +253,12 @@ export function SideNav() {
 export function Breadcrumbs() {
   const { crumbs, goToCrumb } = useCfo();
   const path = useRouterState({ select: (x) => x.location.pathname });
-  if (path.startsWith("/pnl")) {
+  if (path === "/profitability") {
     return (
       <nav aria-label="Breadcrumb" data-testid="breadcrumbs" className="flex h-8 items-center gap-1 overflow-x-auto whitespace-nowrap border-b bg-background px-4 text-[12px]">
         <span className="text-muted-foreground">CityKart</span>
         <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
-        <span aria-current="page" className="font-semibold text-foreground">Store P&amp;L</span>
+        <span aria-current="page" className="font-semibold text-foreground">Profitability</span>
       </nav>
     );
   }

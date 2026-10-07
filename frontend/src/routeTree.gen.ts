@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as VoucherRouteImport } from './routes/voucher'
 import { Route as ProfitabilityRouteImport } from './routes/profitability'
 import { Route as ProfileRouteImport } from './routes/profile'
-import { Route as PnlRouteImport } from './routes/pnl'
 import { Route as LedgerRouteImport } from './routes/ledger'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as CreditorsRouteImport } from './routes/creditors'
@@ -35,11 +34,6 @@ const ProfitabilityRoute = ProfitabilityRouteImport.update({
 const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PnlRoute = PnlRouteImport.update({
-  id: '/pnl',
-  path: '/pnl',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LedgerRoute = LedgerRouteImport.update({
@@ -89,7 +83,6 @@ export interface FileRoutesByFullPath {
   '/creditors': typeof CreditorsRoute
   '/home': typeof HomeRoute
   '/ledger': typeof LedgerRoute
-  '/pnl': typeof PnlRoute
   '/profile': typeof ProfileRoute
   '/profitability': typeof ProfitabilityRoute
   '/voucher': typeof VoucherRoute
@@ -103,7 +96,6 @@ export interface FileRoutesByTo {
   '/creditors': typeof CreditorsRoute
   '/home': typeof HomeRoute
   '/ledger': typeof LedgerRoute
-  '/pnl': typeof PnlRoute
   '/profile': typeof ProfileRoute
   '/profitability': typeof ProfitabilityRoute
   '/voucher': typeof VoucherRoute
@@ -118,7 +110,6 @@ export interface FileRoutesById {
   '/creditors': typeof CreditorsRoute
   '/home': typeof HomeRoute
   '/ledger': typeof LedgerRoute
-  '/pnl': typeof PnlRoute
   '/profile': typeof ProfileRoute
   '/profitability': typeof ProfitabilityRoute
   '/voucher': typeof VoucherRoute
@@ -134,7 +125,6 @@ export interface FileRouteTypes {
     | '/creditors'
     | '/home'
     | '/ledger'
-    | '/pnl'
     | '/profile'
     | '/profitability'
     | '/voucher'
@@ -148,7 +138,6 @@ export interface FileRouteTypes {
     | '/creditors'
     | '/home'
     | '/ledger'
-    | '/pnl'
     | '/profile'
     | '/profitability'
     | '/voucher'
@@ -162,7 +151,6 @@ export interface FileRouteTypes {
     | '/creditors'
     | '/home'
     | '/ledger'
-    | '/pnl'
     | '/profile'
     | '/profitability'
     | '/voucher'
@@ -177,7 +165,6 @@ export interface RootRouteChildren {
   CreditorsRoute: typeof CreditorsRoute
   HomeRoute: typeof HomeRoute
   LedgerRoute: typeof LedgerRoute
-  PnlRoute: typeof PnlRoute
   ProfileRoute: typeof ProfileRoute
   ProfitabilityRoute: typeof ProfitabilityRoute
   VoucherRoute: typeof VoucherRoute
@@ -207,13 +194,6 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/profile'
       preLoaderRoute: typeof ProfileRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/pnl': {
-      id: '/pnl'
-      path: '/pnl'
-      fullPath: '/pnl'
-      preLoaderRoute: typeof PnlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/ledger': {
@@ -281,7 +261,6 @@ const rootRouteChildren: RootRouteChildren = {
   CreditorsRoute: CreditorsRoute,
   HomeRoute: HomeRoute,
   LedgerRoute: LedgerRoute,
-  PnlRoute: PnlRoute,
   ProfileRoute: ProfileRoute,
   ProfitabilityRoute: ProfitabilityRoute,
   VoucherRoute: VoucherRoute,
