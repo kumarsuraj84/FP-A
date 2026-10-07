@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import random
 import sys
+from datetime import date
 from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
@@ -40,14 +41,16 @@ def D(x) -> Decimal:
 def mart_figures(db, run_id: str, basis: str, lo: str, hi: str) -> dict:
     """The mart, grouped by PostgreSQL: per site, per section, per month."""
     cond = "AND release_status = 'Posted'" if basis == "posted" else ""
+    lo_d = date(int(lo[:4]), int(lo[5:7]), 1) if lo >= "0001" else date(1, 1, 1)
+    hi_d = date(int(hi[:4]), int(hi[5:7]), 1) if hi <= "9998" else date(9999, 12, 1)
     with db.session("pnl_verifier") as c:
         g = c.execute(f"SELECT site_code, month, section, sum(credit - debit) AS net FROM pnl.v_gl_site_month WHERE run_id = %s {cond} GROUP BY 1, 2, 3", (run_id,)).fetchall()
         k = c.execute("SELECT site_code, month, sum(cogs_v) AS cogs FROM pnl.v_cogs_site_month WHERE run_id = %s GROUP BY 1, 2", (run_id,)).fetchall()
         sites = {r["site_code"]: r for r in c.execute("SELECT * FROM pnl.v_site WHERE run_id = %s", (run_id,)).fetchall()}
         stores = {r["site_code"] for r in c.execute("SELECT site_code FROM pnl.v_gl_site_month WHERE run_id = %s AND ledger_name = 'Sales - POS' UNION SELECT site_code FROM pnl.v_cogs_site_month WHERE run_id = %s", (run_id, run_id)).fetchall()}
         run = c.execute("SELECT publication_state, as_of_date FROM pnl.v_serving_run WHERE run_id = %s", (run_id,)).fetchone()
-        tie = c.execute("SELECT count(*) AS n, count(*) FILTER (WHERE tied) AS tied, coalesce(sum(difference), 0) AS diff FROM pnl.v_sales_tieout WHERE run_id = %s", (run_id,)).fetchone()
-        unm = c.execute(f"SELECT count(DISTINCT glcode) AS n, coalesce(sum(credit - debit), 0) AS net FROM pnl.v_gl_site_month WHERE run_id = %s AND section = 'UNMAPPED' {cond}", (run_id,)).fetchone()
+        tie = c.execute("SELECT count(*) AS n, count(*) FILTER (WHERE tied) AS tied, coalesce(sum(difference), 0) AS diff FROM pnl.v_sales_tieout WHERE run_id = %s AND month BETWEEN %s AND %s", (run_id, lo_d, hi_d)).fetchone()
+        unm = c.execute(f"SELECT count(DISTINCT glcode) AS n, coalesce(sum(credit - debit), 0) AS net FROM pnl.v_gl_site_month WHERE run_id = %s AND section = 'UNMAPPED' AND month BETWEEN %s AND %s {cond}", (run_id, lo_d, hi_d)).fetchone()
     return {"gl": g, "cogs": k, "sites": sites, "stores": stores, "run": run, "tie": tie, "unmapped": unm}
 
 
@@ -72,9 +75,9 @@ def reconcile(client, db, run_id: str) -> list[Check]:
 
     api_rev: dict[str, Decimal] = {}
     for basis in ("all", "posted"):
-        m = mart_figures(db, run_id, basis, "0000-00", "9999-99")
         s = client.get(base + "/summary", params={"basis": basis}).json()
         lo, hi = s["scope"]["from_month"], s["scope"]["to_month"]
+        m = mart_figures(db, run_id, basis, lo, hi)
         f = figures(m, lo, hi)
         for key in ("revenue", "cogs", "cogs_books", "opex", "other_income", "finance_cost", "gross_margin", "contribution"):
             add("PNL-C1", f"company {key} ({basis}, {lo} to {hi})", f[key], s["totals"][key])

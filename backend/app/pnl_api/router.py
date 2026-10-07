@@ -219,6 +219,8 @@ def stores(request: Request, run_id: str, q: dict = Depends(common), sort: str =
                 if code in per_site and ly_period[0] <= mon <= ly_period[1]:
                     repo.add(per_ly.setdefault(code, repo.blank()), a)
         for code, a in per_site.items():
+            if not any(a[k] for k in ("revenue", "cogs", "cogs_books", "opex", "other_income", "finance_cost", "table_sales")):
+                continue
             t = repo.finish(a)
             if min_revenue is not None and t["revenue"] < min_revenue:
                 continue
