@@ -216,3 +216,21 @@ Run `run_20261007_035` (`cash_live_probe_01`, code `tools/extraction_broker/cash
 - The verified figure comes from the MISRETAIL view `V_FINANCE_CASH_CUMLATIVE_BLNC` (store x day debit, credit, cumulative balance). Its definition is not visible now (MISRETAIL views are not readable by `SSRK_RO`) and was not captured by any earlier discovery run.
 - The finance postings do not contain it: the till ledger CASH IN HAND(STORES) (`1114925459`) has only **17 posting rows** in FY 26-27 to 04 Oct (all at one owner site) and **no cost-tag rows**, against 209 stores with year-to-date till debits and credits in the view.
 - So the till figure is derived outside the postings, most likely from the point-of-sale settlement tables (`PSITE_POSSTLM` 300 k, `PSITE_POSSTLMDETAIL` 2.5 M, `PSITE_POSSTLMOTH`, `PSITE_POSBILLMOP` 79 M with cash tender per bill, `PSITE_DAY_STLM_ACC/OTH`). That is an inference; the cash-drawer rule (what counts as cash taken, what as banked or settled, and how the running balance is built) has to come from Finance or from the view's author before any live rebuild.
+
+---
+
+# Part 12: the 34 bank and cash ledgers rebuilt from live tables (2026-10-07, 22:50)
+
+Runs `run_20261007_036` (`cash_bank_live_01`, code `tools/extraction_broker/cash_bank_live.py`), `_037` / `_038` (two small probes on one ledger). Checker: `tools/extraction_broker/cash_bank_live_check.py`. Reference: the verified Cash run `run_20261005_013` (05 Oct).
+
+**Build.** The Cash pilot's own position SQL for the three registers is pointed at inline views over SSRK: ledgers from `FINGL` (type A, srctype B bank or C cash), the opening row from `FINGLOP`, movement from `FINPOST` with entry-type names from `FINENTTYPE`, release status P / U, site = the owner site. As-of must be today. Store till cash is not included (rule unknown, Part 11).
+
+**Result (live at 07 Oct, report date 2026-10-07):**
+- 34 ledgers in each register, 10 with entries; posted Dr 9,014,872,007.92, Cr 9,177,037,123.13; unposted Dr 147,285,265.43, Cr 254,257,599.97. The bank control is identical before and after the extract.
+- **Against the verified 05 Oct run: the opening is identical for all 34 ledgers, and every figure (opening, posted, unposted, future, contra) is identical for 29 of 34.** The five that differ are the ledgers that moved between 05 and 07 Oct (CASH IN HAND(STORES) unposted credit 24,349 to 24,860; AXIS BANK-8218, AXIS BANK-7647, OMNI CARD POOL and AXIS CC 1797 posted and unposted figures, as postings were made and released), consistent with two days of activity.
+- The site register and the GL register agree on every figure: all 34 ledgers sit on a single site (the original cube showed the same), so this tie is weak by construction.
+- The ledger figures add up to the source control to the paisa.
+
+**One hard tie fails, and it is a real finding, not a pipeline error:** the FY 25-26 closing of **AXIS BANK-8218 (CKSPL)** (`1114927514`) is ₹26,117,493.60 on the live postings, but its FY 26-27 opening in `FINGLOP` is ₹23,573,789.60: a difference of **₹2,543,704.00**. The cause: five FY 25-26 postings (dated on or before 31 Mar 2026, ₹2,543,704.00 Dr in total) were **created in July 2026**, after the year-end carry-forward of openings, so the opening was not updated. The verified 05 Oct run did not see them because its prior-year register (`T$FINREG_886`) predates July; its closing (₹23,573,789.90 before unposted, ₹23,573,789.60 with unposted) matched the opening. Finance should confirm whether the FY 26-27 opening of this ledger needs re-carrying, or whether those five entries belong in FY 26-27.
+
+**Not done:** the live bank/cash figures are not loaded into the Cash mart (the Cash schema, loader and API require the till datasets; making the till optional is a separate change that needs a decision), and no page reads them.

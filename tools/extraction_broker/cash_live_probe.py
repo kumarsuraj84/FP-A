@@ -26,3 +26,19 @@ CASH_LIVE_PROBE_01: tuple[Dataset, ...] = (
                  f"FROM SSRK.FINPOST p WHERE {_TILL} GROUP BY p.admsite_code_owner, TRUNC(p.entdt), p.release_status FETCH FIRST 100000 ROWS ONLY")),
 )
 packages.PACKAGES["cash_live_probe_01"] = CASH_LIVE_PROBE_01
+
+
+CASH_LATE_PROBE_01: tuple[Dataset, ...] = (
+    Dataset("l1_late_prior_year", "extract", "Postings on AXIS BANK-8218 (CKSPL) dated in FY25-26 but created on or after 05 Oct 2026 (what moved the prior-year closing).",
+            sql=("SELECT p.postcode, p.entcode, p.entno, p.entdt, p.enttype, p.damount, p.camount, p.release_status, p.time AS created_time, p.release_time "
+                 "FROM SSRK.FINPOST p WHERE p.entdt >= DATE '2025-04-01' AND p.entdt <= DATE '2026-03-31' AND p.glcode = 1114927514 AND p.ycode = 50 AND p.time >= DATE '2026-10-04' ORDER BY p.postcode FETCH FIRST 200 ROWS ONLY")),
+)
+packages.PACKAGES["cash_late_probe_01"] = CASH_LATE_PROBE_01
+
+
+CASH_LATE_PROBE_02: tuple[Dataset, ...] = (
+    Dataset("l2_late_by_created_month", "extract", "AXIS BANK-8218 (CKSPL), FY25-26 postings by the month they were CREATED: lines, debit, credit.",
+            sql=("SELECT TRUNC(p.time, 'MM') AS created_month, p.release_status, count(*) AS lines_n, sum(p.damount) AS debit, sum(p.camount) AS credit, min(p.entdt) AS first_entry_date, max(p.entdt) AS last_entry_date "
+                 "FROM SSRK.FINPOST p WHERE p.entdt >= DATE '2025-04-01' AND p.entdt <= DATE '2026-03-31' AND p.glcode = 1114927514 AND p.ycode = 50 GROUP BY TRUNC(p.time, 'MM'), p.release_status ORDER BY 1 FETCH FIRST 100 ROWS ONLY")),
+)
+packages.PACKAGES["cash_late_probe_02"] = CASH_LATE_PROBE_02
