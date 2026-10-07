@@ -39,6 +39,7 @@ import area_probe  # noqa: E402,F401  (registers store_area_probe_01)
 import cogs_probe  # noqa: E402,F401  (registers cogs_meta_probe_01, cogs_scan_01)
 import identity_probe  # noqa: E402,F401  (registers entry_identity_probe_01)
 import login_probe  # noqa: E402,F401  (registers login_access_probe_01)
+import ssrk_probe  # noqa: E402,F401  (registers ssrk_meta_probe_01)
 import readiness  # noqa: E402
 from packages import PACKAGE_META, PACKAGES, Dataset  # noqa: E402
 
