@@ -22,7 +22,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -130,6 +130,11 @@ def _d(v) -> date | None:
     return None if v in (None, "") else date.fromisoformat(str(v)[:10])
 
 
+def _col4(v: Decimal) -> Decimal:
+    """What a numeric(30,4) column stores: the value rounded half away from zero, as PostgreSQL does on insert."""
+    return v.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
 def expected_dims(data: dict) -> dict:
     """The extract-side figures the mart must reproduce, derived from the re-derived staging rows (not from the database)."""
     gl, cg, tie = data["gl_site_month"], data["cogs_site_month"], data["sales_tieout"]
@@ -140,7 +145,7 @@ def expected_dims(data: dict) -> dict:
         out[("P_status_net", st)] = sum((r["credit"] - r["debit"] for r in gl if r["release_status"] == st), ZERO)
     out[("P_cogs", "rows")] = Decimal(len(cg))
     for k in ("sl_v", "tax_amt", "cogs_v", "sl_q"):
-        out[("P_cogs", k)] = sum((r[k] for r in cg), ZERO)
+        out[("P_cogs", k)] = sum((_col4(r[k]) for r in cg), ZERO)
     out[("P_tieout", "rows")] = Decimal(len(tie))
     out[("P_tieout", "tied")] = Decimal(sum(1 for t in tie if t["tied"]))
     out[("P_tieout", "difference")] = sum((t["difference"] for t in tie), ZERO)
@@ -156,7 +161,7 @@ def expected_dims(data: dict) -> dict:
     out[("P_effective_area", "sum_active_days")] = Decimal(sum(e["active_days"] for e in ef))
     out[("P_effective_area", "rows_without_area")] = Decimal(sum(1 for e in ef if e["effective_area"] is None))
     for k in ("sl_v_early", "tax_early", "cogs_early", "sl_q_early"):
-        out[("P_cogs", k)] = sum((r[k] for r in cg), ZERO)
+        out[("P_cogs", k)] = sum((_col4(r[k]) for r in cg), ZERO)
     out[("P_groups", "rows")] = Decimal(len(data["group_section"]))
     return out
 
@@ -295,6 +300,8 @@ def load_run(conn, plan: Plan) -> dict:
                 conn.execute("SELECT pnl.record_control(%s,%s,%s,'extract',%s,'mart',%s)", (run_id, k[0], k[1], plan.expected.get(k, ZERO), mart.get(k, ZERO)))
             failed = conn.execute("SELECT control_id, count(*) FROM pnl.control_result WHERE run_id = %s AND verdict <> 'PASS' GROUP BY 1", (run_id,)).fetchall()
             if failed:
+                for f in conn.execute("SELECT control_id, dimension, left_value, right_value FROM pnl.control_result WHERE run_id = %s AND verdict <> 'PASS'", (run_id,)).fetchall():
+                    log.error("control %s / %s: extract %s, mart %s", *f)
                 raise LoadError("mart_controls", f"{sum(f[1] for f in failed)} control(s) have a non-zero variance", {f[0]: f[1] for f in failed})
             bad = {cid: v for cid, v in conn.execute("SELECT check_id, violations FROM pnl.mart_checks(%s)", (run_id,)) if v}
             if bad:

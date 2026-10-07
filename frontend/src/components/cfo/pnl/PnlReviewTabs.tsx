@@ -68,10 +68,10 @@ export function HeatMapTab({ q, onPick, picked }: { q: PnlQuery; onPick: (site: 
       >
         <LiveBoundary query={h} skeleton={<Skeleton className="m-4 h-[420px]" />}>
           {(d) => (
-            <div className="overflow-x-auto">
+            <div className="max-h-[72vh] overflow-auto">
               <table className="w-full text-[12px]" data-testid="heat-table" data-sort={d.sort}>
                 <thead>
-                  <tr className="border-b text-[10.5px] uppercase tracking-wider text-muted-foreground">
+                  <tr className="sticky top-0 z-20 border-b bg-card text-[10.5px] uppercase tracking-wider text-muted-foreground">
                     <th className="sticky left-0 z-10 bg-card px-3 py-2 text-left font-semibold">#</th>
                     <th className="sticky left-8 z-10 min-w-[170px] bg-card px-3 py-2 text-left font-semibold">Store</th>
                     <th className="px-3 py-2 text-left font-semibold">Region</th>

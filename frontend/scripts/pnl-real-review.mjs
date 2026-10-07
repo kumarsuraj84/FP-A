@@ -23,7 +23,6 @@ async function open(w, h) {
   page.on("response", (r) => r.status() >= 400 && errors.push(`${r.status()} ${r.url()}`));
   await page.goto(BASE + "/profitability");
   await page.waitForSelector('[data-testid="pnl-strip"]', { timeout: 30000 });
-  await page.waitForSelector('[data-testid="league-table"] tbody tr', { timeout: 30000 });
   return { ctx, page, errors };
 }
 const api = (page, p) => page.evaluate(async (x) => (await fetch(`/pnl-api/${x}`)).json(), p);
@@ -42,19 +41,7 @@ const txt = (page, id) => page.locator(`[data-testid="${id}"]`).first().innerTex
   check("banner says real data and that Command Center waits", /Profitability shows REAL data/.test(await txt(page, "demo-banner")) && /Command Center is still demo data/.test(await txt(page, "demo-banner")));
   check("header shows As of, state, refresh and no inactive Period/Compare/Scenario", (await page.locator('[data-testid="select-period"]').count()) === 0 && (await page.locator('[data-testid="real-asof"]').count()) === 1 && (await page.locator('[data-testid="real-refresh"]').count()) === 1);
   check("waterfall bars equal the API (revenue, COGS, contribution)", (await exact(page, "wf-revenue")) === String(Number(s.totals.revenue) / 1e7) && (await exact(page, "wf-contribution")) === String(Number(s.totals.contribution) / 1e7));
-  // league
-  const top = await api(page, `runs/${run}/stores?sort=contribution&order=desc&limit=10`);
-  const rows = await page.locator('[data-testid^="league-row-"]').count();
-  check("league lists 10 rows, first = API's top store", rows === 10 && (await page.locator('[data-testid^="league-row-"]').first().getAttribute("data-testid")) === `league-row-${top.stores[0].site_code}`, top.stores[0].site_code);
-  check("league says all stores add up to the parent", /add up to/.test(await txt(page, "league-reconciles")));
-  check("budget is shown as Not available, never zero", (await txt(page, "strip-budget-value")) === "Not available");
-  for (const [tab, sort, order] of [["gm_high", "gross_margin_pct", "desc"], ["gm_low", "gross_margin_pct", "asc"], ["opex_high", "opex_pct", "desc"], ["grow_fast", "growth", "desc"], ["grow_down", "growth", "asc"]]) {
-    await page.click(`[data-testid="league-${tab}"]`);
-    await page.waitForTimeout(900);
-    const api_ = await api(page, `runs/${run}/stores?sort=${sort}&order=${order}&limit=10&min_revenue=10000000`);
-    const first = await page.locator('[data-testid^="league-row-"]').first().getAttribute("data-testid");
-    check(`league ${tab}: first row = API's ${sort} ${order}`, first === `league-row-${api_.stores[0].site_code}`, api_.stores[0].site_code);
-  }
+  await page.waitForSelector('[data-testid^="dot-"]', { timeout: 30000 });
   {
     const all = await api(page, `runs/${run}/stores?sort=contribution&order=desc&limit=500&min_revenue=5000000`);
     const plottable = all.stores.filter((x) => x.growth_pct !== null && x.contribution_pct !== null).length;
@@ -66,6 +53,21 @@ const txt = (page, id) => page.locator(`[data-testid="${id}"]`).first().innerTex
     const cur = ok.reduce((a, x) => a + Number(x.last_year_revenue) * (1 + Number(x.growth_pct) / 100), 0);
     const refG = await page.locator('[data-testid="ref-growth"]').getAttribute("data-value");
     check("quadrant reference growth = like-for-like growth of the plotted stores", Math.abs(Number(refG) - (cur / ly - 1) * 100) < 0.001, refG);
+  }
+  // league (Store Review tab)
+  await page.click('[data-testid="tab-stores"]');
+  await page.waitForSelector('[data-testid="league-table"] tbody tr', { timeout: 30000 });
+  const top = await api(page, `runs/${run}/stores?sort=contribution&order=desc&limit=10`);
+  const rows = await page.locator('[data-testid^="league-row-"]').count();
+  check("league lists 10 rows, first = API's top store", rows === 10 && (await page.locator('[data-testid^="league-row-"]').first().getAttribute("data-testid")) === `league-row-${top.stores[0].site_code}`, top.stores[0].site_code);
+  check("league says all stores add up to the parent", /add up to/.test(await txt(page, "league-reconciles")));
+  check("budget is shown as Not available, never zero", (await txt(page, "strip-budget-value")) === "Not available");
+  for (const [tab, sort, order] of [["gm_high", "gross_margin_pct", "desc"], ["gm_low", "gross_margin_pct", "asc"], ["opex_high", "opex_pct", "desc"], ["grow_fast", "growth", "desc"], ["grow_down", "growth", "asc"]]) {
+    await page.click(`[data-testid="league-${tab}"]`);
+    await page.waitForTimeout(900);
+    const api_ = await api(page, `runs/${run}/stores?sort=${sort}&order=${order}&limit=10&min_revenue=10000000`);
+    const first = await page.locator('[data-testid^="league-row-"]').first().getAttribute("data-testid");
+    check(`league ${tab}: first row = API's ${sort} ${order}`, first === `league-row-${api_.stores[0].site_code}`, api_.stores[0].site_code);
   }
   await page.click('[data-testid="league-bottom"]');
   await page.waitForTimeout(800);
@@ -90,6 +92,46 @@ const txt = (page, id) => page.locator(`[data-testid="${id}"]`).first().innerTex
   await page.screenshot({ path: OUT + "pnl-1440-filtered.png", fullPage: true });
   check("no page errors or failed requests (1440)", errors.length === 0, errors.slice(0, 3).join(" | "));
   await ctx.close();
+}
+{
+  // the review tabs against the API, at both desktop widths
+  for (const [w, h] of [[1440, 900], [1920, 1080]]) {
+    const { ctx, page, errors } = await open(w, h);
+    const run = (await api(page, "current")).run_id;
+    const tab = async (id, sel) => { await page.click(`[data-testid="tab-${id}"]`); await page.waitForSelector(sel, { timeout: 60000 }); };
+    await tab("pivot", '[data-testid="pivot-table"]');
+    const pv = await api(page, `runs/${run}/pivot?mode=stores`);
+    const rev = pv.rows.find((r) => r.id === "revenue");
+    check(`${w}: pivot YTD net sales = API (exact)`, (await exact(page, "pv-revenue-ytd")) === rev.cells.ytd, rev.cells.ytd);
+    check(`${w}: pivot says day aligned and keeps Unmapped out of totals`, /day aligned/i.test(await txt(page, "pivot-note")) && /Unmapped \/ Finance classification required/.test(await txt(page, "pivot-note")));
+    await page.screenshot({ path: OUT + `pnl-pivot-${w}.png`, fullPage: true });
+    await tab("comparison", '[data-testid="comparison-table"]');
+    const cp = await api(page, `runs/${run}/comparison`);
+    const ytd = cp.windows.find((x) => x.id === "ytd");
+    check(`${w}: comparison YTD revenue = API (exact)`, (await exact(page, "cmp-revenue-ytd-ty")) === ytd.ty.revenue, ytd.ty.revenue);
+    await page.screenshot({ path: OUT + `pnl-comparison-${w}.png`, fullPage: true });
+    await tab("heatmap", '[data-testid="heat-table"]');
+    const hm = await api(page, `runs/${run}/heatmap?sort=worst_contribution_pct&limit=500&min_revenue_cr=1`);
+    const first = await page.locator('[data-testid^="heat-row-"]').first().getAttribute("data-testid");
+    check(`${w}: heat map first row = API's first (worst contribution %)`, hm.stores.length > 0 && first === `heat-row-${hm.stores[0].site_code}`, first);
+    await page.screenshot({ path: OUT + `pnl-heatmap-${w}.png`, fullPage: true });
+    await tab("expense-exceptions", '[data-testid="expense-exceptions-table"]');
+    const ex = await api(page, `runs/${run}/exceptions/expenses`);
+    check(`${w}: expense exceptions count = API`, Number((await page.locator('[data-testid="sev-Critical"]').getAttribute("data-count"))) === (ex.by_severity.Critical ?? 0), JSON.stringify(ex.by_severity));
+    await page.screenshot({ path: OUT + `pnl-expense-exceptions-${w}.png`, fullPage: true });
+    await tab("revenue-exceptions", '[data-testid="tab-revenue-exceptions-body"] table, [data-testid="exc-empty"]');
+    await page.screenshot({ path: OUT + `pnl-revenue-exceptions-${w}.png`, fullPage: true });
+    await tab("peers", '[data-testid="peer-table"]');
+    check(`${w}: peers state their basis`, /vintage|state|network|region/.test(await txt(page, "peer-basis")));
+    await page.screenshot({ path: OUT + `pnl-peers-${w}.png`, fullPage: true });
+    await tab("quality", '[data-testid="quality-area"]');
+    const ql = await api(page, `runs/${run}/quality`);
+    check(`${w}: quality stores without area = API`, (await txt(page, "quality-area")).includes(String(ql.stores_without_area.count)), String(ql.stores_without_area.count));
+    await page.screenshot({ path: OUT + `pnl-quality-${w}.png`, fullPage: true });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2);
+    check(`${w}: review tabs: no horizontal page scroll, no errors`, !overflow && errors.length === 0, errors.slice(0, 3).join(" | "));
+    await ctx.close();
+  }
 }
 {
   const { ctx, page } = await open(1440, 900);
