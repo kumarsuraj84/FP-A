@@ -104,3 +104,20 @@ Run `run_20261007_015` (`ssrk_logic_probe_01`, metadata) and `run_20261007_016` 
 
 ## Correction (2026-10-07, 17:00): COGS stays on `T_CUSTOM_COGS`
 The user clarified that `MISRETAIL.T_CUSTOM_COGS` is a custom table built specifically for COGS calculation: it is the COGS source and is not rebuilt from `SALCSDET`. It is visible to `SSRK_RO` (104 M rows) and the P&L already uses it. The `SALCSMAIN` / `SALCSDET` findings above are therefore background only. What changes with the live-table direction is the **books side** (ledger postings): `FINPOST` + `FINGL` / `FINGRP` + `ADMSITE`, in place of the temporary `T$FINREGSITE_*` registers, with a month-by-site-by-ledger reconciliation against the verified P&L run before use.
+
+---
+
+# Part 6: live books (SSRK `FINPOST` + `FINCOSTTAG`) reconciled to the verified P&L run (2026-10-07, 17:10)
+
+Runs `run_20261007_017` / `_018` (April 2026, two site-dimension tests) and `run_20261007_019` (May to October 2026). Package code: `tools/extraction_broker/ssrk_books.py`. Compared with `run_20261007_005` (`g_YYYY_MM`, the books taken from the `T$FINREGSITE` registers earlier on 07 Oct).
+
+**Query shape (one per month, about 6 to 10 s each):** `FINPOST p JOIN FINGL g (TYPE in E, I) JOIN FINCOSTTAG c ON c.POSTCODE = p.POSTCODE`, `p.YCODE = 51`, `p.POSTCODE >=` a lower bound about two weeks before the month, exact `ENTDT` month; grouped by `c.ADMSITE_CODE`, ledger, entry type and release status. The money is taken from the cost-tag split (`c.DAMOUNT` / `c.CAMOUNT`).
+
+**Findings**
+- **The register's site is the cost-tag site (`FINCOSTTAG.ADMSITE_CODE`)**, not `FINPOST.ADMSITE_CODE_OWNER` or `REF_ADMSITE_CODE` (those matched only 594 and 3,582 of 9,697 April keys). Using the cost tag, April matches **9,695 of 9,697 site / ledger / entry-type / status keys exactly** (debit, credit and line count), with identical totals: debit ₹1,696,303,337.77, credit ₹2,494,487,657.37, 55,374 lines. The two other keys differ only in release status (`Unposted` in the register, `Posted` live; ₹1.10 in total): the entries were released after the register was taken.
+- **Postings with no cost tag: none** for P&L ledgers in April (0 rows).
+- **May to August** (live against the morning register): 11,440 of 11,441, 10,651 of 10,651, 10,936 of 10,937 and 11,942 of 11,957 keys exact; month-total differences are at most ₹0.50, except July (one line, debit ₹68,333 lower live). These look like entries edited or removed after the register snapshot; that is an inference, not proven.
+- **September and October** differ more (September +₹1.72 Cr debit, +843 lines; October +₹9.85 Cr debit, +703 lines): consistent with late September postings and the current month's postings made since the register snapshot (October is still being posted), again an inference.
+- **Entry types** decode through `FINENTTYPE` (62 rows) and `FINENTGRP` (6 rows), for example CSM / CSD = Retail Sale, CTC / CTD / CTM = Consignment / Stock Transfer, JDJ = Journal; `FINCOST` is empty (0 rows).
+
+**Conclusion:** the live SSRK finance tables reproduce the verified books to the rupee wherever no posting has changed since the snapshot, so the books side of the P&L can be sourced from them. Not done yet: FY 25-26 months (`YCODE` 50), staging and loading as a new run, and a same-moment comparison (the registers are no longer to be used, so drift can only be explained by re-running twice).
