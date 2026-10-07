@@ -121,3 +121,21 @@ Runs `run_20261007_017` / `_018` (April 2026, two site-dimension tests) and `run
 - **Entry types** decode through `FINENTTYPE` (62 rows) and `FINENTGRP` (6 rows), for example CSM / CSD = Retail Sale, CTC / CTD / CTM = Consignment / Stock Transfer, JDJ = Journal; `FINCOST` is empty (0 rows).
 
 **Conclusion:** the live SSRK finance tables reproduce the verified books to the rupee wherever no posting has changed since the snapshot, so the books side of the P&L can be sourced from them. Not done yet: FY 25-26 months (`YCODE` 50), staging and loading as a new run, and a same-moment comparison (the registers are no longer to be used, so drift can only be explained by re-running twice).
+
+---
+
+# Part 7: the MIS cubes seen from SSRK (2026-10-07, 17:20)
+
+Runs `run_20261007_020` (`ssrk_cube_probe_01`, metadata only; plus the earlier `s1_tables` / `s4_columns`).
+
+- SSRK holds about 100 cube **template** tables `MIS_CUBE$*` (finance: `FINREGSITE`, `FINREG`, `FINREGSL`, `FINOTSD`, `BANKREG`, `BUDGETANALYSIS`, `FINTDS`; sales: `POSBILLSUMM`, `POSBILLDET`, `RETAILSALE`, `COMPANYSALE`, `POSDSR`; purchase, stock, production and others). **They are empty (0 rows)**: each carries the run columns `CUBE_CODE`, `CUBENAME`, `CREATOR`, `REPORT_DATE`, `START_DATE`, `END_DATE` and the report fields. A cube run for a chosen period is produced by the application (it is what created the `T$FINREGSITE_<n>` copies in MISRETAIL, the temporary tables); the code that generates it is not visible to `SSRK_RO` (only 9 stored programs are visible, none related to cubes) and a read-only login must not run it.
+- **So a cube for a period is reproduced from the live base tables, not requested.** This is already proven for one: `MIS_CUBE$FINREGSITE` equals `FINPOST` joined to `FINCOSTTAG` (site = cost-tag site) and `FINENTTYPE` (short / long type), release status P / U, debit / credit from the cost-tag split (Part 6: April exact, the other months within snapshot drift). The template columns are the specification to follow.
+- Definitions of the cubes already used by the pipelines, to be rebuilt the same way and each reconciled to its verified run before use:
+
+| Cube (template) | Used by | Live source to rebuild from |
+|---|---|---|
+| `FINREGSITE` | P&L books, Entry | `FINPOST` + `FINCOSTTAG` + `FINGL` + `FINENTTYPE` (done for P&L ledgers) |
+| `FINOTSD` (outstanding by document: due date, amount, adjusted, pending, DR/CR, sub-ledger) | Creditors | `FINPOST` (`DUEDT`, `DAMOUNT` / `CAMOUNT`, `ADJAMT`) + `FINSL` + `FINTAG` |
+| `BANKREG` (bank voucher: GL, SL, cheque, balance) | Cash / bank | `FINVCHMAIN` / `FINVCHDET` / `FINPOST` for bank ledgers |
+| `POSBILLSUMM` (bill header: qty, MRP, discounts, net, tax) | Sales / till | `PSITE_POSBILL` (note: the template carries customer name, mobile and e-mail columns, which are never read) |
+| `BUDGETANALYSIS` (budget vs actual by ledger, site, month) | Budget (deferred) | `FINGLBUD` |
