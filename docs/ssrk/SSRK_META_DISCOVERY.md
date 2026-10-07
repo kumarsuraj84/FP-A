@@ -157,3 +157,24 @@ Runs `run_20261007_021` (`ssrk_otsd_probe_01`: 300 sampled documents) and `run_2
 - The two days between the snapshot and now (06 and 07 Oct) are enough to explain item-level differences, but **not proven to explain the size of the Expenses-ledger movement**. This is why the position cannot be called reconciled.
 
 **What would prove it:** reconstruct the position as of 05 Oct from live data instead of comparing today's with it: take postings created up to the snapshot (`ECODE` / `TIME` on the posting) and subtract only the adjustments recorded up to that time (`FINTAG`: `POSTCODE1`, `POSTCODE2`, `AMOUNT`, `TIME`). First check whether `FINPOST.ADJAMT` equals the sum of `FINTAG` amounts for the posting. If the reconstructed 05 Oct position equals the cube's 12,275 items and ₹-295.10 Cr, the rebuild is exact.
+
+---
+
+# Part 9: point-in-time reconstruction of the creditors position (2026-10-07, 20:50)
+
+Runs `run_20261007_023` (`ssrk_fintag_probe_01`), `_024` (rule A), `_025` (rule B), `_026` (rule C, four times), `_027` (rule C, four later times). Code: `tools/extraction_broker/ssrk_otsd.py`. Target: the 05 Oct cube snapshot in the verified Creditors run `run_20261005_012` (12,275 open items, net pending -₹295.0955 Cr).
+
+**`FINTAG` is the adjustment ledger.** `FINPOST.ADJAMT` equals the sum of `FINTAG.AMOUNT` over both sides (`POSTCODE1`, `POSTCODE2`) for 529 of 532 sampled postings; each `FINTAG` row carries the time of the adjustment (`TIME`). The three that differ show `ADJAMT` changing without a `FINTAG` row (round-off style adjustments).
+
+**Rules tried** (position as of a moment T = postings created before T, minus adjustments made before T):
+- **A** (FINTAG only): 13,850 items, 1,581 too many. Rejected: about 900 old items settled by adjustments that `FINTAG` does not show.
+- **B** (`ADJAMT` as now when the posting's last-access time is before T): 616 items missing. Rejected: `LAST_ACCESS_TIME` is not updated by adjustments, so it cannot date them.
+- **C (accepted)**: use the `FINTAG` adjustments made before T when the `FINTAG` total agrees with `FINPOST.ADJAMT`; otherwise (legacy or round-off adjustments) use `ADJAMT`.
+
+**Result for rule C, T between 04 Oct 18:00 and 05 Oct 06:00 (identical in that whole window):**
+- 12,329 open items against 12,275 in the cube; **12,249 in both, 12,220 of them exactly equal** (amount and pending) = **99.8% of the cube's items**; 26 only in the cube; 80 only in the reconstruction.
+- **Net pending -₹295.5292 Cr against -₹295.0955 Cr: a difference of ₹0.43 Cr (0.15%)**, compared with ₹24.97 Cr when today's live position is compared with the snapshot (Part 8).
+- Earlier or later T fits worse (T = 04 Oct 00:00: 12,178 exact and ₹1.99 Cr off; T = 05 Oct 12:00: 12,210 exact and ₹4.66 Cr off; T from 05 Oct 18:00: about 240 cube items missing). So the cube snapshot was taken in the early hours of 05 Oct, and the Part 8 gap was genuinely two days of activity (items settled and entered on 05 to 07 Oct), not a difference in logic.
+- Not yet explained: the 106 items (about 0.9%) that differ, 80 open in the reconstruction but not in the cube and 26 the other way. The likely cause is adjustments whose `FINTAG` time is the voucher time rather than the moment of adjustment; that is an inference, to be tested on those items.
+
+**Conclusion:** the creditors outstanding position can be sourced from the live SSRK tables with an explicit as-of moment, reproducing the verified run to 99.8% of items and 0.15% of value, and the remaining differences are small and identifiable. Not switched: no page reads this yet.
