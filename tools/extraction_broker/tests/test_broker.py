@@ -54,7 +54,7 @@ def test_guard_ignores_keywords_inside_literals_and_column_names():
     assert guard.check(ok, "metadata").row_cap == 100
 
 
-# ───────────── scope: MISRETAIL only, SSRK is live production ─────────────
+# ───────────── scope: any readable schema (lifted 2026-10-07); internals and synonyms stay blocked ─────────────
 
 
 @pytest.mark.parametrize(
@@ -62,38 +62,63 @@ def test_guard_ignores_keywords_inside_literals_and_column_names():
     [
         "SELECT owner, object_name FROM all_objects WHERE owner = 'SSRK'" + CAP,
         "SELECT owner, object_name FROM all_objects WHERE owner IN ('MISRETAIL', 'SSRK')" + CAP,
-        "SELECT owner, object_name FROM all_objects WHERE owner = 'MISRETAIL' OR owner = 'GINARCHIVE'" + CAP,
-        "SELECT owner, object_name FROM all_objects WHERE owner = 'REPORT'" + CAP,
-        "SELECT owner, object_name FROM all_objects WHERE owner = 'SYS'" + CAP,
-        "SELECT owner, object_name FROM all_objects WHERE object_name = 'X' AND owner = 'ssrk'" + CAP,
+        "SELECT owner, object_name FROM all_objects WHERE object_type = 'TABLE'" + CAP,
+        "SELECT privilege FROM session_privs" + CAP,
+        "SELECT granted_role FROM user_role_privs" + CAP,
     ],
 )
-def test_other_schemas_are_out_of_scope_even_inside_a_literal(sql):
+def test_metadata_may_look_at_any_schema_and_the_logins_own_privileges(sql):
+    assert guard.check(sql, "metadata")
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT owner, object_name FROM all_objects WHERE owner = 'SYS'" + CAP,
+        "SELECT username FROM dba_users" + CAP,
+        "SELECT name FROM v$session" + CAP,
+        "SELECT owner FROM all_objects WHERE owner = 'system'" + CAP,
+    ],
+)
+def test_oracle_internals_and_the_dba_dictionary_stay_blocked(sql):
     with pytest.raises(guard.GuardError, match="out of scope"):
         guard.check(sql, "metadata")
 
 
-def test_a_metadata_query_must_name_misretail():
-    with pytest.raises(guard.GuardError, match="restrict itself to owner 'MISRETAIL'"):
-        guard.check("SELECT owner, object_name FROM all_objects" + CAP, "metadata")  # all owners: not allowed
-    with pytest.raises(guard.GuardError, match="restrict itself"):
-        guard.check("SELECT owner, object_name FROM all_objects WHERE object_type = 'TABLE'" + CAP, "metadata")
+def test_a_metadata_query_still_reads_dictionary_views_only():
+    with pytest.raises(guard.GuardError, match="dictionary views"):
+        guard.check("SELECT cube_code FROM SSRK.FINGL" + CAP, "metadata")
 
 
 SAMPLE_OK = "SELECT cube_code FROM MISRETAIL.T$FINREGSITE_844 FETCH FIRST 5 ROWS ONLY"
 
 
-def test_data_objects_must_be_misretail_qualified_and_public_synonyms_are_rejected():
+def test_data_objects_must_be_owner_qualified_in_any_schema_and_public_names_are_rejected():
     assert guard.check(SAMPLE_OK, "sample").row_cap == 5
     assert guard.check('SELECT a FROM MISRETAIL."T$X_1" FETCH FIRST 5 ROWS ONLY', "sample")
-    with pytest.raises(guard.GuardError, match="MISRETAIL-qualified"):
+    assert guard.check("SELECT postcode FROM SSRK.FINPOST FETCH FIRST 5 ROWS ONLY", "sample")        # scope lifted
+    with pytest.raises(guard.GuardError, match="OWNER-qualified"):
         guard.check("SELECT cube_code FROM T$FINREGSITE_844 FETCH FIRST 5 ROWS ONLY", "sample")  # could resolve via a synonym
     with pytest.raises(guard.GuardError, match="out of scope"):
         guard.check("SELECT postcode FROM PUBLIC.FINPOST FETCH FIRST 5 ROWS ONLY", "sample")
     with pytest.raises(guard.GuardError, match="out of scope"):
-        guard.check("SELECT postcode FROM SSRK.FINPOST FETCH FIRST 5 ROWS ONLY", "sample")
-    with pytest.raises(guard.GuardError, match="MISRETAIL-qualified"):
+        guard.check("SELECT a FROM SYS.USER$ FETCH FIRST 5 ROWS ONLY", "sample")
+    with pytest.raises(guard.GuardError, match="OWNER-qualified"):
         guard.check("SELECT a FROM MISRETAIL.T1 t JOIN other_table o ON o.id = t.id FETCH FIRST 5 ROWS ONLY", "sample")
+
+
+def test_every_safety_rule_still_applies_to_the_live_production_schema():
+    for sql, kind, msg in [
+        ("SELECT a FROM SSRK.T WHERE d >= DATE '2026-01-01'", "extract", "END with a hard row cap"),
+        ("SELECT a FROM SSRK.T FETCH FIRST 100 ROWS ONLY", "extract", "bounded by a date"),
+        ("SELECT * FROM SSRK.T WHERE d >= DATE '2026-01-01' FETCH FIRST 100 ROWS ONLY", "extract", "name its columns"),
+        ("SELECT a FROM SSRK.T FETCH FIRST 100 ROWS ONLY FOR UPDATE", "sample", "forbidden keyword: UPDATE"),
+        ("DELETE FROM SSRK.T", "sample", "only SELECT|forbidden"),
+        ("SELECT a FROM SSRK.T@dblink FETCH FIRST 5 ROWS ONLY", "sample", "database links"),
+        ("SELECT email FROM SSRK.T FETCH FIRST 5 ROWS ONLY", "sample", "personal"),
+    ]:
+        with pytest.raises(guard.GuardError, match=msg):
+            guard.check(sql, kind)
 
 
 # ───────────── performance: the cap is the OUTERMOST final clause ─────────────

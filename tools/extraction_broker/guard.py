@@ -6,8 +6,10 @@ extraction engine does not re-check at run time, and its keyword list is shorter
 uses is broad, so every statement is checked here BEFORE it is registered, and the check is stricter on purpose:
 
   safety       single SELECT/WITH only; no DML, DDL, PL/SQL, locking, packages, db-links, INTO
-  scope        MISRETAIL (the MIS data warehouse) ONLY. SSRK is live production and every other schema, plus PUBLIC
-               synonyms (which resolve to SSRK objects), are out of scope. Data objects must be MISRETAIL-qualified.
+  scope        any schema the read-only Oracle login can read (scope lifted on 2026-10-07 at the user's instruction:
+               MISRETAIL and SSRK). Every data object must still be OWNER-qualified (no PUBLIC synonym can silently
+               resolve elsewhere). Oracle's own internal schemas and the DBA_ / V$ / X$ dictionary stay blocked.
+               SSRK is live production: the row cap, date bound and one-query-at-a-time rules matter most there.
   performance  every query declares a kind and must END with a hard row cap; data queries must also be bounded
                (a date predicate) so nothing can become an all-history scan
 """
@@ -38,13 +40,15 @@ _PII = re.compile(
 _PII_ALLOWED = re.compile(r"(?<![\w])mop_phonepe(?![\w])", re.I)
 _STARTS = re.compile(r"(?is)^\s*(select|with)\b")
 _TRAILING_CAP = re.compile(r"\bfetch\s+first\s+(\d+)\s+rows?\s+only\s*$", re.I)
-ALLOWED_OWNER = "MISRETAIL"
-# Everything that is not MISRETAIL. SSRK = live production, out of scope. PUBLIC synonyms resolve to SSRK objects.
+# Still blocked, whatever the login can read: Oracle's own internal schemas (credentials, internals, no finance value),
+# the DBA / dynamic-performance dictionary, and PUBLIC-qualified names.
 _OUT_OF_SCOPE = re.compile(
-    r"\b(ssrk|ginarchive|ginview|ginssot|ginintg|ginapps|gincustom|ginstage|public|sys|system|report|cogs_migration|"
-    r"miscustom|misview|merchant|ck_a2166|scott|dbsnmp|xdb|mdsys|ctxsys)\b",
+    r"\b(sys|system|dbsnmp|xdb|mdsys|ctxsys|scott|outln|wmsys|exfsys|dvsys|lbacsys|audsys|ordsys|olapsys|appqossys|"
+    r"dba_\w+|v\$\w+|gv\$\w+|x\$\w+)\b|\bpublic\s*\.",
     re.I,
 )
+# Privilege-introspection views a metadata query may read besides ALL_* / USER_*: they show only the login's own grants.
+_SELF_VIEWS = ("SESSION_PRIVS", "SESSION_ROLES", "ROLE_SYS_PRIVS", "ROLE_TAB_PRIVS", "ROLE_ROLE_PRIVS")
 _DICTIONARY = re.compile(r"\bfrom\s+(all|user)_\w+", re.I)
 _FROM_OBJECTS = re.compile(r"\b(?:from|join)\s+([\w$#\".]+)", re.I)
 _DATE_BOUND = re.compile(r"(>=|<=|>|<|between)\s*(date\s*'|to_date\s*\(|:\w+|sysdate)", re.I)
@@ -103,7 +107,7 @@ def check(sql: str, kind: str) -> Checked:
 
     oos = _OUT_OF_SCOPE.search(stripped)  # literals included: owner names live inside string literals
     if oos:
-        raise GuardError(f"out of scope: '{oos.group(0)}'. FP&A reads MISRETAIL only (SSRK is live production)")
+        raise GuardError(f"out of scope: '{oos.group(0)}' (Oracle internals, the DBA / V$ dictionary and PUBLIC names are never read)")
 
     cap = _row_cap(no_lit)
     if cap is None:
@@ -112,15 +116,14 @@ def check(sql: str, kind: str) -> Checked:
         raise GuardError(f"row cap {cap:,} exceeds the {kind} ceiling of {MAX_ROWS[kind]:,}")
 
     objects = [o.strip('"').upper() for o in _FROM_OBJECTS.findall(no_lit)]
-    dictionary_only = bool(objects) and all(o.split(".")[-1].startswith(("ALL_", "USER_")) for o in objects)
+    dict_view = lambda o: o.split(".")[-1].startswith(("ALL_", "USER_")) or o.split(".")[-1] in _SELF_VIEWS  # noqa: E731
+    dictionary_only = bool(objects) and all(dict_view(o) for o in objects)
     if kind == "metadata" and not dictionary_only:
-        raise GuardError("a metadata query may only read ALL_* / USER_* dictionary views")
-    if kind == "metadata" and f"'{ALLOWED_OWNER}'" not in stripped.upper():
-        raise GuardError(f"a metadata query must restrict itself to owner '{ALLOWED_OWNER}'")
+        raise GuardError("a metadata query may only read ALL_* / USER_* dictionary views (or the login's own privilege views)")
     if kind != "metadata":
-        unscoped = [o for o in objects if not o.startswith(f"{ALLOWED_OWNER}.")]
+        unscoped = [o for o in objects if "." not in o]
         if unscoped:
-            raise GuardError(f"data objects must be {ALLOWED_OWNER}-qualified (found {unscoped[0]})")
+            raise GuardError(f"data objects must be OWNER-qualified (found {unscoped[0]})")
     if kind != "metadata" and dictionary_only:
         raise GuardError("a data query must read data objects, not only dictionary views")
     if kind != "metadata":

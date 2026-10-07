@@ -17,10 +17,9 @@ def test_master_kind_allows_small_reference_tables_with_named_columns_only():
         guard.check("SELECT * FROM MISRETAIL.LEDGER_MV" + TAIL, "master")
     with pytest.raises(guard.GuardError, match="ceiling"):
         guard.check("SELECT glcode FROM MISRETAIL.LEDGER_MV FETCH FIRST 100001 ROWS ONLY", "master")
-    with pytest.raises(guard.GuardError, match="MISRETAIL-qualified"):
+    with pytest.raises(guard.GuardError, match="OWNER-qualified"):
         guard.check("SELECT glcode FROM LEDGER_MV" + TAIL, "master")
-    with pytest.raises(guard.GuardError, match="out of scope"):
-        guard.check("SELECT glcode FROM SSRK.FINGL" + TAIL, "master")
+    assert guard.check("SELECT glcode FROM SSRK.FINGL" + TAIL, "master")              # scope lifted 2026-10-07
 
 
 @pytest.mark.parametrize(
