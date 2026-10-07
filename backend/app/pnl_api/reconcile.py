@@ -166,6 +166,9 @@ def reconcile(client, db, run_id: str) -> list[Check]:
     add("PNL-STATE", "budget is null and says so", 1, int(s["budget"] is None and "not available" in s["budget_note"]))
     add("PNL-STATE", "contribution is defined as before other income, finance cost and allocation", 1, int("Before other income" in s["flags"]["contribution_definition"]))
     add("PNL-STATE", "the COGS lag against the books is stated", 1, int("cogs_lags_books" in s["flags"] and "cogs_through" in s["flags"]))
+    from .reconcile_review import reconcile_review
+
+    reconcile_review(client, db, run_id, add)
     return out
 
 
