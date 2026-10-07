@@ -44,6 +44,8 @@ import ssrk_probe2  # noqa: E402,F401  (registers ssrk_meta_probe_02)
 import login_probe2  # noqa: E402,F401  (registers misretail_visibility_probe_01)
 import ssrk_probe3  # noqa: E402,F401  (registers ssrk_range_probe_01)
 import ssrk_probe4  # noqa: E402,F401  (registers ssrk_range_probe_02)
+import ssrk_probe5  # noqa: E402,F401  (registers ssrk_range_probe_03)
+import ssrk_probe6  # noqa: E402,F401  (registers ssrk_day_sample_01)
 import readiness  # noqa: E402
 from packages import PACKAGE_META, PACKAGES, Dataset  # noqa: E402
 

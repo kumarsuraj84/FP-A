@@ -73,3 +73,17 @@ Runs `run_20261007_011` (`ssrk_range_probe_01`: financial-year master + `MIN/MAX
 
 # Grant request for the DBA (read-only, SELECT only)
 The pipelines read these MISRETAIL objects, which `SSRK_RO` cannot currently see: `MAS$FINGL`, `T$FINREGSITE_844`, `T$FINREGSITE_877`, `T$FINREG_901`, `T$FINREG_886`, `T$FINOTSD_533`, `T_FINANCE_P_AND_L_STORE_MAP`, `T_FINANCE_P_AND_L_BUDGET`, `T_FINANCE_P_AND_L_BASE_*`, `T_STORE_OPENING_DATE` (and the cash / entry cubes if they are other `T$` objects). Grant `SELECT` on each to role `SSRK_READ_ONLY`; nothing else.
+
+---
+
+# Part 4: one-day SSRK sample, 2026-10-06 (16:50)
+
+Runs `run_20261007_013` (`ssrk_range_probe_03`, finer key-to-date grid) and `run_20261007_014` (`ssrk_day_sample_01`). Every statement was guard-checked, capped and run one at a time; the data stays in the git-ignored inbox, only aggregates are written here.
+
+- **Access path worked**: `FINPOST.POSTCODE >= 1133929721` with the `ENTDT` window `[2026-10-06, 2026-10-07)`. The key is not strictly monotonic (back-dated entries exist: e.g. a posting dated 2026-10-02 sits at a later key than some dated 2026-10-06), so the date window, not the key, is the real predicate. The day's postings occupy keys 1,133,947,121 to 1,133,985,353, inside the window; each of the four queries took about 6 s.
+- **FINPOST for the day**: 8,101 postings, 3,062 distinct entries, 57 ledgers, 35 owner sites and 223 reference sites, all `YCODE` 51, all dated 2026-10-06. **Debit = credit = ₹325,025,033.76 (difference 0.00).**
+- **Release status**: `P` (posted) 4,658 postings, `U` (unposted) 3,443. This is the Posted / Unposted split already used in the P&L.
+- **Entry types** (31 type / status combinations): mostly `TIA` (3,264), `CSM` (1,468, unposted), `PJN` (1,612, unposted), `CTM`, `PIM`, `CTC`, `JDT`, `PIC`, `PRM` and others.
+- **FINCOSTTAG**: 7,683 rows covering 7,486 of the 8,101 postings (the rest carry no cost-centre split); the cost-tag debit and credit totals (₹27.77 Cr, ₹26.81 Cr) differ because only some postings are tagged.
+- **Not reconciled yet**: the MISRETAIL registers are not visible to `SSRK_RO` (grant pending), so this day could not be compared with the register. The comparison is the gate before any SSRK figure feeds a page: re-sample a day that exists in a verified run (for example 2026-10-05) after the grant, and compare posting-by-posting and by ledger.
+- Tooling note: the broker marks a one-row aggregate with `FETCH FIRST 1 ROWS ONLY` as "capped" (`d2_totals`). The row is complete (8,101 postings, matching `d1`); the warning is a false positive of the cap check on cap = 1.
