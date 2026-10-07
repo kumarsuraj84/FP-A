@@ -94,12 +94,14 @@ def store_set(conn, run_id: str) -> set[str]:
 def site_months(conn, run_id: str, basis: str) -> dict[tuple[str, date], dict]:
     """Per site and month, every P&L line (books side from the GL, COGS from the COGS table), for the whole run."""
     cond = "AND release_status = 'Posted'" if basis == "posted" else ""
-    out: dict[tuple[str, date], dict] = defaultdict(lambda: {"revenue": ZERO, "cogs": ZERO, "cogs_books": ZERO, "opex": ZERO, "other_income": ZERO, "finance_cost": ZERO, "unmapped": ZERO, "unposted_net": ZERO, "table_sales": ZERO})
+    out: dict[tuple[str, date], dict] = defaultdict(lambda: {"revenue": ZERO, "cogs": ZERO, "cogs_books": ZERO, "opex": ZERO, "other_income": ZERO, "finance_cost": ZERO, "unmapped": ZERO, "unposted_net": ZERO, "unposted_revenue": ZERO, "table_sales": ZERO})
     keymap = {"REVENUE": "revenue", "COGS_BOOKS": "cogs_books", "STORE_OPEX": "opex", "OTHER_INCOME": "other_income", "FINANCE_COST": "finance_cost", "UNMAPPED": "unmapped"}
     for r in conn.execute(f"SELECT site_code, month, section, sum(credit - debit) AS net FROM pnl.v_gl_site_month WHERE run_id = %s {cond} GROUP BY 1, 2, 3", (run_id,)).fetchall():
         out[(r["site_code"], r["month"])][keymap[r["section"]]] += r["net"]
-    for r in conn.execute("SELECT site_code, month, sum(credit - debit) AS net FROM pnl.v_gl_site_month WHERE run_id = %s AND release_status = 'Unposted' AND section <> 'UNMAPPED' GROUP BY 1, 2", (run_id,)).fetchall():
+    for r in conn.execute("SELECT site_code, month, sum(credit - debit) AS net, sum(CASE WHEN section = 'REVENUE' THEN credit - debit ELSE 0 END) AS rev FROM pnl.v_gl_site_month "
+                          "WHERE run_id = %s AND release_status = 'Unposted' AND section <> 'UNMAPPED' GROUP BY 1, 2", (run_id,)).fetchall():
         out[(r["site_code"], r["month"])]["unposted_net"] += r["net"]
+        out[(r["site_code"], r["month"])]["unposted_revenue"] += r["rev"]
     for r in conn.execute("SELECT site_code, month, sum(cogs_v) AS cogs, sum(sl_v - tax_amt) AS ts FROM pnl.v_cogs_site_month WHERE run_id = %s GROUP BY 1, 2", (run_id,)).fetchall():
         a = out[(r["site_code"], r["month"])]
         a["cogs"] += r["cogs"]
@@ -114,12 +116,12 @@ def finish(a: dict) -> dict:
 
 
 def add(into: dict, a: dict) -> None:
-    for k in ("revenue", "cogs", "cogs_books", "opex", "other_income", "finance_cost", "unmapped", "unposted_net", "table_sales"):
+    for k in ("revenue", "cogs", "cogs_books", "opex", "other_income", "finance_cost", "unmapped", "unposted_net", "unposted_revenue", "table_sales"):
         into[k] += a[k]
 
 
 def blank() -> dict:
-    return {"revenue": ZERO, "cogs": ZERO, "cogs_books": ZERO, "opex": ZERO, "other_income": ZERO, "finance_cost": ZERO, "unmapped": ZERO, "unposted_net": ZERO, "table_sales": ZERO}
+    return {"revenue": ZERO, "cogs": ZERO, "cogs_books": ZERO, "opex": ZERO, "other_income": ZERO, "finance_cost": ZERO, "unmapped": ZERO, "unposted_net": ZERO, "unposted_revenue": ZERO, "table_sales": ZERO}
 
 
 def matches(site: dict | None, filters: dict) -> bool:
@@ -171,7 +173,7 @@ def unmapped_ledgers(conn, run_id: str, basis: str, lo: date, hi: date, limit: i
 
 
 def provisional_months(data: dict, lo: date, hi: date) -> list[date]:
-    seen = {m for (s, m), a in data.items() if lo <= m <= hi and a["unposted_net"] != 0}
+    seen = {m for (s, m), a in data.items() if lo <= m <= hi and a["unposted_revenue"] != 0}
     return sorted(seen)
 
 

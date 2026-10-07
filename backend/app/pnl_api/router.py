@@ -86,6 +86,28 @@ class Scope:
                 "partial_last_month": self.hi.year == a.year and self.hi.month == a.month and a.day < 28}
 
 
+def comparable_hi(sc: "Scope"):
+    """Last year is compared over COMPLETE months only: the current month is partial, and last year's month is whole."""
+    partial = sc.echo()["partial_last_month"] and sc.hi == repo.default_period(sc.run)[1]
+    return repo.add_months(sc.hi, -1) if partial else sc.hi
+
+
+def comparison(sc: "Scope", pick) -> dict | None:
+    hi = comparable_hi(sc)
+    if hi < sc.lo:
+        return None
+    ly = repo.last_year(sc.lo, hi, sc.first_month)
+    cur = repo.period_totals(sc.data, pick, sc.lo, hi)
+    out = {"period": {"from_month": sc.lo.strftime("%Y-%m"), "to_month": hi.strftime("%Y-%m")}, "current": money_keys(cur), "last_year": None, "growth": None,
+           "note": "Compared over complete months only." if hi != sc.hi else "Same months, last year."}
+    if ly:
+        l = repo.period_totals(sc.data, pick, *ly)
+        out["last_year"] = {**money_keys(l), "period": {"from_month": ly[0].strftime("%Y-%m"), "to_month": ly[1].strftime("%Y-%m")}}
+        out["growth"] = {"revenue_pct": repo.pct(cur["revenue"] - l["revenue"], l["revenue"]), "gross_margin_pct": repo.pct(cur["gross_margin"] - l["gross_margin"], l["gross_margin"]),
+                         "contribution_pct": repo.pct(cur["contribution"] - l["contribution"], abs(l["contribution"]))}
+    return out
+
+
 def scope(request: Request, conn, run, from_month, to_month, basis, region, cluster, state, vintage, status) -> Scope:
     return Scope(conn, run, from_month, to_month, basis, region, cluster, state, vintage, status)
 
@@ -153,15 +175,11 @@ def summary(request: Request, run_id: str, q: dict = Depends(common)):
         company = repo.period_totals(sc.data, (lambda c: True) if not sc.filtered else sc.store_in_scope, sc.lo, sc.hi)
         stores = repo.period_totals(sc.data, in_scope_store, sc.lo, sc.hi)
         non_store = repo.period_totals(sc.data, lambda c: c not in sc.stores, sc.lo, sc.hi)
-        ly_period = repo.last_year(sc.lo, sc.hi, sc.first_month)
-        ly = repo.period_totals(sc.data, (lambda c: True) if not sc.filtered else sc.store_in_scope, *ly_period) if ly_period else None
         codes = None if not sc.filtered else {c for c in {s for s, _ in sc.data} if sc.store_in_scope(c)}
         lines = repo.pl_lines(conn, run_id, sc.basis, sc.lo, sc.hi, codes)
         unm = repo.unmapped_ledgers(conn, run_id, sc.basis, sc.lo, sc.hi, 0)
         cogs_only = repo.cogs_only_sites(conn, run_id)
-        body = {**header(run), "scope": sc.echo(), "stores_in_scope": sum(1 for c in sc.stores if sc.store_in_scope(c)), "totals": money_keys(company), "last_year": None if ly is None else {**money_keys(ly), "period": {"from_month": ly_period[0].strftime("%Y-%m"), "to_month": ly_period[1].strftime("%Y-%m")}},
-                "growth": None if ly is None else {"revenue_pct": repo.pct(company["revenue"] - ly["revenue"], ly["revenue"]), "gross_margin_pct": repo.pct(company["gross_margin"] - ly["gross_margin"], ly["gross_margin"]),
-                                                  "contribution_pct": repo.pct(company["contribution"] - ly["contribution"], abs(ly["contribution"]))},
+        body = {**header(run), "scope": sc.echo(), "stores_in_scope": sum(1 for c in sc.stores if sc.store_in_scope(c)), "totals": money_keys(company), "comparison": comparison(sc, (lambda c: True) if not sc.filtered else sc.store_in_scope),
                 "lines": lines, "below_contribution": {"other_income": company["other_income"], "finance_cost": company["finance_cost"], "after_below_the_line": company["contribution"] + company["other_income"] + company["finance_cost"]},
                 "excluded_unmapped": {"ledgers": unm["count"], "net": unm["net"], "gross_abs": unm["gross_abs"], "note": "Ledgers the finance mapping does not know (mainly purchases and stock transfers, which reach the P&L through COGS). Never in a total; listed on the reconciliation view."},
                 "flags": flags(sc, cogs_only)}
@@ -186,7 +204,7 @@ def trend(request: Request, run_id: str, q: dict = Depends(common)):
             ly = repo.period_totals(sc.data, pick, lym, lym) if lym >= sc.first_month else None
             row = {"month": m.strftime("%Y-%m"), **money_keys(t), "provisional": m in prov, "partial": m == sc.hi and sc.echo()["partial_last_month"],
                    "last_year": None if ly is None else {"month": lym.strftime("%Y-%m"), **money_keys(ly)},
-                   "growth_revenue_pct": None if ly is None else repo.pct(t["revenue"] - ly["revenue"], ly["revenue"])}
+                   "growth_revenue_pct": None if ly is None or (m == sc.hi and sc.echo()["partial_last_month"]) else repo.pct(t["revenue"] - ly["revenue"], ly["revenue"])}
             series.append(row)
             repo.add(running, repo.aggregate(sc.data, pick, m, m))
         total = repo.finish(running)
@@ -207,9 +225,14 @@ def stores(request: Request, run_id: str, q: dict = Depends(common), sort: str =
         raise HTTPException(422, f"sort must be one of {sorted(SORTS)}")
     with open_run(request, run_id) as (conn, run):
         sc = scope(request, conn, run, **q)
-        ly_period = repo.last_year(sc.lo, sc.hi, sc.first_month)
+        chi = comparable_hi(sc)
+        ly_period = repo.last_year(sc.lo, chi, sc.first_month) if chi >= sc.lo else None
         rows = []
         per_site = {}
+        per_cur = {}
+        for (code, mon), a in sc.data.items():
+            if code in sc.stores and sc.store_in_scope(code) and sc.lo <= mon <= chi:
+                repo.add(per_cur.setdefault(code, repo.blank()), a)
         for (code, mon), a in sc.data.items():
             if code in sc.stores and sc.store_in_scope(code) and sc.lo <= mon <= sc.hi:
                 repo.add(per_site.setdefault(code, repo.blank()), a)
@@ -226,9 +249,10 @@ def stores(request: Request, run_id: str, q: dict = Depends(common), sort: str =
                 continue
             s = sc.sites.get(code) or {}
             l = repo.finish(per_ly[code]) if code in per_ly else None
+            cur_c = repo.finish(per_cur[code]) if code in per_cur else None
             rows.append({"site_code": code, "store_name": s.get("store_name"), "region": s.get("region_type"), "cluster": s.get("cluster_type"), "state": s.get("state"), "vintage": s.get("store_current_status"),
                          "status": s.get("store_status"), **money_keys(t), "last_year_revenue": None if l is None else l["revenue"], "last_year_contribution": None if l is None else l["contribution"],
-                         "growth_pct": None if l is None or not l["revenue"] else repo.pct(t["revenue"] - l["revenue"], l["revenue"]), "sales_in_table_not_in_books": bool(t["table_sales"] and not t["revenue"])})
+                         "growth_pct": None if l is None or cur_c is None or not l["revenue"] else repo.pct(cur_c["revenue"] - l["revenue"], l["revenue"]), "sales_in_table_not_in_books": bool(t["table_sales"] and not t["revenue"])})
         key = SORTS[sort]
         rows.sort(key=lambda r: ((r[key] is None), r[key] if r[key] is not None else 0) if key != "store_name" else (r[key] or ""), reverse=(order != "asc"))
         if order != "asc" and key != "store_name":                      # reverse put the missing values first: move them last
@@ -239,6 +263,7 @@ def stores(request: Request, run_id: str, q: dict = Depends(common), sort: str =
         parent = repo.period_totals(sc.data, sc.store_in_scope, sc.lo, sc.hi)
         page = rows[offset: offset + limit]
         return ok({**header(run), "scope": sc.echo(), "stores_total": len(rows), "returned": len(page), "limit": limit, "offset": offset, "sort": sort, "order": order, "stores": page,
+                   "growth_basis": {"from_month": sc.lo.strftime("%Y-%m"), "to_month": chi.strftime("%Y-%m"), "note": "Growth is over complete months only; last year's same months."},
                    "parent": {"revenue": parent["revenue"], "contribution": parent["contribution"]}, "children_sum": {"revenue": total["revenue"], "contribution": total["contribution"]},
                    "reconciles": (parent["revenue"], parent["contribution"]) == (total["revenue"], total["contribution"]) or min_revenue is not None, "flags": flags(sc)})
 
@@ -265,15 +290,13 @@ def store(request: Request, run_id: str, site: str, q: dict = Depends(common)):
             repo.add(acc, a)
             series.append({"month": m.strftime("%Y-%m"), **money_keys(repo.finish(a))})
         t = repo.period_totals(sc.data, lambda c: c == site, sc.lo, sc.hi)
-        ly_period = repo.last_year(sc.lo, sc.hi, sc.first_month)
-        ly = repo.period_totals(sc.data, lambda c: c == site, *ly_period) if ly_period else None
         lines = repo.pl_lines(conn, run_id, sc.basis, sc.lo, sc.hi, {site})
         s = sc.sites.get(site) or {}
         line_total = sum((r["amount"] for r in lines if r["section"] != "REVENUE"), ZERO)
         return ok({**header(run), "scope": sc.echo(), "site": {"site_code": site, "store_name": s.get("store_name"), "region": s.get("region_type"), "cluster": s.get("cluster_type"), "state": s.get("state"),
                                                               "vintage": s.get("store_current_status"), "status": s.get("store_status"), "opening_date": s.get("opening_date"), "last_bill_date": s.get("last_bill_date"),
                                                               "is_store": site in sc.stores}, "totals": money_keys(t),
-                   "last_year": None if ly is None else {**money_keys(ly), "period": {"from_month": ly_period[0].strftime("%Y-%m"), "to_month": ly_period[1].strftime("%Y-%m")}},
+                   "comparison": comparison(sc, lambda c: c == site),
                    "months": series, "lines": lines, "parent": {"revenue": t["revenue"], "contribution": t["contribution"]},
                    "children_sum": {"revenue": sum((r["revenue"] for r in series), ZERO), "contribution": sum((r["contribution"] for r in series), ZERO)},
                    "reconciles": (t["revenue"], t["contribution"]) == (sum((r["revenue"] for r in series), ZERO), sum((r["contribution"] for r in series), ZERO)) and

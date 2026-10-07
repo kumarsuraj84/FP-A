@@ -185,3 +185,12 @@ def test_the_gate_catches_a_difference(env, monkeypatch):
 def test_no_narration_is_in_any_response(env):
     blob = json.dumps(get(env, "/stores")) + json.dumps(get(env, "/summary"))
     assert "narration" not in blob.lower()
+
+
+def test_last_year_is_compared_over_complete_months_only_and_provisional_means_unposted_revenue(env):
+    s = get(env, "/summary")
+    assert s["comparison"]["period"]["to_month"] == "2026-09" and "complete months" in s["comparison"]["note"]
+    assert s["flags"]["provisional_months"] == ["2026-10"]                      # only October has unposted REVENUE; a stray unposted journal elsewhere does not make a month provisional
+    t = get(env, "/trend")
+    assert t["months"][-1]["growth_revenue_pct"] is None and t["months"][-1]["partial"] is True
+    assert get(env, "/stores")["growth_basis"]["to_month"] == "2026-09"
