@@ -86,8 +86,9 @@ def sites(conn, run_id: str) -> dict[str, dict]:
 
 
 def store_set(conn, run_id: str) -> set[str]:
-    """A store is a site that has any sales in this run (books or COGS table). Everything else (head office, depots) is non-store: costs only."""
-    rows = conn.execute("SELECT site_code FROM pnl.v_gl_site_month WHERE run_id = %s AND ledger_name = %s UNION SELECT site_code FROM pnl.v_cogs_site_month WHERE run_id = %s", (run_id, SALES_LEDGER, run_id)).fetchall()
+    """A store is a site with sales POSTED IN THE BOOKS (ledger 'Sales - POS') in this run. Everything else (head office, depots, and the few sites that only appear in the COGS table) is non-store:
+    its costs count for the company, never for a store. Sites with COGS-table sales but no books sales are listed on the reconciliation view."""
+    rows = conn.execute("SELECT DISTINCT site_code FROM pnl.v_gl_site_month WHERE run_id = %s AND ledger_name = %s", (run_id, SALES_LEDGER)).fetchall()
     return {r["site_code"] for r in rows}
 
 

@@ -63,7 +63,7 @@ describe("Liquidity & Working Capital Control: the verified strip", () => {
     expect(badge).toHaveAttribute("data-state", "verified_candidate");
     expect(badge).toHaveTextContent(/REAL DATA/);
     expect(screen.getByTestId("demo-banner")).toHaveTextContent(/Liquidity shows REAL data/);
-    expect(screen.getByTestId("demo-banner")).toHaveTextContent(/Command Center and Profitability are still demo data/);
+    expect(screen.getByTestId("demo-banner")).toHaveTextContent(/Command Center and the demo Profitability page are still demo data/);
   });
 });
 

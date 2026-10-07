@@ -252,7 +252,7 @@ def stores(request: Request, run_id: str, q: dict = Depends(common), sort: str =
             cur_c = repo.finish(per_cur[code]) if code in per_cur else None
             rows.append({"site_code": code, "store_name": s.get("store_name"), "region": s.get("region_type"), "cluster": s.get("cluster_type"), "state": s.get("state"), "vintage": s.get("store_current_status"),
                          "status": s.get("store_status"), **money_keys(t), "last_year_revenue": None if l is None else l["revenue"], "last_year_contribution": None if l is None else l["contribution"],
-                         "growth_pct": None if l is None or cur_c is None or not l["revenue"] else repo.pct(cur_c["revenue"] - l["revenue"], l["revenue"]), "sales_in_table_not_in_books": bool(t["table_sales"] and not t["revenue"])})
+                         "growth_pct": None if l is None or cur_c is None or not l["revenue"] else repo.pct(cur_c["revenue"] - l["revenue"], l["revenue"])})
         key = SORTS[sort]
         rows.sort(key=lambda r: ((r[key] is None), r[key] if r[key] is not None else 0) if key != "store_name" else (r[key] or ""), reverse=(order != "asc"))
         if order != "asc" and key != "store_name":                      # reverse put the missing values first: move them last

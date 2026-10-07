@@ -102,12 +102,14 @@ def test_the_posted_basis_leaves_the_unposted_month_out(env):
 
 def test_the_store_league_lists_stores_sorted_and_reconciles_to_the_parent(env):
     r = get(env, "/stores")
-    assert r["stores_total"] == 2 and r["reconciles"] is True
+    assert r["stores_total"] == 1 and r["reconciles"] is True               # a store is a site with sales in the books: site 20 has COGS-table sales only
     contrib = [Decimal(str(x["contribution"])) for x in r["stores"]]
     assert contrib == sorted(contrib, reverse=True) and r["stores"][0]["rank"] == 1 and r["stores"][0]["site_code"] == "10"
     assert r["stores"][0]["region"] == "R1" and r["stores"][0]["store_name"] == "STORE TEN"
     low = get(env, "/stores", sort="contribution", order="asc")["stores"]
-    assert low[0]["site_code"] == "20" and low[0]["sales_in_table_not_in_books"] is True
+    assert [x["site_code"] for x in low] == ["10"] and "sales_in_table_not_in_books" not in low[0]
+    s = get(env, "/summary")
+    assert s["reconciliation"]["reconciles"] is True and Decimal(str(s["reconciliation"]["non_store"]["cogs"])) == 60       # the COGS-only site is in the non-store side, so company = stores + non-store
 
 
 def test_the_trend_runs_month_by_month_and_reconciles(env):
@@ -119,7 +121,7 @@ def test_the_trend_runs_month_by_month_and_reconciles(env):
 
 def test_filters_narrow_the_view_and_the_hierarchy_comes_from_the_site_master(env):
     h = get(env, "/hierarchy")["options"]
-    assert {o["value"] for o in h["region"]} == {"R1", "(not in site master)"}
+    assert {o["value"] for o in h["region"]} == {"R1"}
     r = get(env, "/stores", region="R1")
     assert r["stores_total"] == 1 and r["stores"][0]["site_code"] == "10" and r["reconciles"] is True
     s = get(env, "/summary", region="R1")

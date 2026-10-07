@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Banknote, ChevronRight, CircleDot, Landmark, LayoutDashboard, LayoutGrid, Lock, PiggyBank, RefreshCw, Scale, Store, Truck, Wallet } from "lucide-react";
+import { Banknote, BarChart3, ChevronRight, CircleDot, Landmark, LayoutDashboard, LayoutGrid, Lock, PiggyBank, RefreshCw, Scale, Store, Truck, Wallet } from "lucide-react";
 import { useCfo } from "@/context/CfoContext";
 import { searchFromState } from "@/context/drillUrl";
 import { CREDITORS_ORIGIN } from "@/lib/creditorNodes";
@@ -10,6 +10,7 @@ import { CASH_ORIGIN } from "@/lib/cashNodes";
 import type { DrillOrigin } from "@/types/cfo";
 import { useFreshness } from "@/api/hooks";
 import { useCashRun } from "@/api/cashLiveHooks";
+import { usePnlRun } from "@/api/pnlLiveHooks";
 import { useLiveRun } from "@/api/creditorsLiveHooks";
 import { fmtDate } from "@/lib/format";
 import { COMPARISON_ORDER, COMPARISONS, PERIOD_ORDER, PERIODS, SCENARIOS, SCENARIO_ORDER } from "@/mocks/scenarios";
@@ -49,14 +50,14 @@ function Select<T extends string>({ label, value, options, onChange, testId, wid
 export function DemoBanner() {
   const { state, dispatch } = useCfo();
   const path = useRouterState({ select: (r) => r.location.pathname });
-  const realPage = path.startsWith("/creditors") ? "Creditors" : path.startsWith("/cash") ? "Liquidity" : null;
+  const realPage = path.startsWith("/creditors") ? "Creditors" : path.startsWith("/cash") ? "Liquidity" : path.startsWith("/pnl") ? "Store P&L" : null;
   if (realPage) {
     // this page runs on a verified mart; every module not yet connected is still demo data and the banner says so
     return (
       <div data-testid="demo-banner" data-real="true" className="flex h-6 items-center bg-[oklch(0.94_0.06_155)] px-4 text-[11px] font-medium text-[oklch(0.32_0.1_155)]">
         <span className="flex items-center gap-1.5">
           <CircleDot className="h-3 w-3" />
-          {realPage} shows REAL data (verified candidate, not live). Command Center and Profitability are still demo data, so their figures will not match.
+          {realPage} shows REAL data (verified candidate, not live). Command Center and the demo Profitability page are still demo data, so their figures will not match.
         </span>
       </div>
     );
@@ -89,16 +90,17 @@ export function DemoBanner() {
 }
 
 /** Real-data pages state their OWN as-of date and state (from the API), not the demo shell's freshness or controls. */
-interface RealMeta { asOf: string | null; state: string; stateLabel: string; updated: string | null; scope: "cash" | "cred"; status: "ok" | "error" | "pending" }
+interface RealMeta { asOf: string | null; state: string; stateLabel: string; updated: string | null; scope: "cash" | "cred" | "pnl"; status: "ok" | "error" | "pending" }
 const STATE_TEXT: Record<string, string> = { verified_candidate: "Verified candidate · not live", live: "Live", superseded: "Superseded", withdrawn: "Withdrawn" };
 
 function useRealMeta(): RealMeta | null {
   const path = useRouterState({ select: (r) => r.location.pathname });
   const cash = useCashRun();
   const cred = useLiveRun();
-  const scope = path.startsWith("/cash") ? "cash" : path.startsWith("/creditors") ? "cred" : null;
+  const pnl = usePnlRun();
+  const scope = path.startsWith("/cash") ? "cash" : path.startsWith("/creditors") ? "cred" : path.startsWith("/pnl") ? "pnl" : null;
   if (!scope) return null;
-  const run = scope === "cash" ? cash : cred;
+  const run = scope === "cash" ? cash : scope === "pnl" ? pnl : cred;
   if (run.isError) return { asOf: null, state: "error", stateLabel: "Real data unavailable", updated: null, scope, status: "error" };
   if (!run.data) return { asOf: null, state: "pending", stateLabel: "Checking…", updated: null, scope, status: "pending" };
   const d = run.data as { as_of_date: string; data_state: string; source_updated_at?: string };
@@ -178,20 +180,21 @@ const FUTURE = [
   { label: "Balance Sheet", icon: Landmark },
 ];
 
-type NavId = "command" | "profitability" | "cash" | "creditors";
+type NavId = "command" | "profitability" | "pnl" | "cash" | "creditors";
 
-const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: "/" | "/profitability" | "/cash" | "/creditors"; testId: string; icon: typeof Truck }[] }[] = [
+const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: "/" | "/profitability" | "/pnl" | "/cash" | "/creditors"; testId: string; icon: typeof Truck }[] }[] = [
   { group: "Command", items: [{ id: "command", label: "CFO Command Center", title: "CFO Command Center", to: "/", testId: "nav-command-center", icon: LayoutDashboard }] },
-  { group: "Performance", items: [{ id: "profitability", label: "Profitability", title: "Store Profitability", to: "/profitability", testId: "nav-profitability", icon: Store }] },
+  { group: "Performance", items: [{ id: "pnl", label: "Store P&L", title: "Store P&L actuals (verified data)", to: "/pnl", testId: "nav-pnl", icon: BarChart3 }, { id: "profitability", label: "Profitability (demo)", title: "Store Profitability (demo data)", to: "/profitability", testId: "nav-profitability", icon: Store }] },
   { group: "Liquidity", items: [{ id: "cash", label: "Liquidity & Working Capital", title: "Liquidity & Working Capital Control", to: "/cash", testId: "nav-cash", icon: Banknote }] },
   { group: "Exposure", items: [{ id: "creditors", label: "Creditors", title: "Creditors Control", to: "/creditors", testId: "nav-creditors", icon: Truck }] },
 ];
 
-const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN };
+const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, pnl: null, profitability: PROFIT_ORIGIN, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN };
 
 /** The destination the current investigation belongs to, so a ledger or voucher still highlights its own area. */
 function activeNav(scope: string | undefined, path: string): NavId {
   if (scope === "creditors" || path.startsWith("/creditors")) return "creditors";
+  if (path.startsWith("/pnl")) return "pnl";
   if (scope === "profitability" || path.startsWith("/profitability")) return "profitability";
   if (scope === "cashroom" || path === "/cash") return "cash";
   return "command";
@@ -203,6 +206,7 @@ export function SideNav() {
   const active = activeNav(state.origin?.scope, path);
   const go: Record<NavId, () => void> = {
     command: () => dispatch({ type: "home" }),
+    pnl: () => undefined,
     profitability: () => enterRoom("profitability"),
     cash: () => enterRoom("cashroom"),
     creditors: () => enterCreditors(),
@@ -250,6 +254,16 @@ export function SideNav() {
 
 export function Breadcrumbs() {
   const { crumbs, goToCrumb } = useCfo();
+  const path = useRouterState({ select: (x) => x.location.pathname });
+  if (path.startsWith("/pnl")) {
+    return (
+      <nav aria-label="Breadcrumb" data-testid="breadcrumbs" className="flex h-8 items-center gap-1 overflow-x-auto whitespace-nowrap border-b bg-background px-4 text-[12px]">
+        <span className="text-muted-foreground">CityKart</span>
+        <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
+        <span aria-current="page" className="font-semibold text-foreground">Store P&amp;L</span>
+      </nav>
+    );
+  }
   return (
     <nav aria-label="Breadcrumb" data-testid="breadcrumbs" className="flex h-8 items-center gap-1 overflow-x-auto whitespace-nowrap border-b bg-background px-4 text-[12px]">
       {crumbs.map((c, i) => (

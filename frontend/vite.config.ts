@@ -39,6 +39,14 @@ export default defineConfig({
             proxy.on("proxyReq", (proxyReq) => proxyReq.removeHeader("authorization")); // the Cash API has no Finance routes: nothing to add, nothing to forward
           },
         },
+        "/pnl-api": {
+          target,
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/pnl-api/, "/api/v1/pnl"),
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => proxyReq.removeHeader("authorization")); // the P&L API has no Finance-only routes: nothing to add, nothing to forward
+          },
+        },
         "/creditors-api": {
           target,
           changeOrigin: false,
