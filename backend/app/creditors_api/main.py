@@ -9,6 +9,7 @@ from .db import Db
 from .router import router
 from ..cash_api.router import router as cash_router
 from ..entry_api.router import router as entry_router
+from ..pnl_api.router import router as pnl_router
 
 
 def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> FastAPI:
@@ -20,6 +21,7 @@ def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> Fas
     app.include_router(router)
     app.include_router(cash_router)
     app.include_router(entry_router)
+    app.include_router(pnl_router)
     return app
 
 
