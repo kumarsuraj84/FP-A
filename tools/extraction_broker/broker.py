@@ -33,6 +33,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import guard  # noqa: E402
 import manifest as mf  # noqa: E402
 import packages  # noqa: E402
+import pl_actuals  # noqa: E402,F401  (registers pl_actuals_01)
+import pl_probe  # noqa: E402,F401  (registers pl_meta_probe_01)
 import cogs_probe  # noqa: E402,F401  (registers cogs_meta_probe_01, cogs_scan_01)
 import identity_probe  # noqa: E402,F401  (registers entry_identity_probe_01)
 import readiness  # noqa: E402
@@ -275,6 +277,17 @@ def check_entry_readiness(conn_id: int) -> tuple[bool, str]:
     return ready, reason
 
 
+def check_pl_readiness(conn_id: int, as_of: str) -> tuple[bool, str]:
+    """P&L readiness: the current register is non-empty, has a report date, and that date IS the requested as-of date (an as-of ahead of the register would read a half-loaded day)."""
+    reg = _probe(conn_id, packages.ENTRY_READINESS[0])
+    if reg is None:
+        return False, readiness.PROBE_FAILED
+    ready, reason = readiness.assess(reg, {"cube_report_date": as_of}, readiness.load_baseline(BASELINE))
+    if not ready and reason == readiness.MISMATCH:
+        reason = f"{reason} (the register's report date is {reg.get('register_report_date')}, the requested as-of date is {as_of})"
+    return ready, reason
+
+
 def cmd_run(package: str, only: set[str] | None) -> int:
     datasets = [d for d in PACKAGES[package] if not only or d.name in only]
     if not datasets:
@@ -287,6 +300,12 @@ def cmd_run(package: str, only: set[str] | None) -> int:
     conn_id = find_oracle_connection()
     backup = backup_platform_db()
     print(f"Backed up platform.db -> {backup.name}")
+    if package == "pl_actuals_01":
+        ready, reason = check_pl_readiness(conn_id, PACKAGE_META[package]["contract"]["as_of_cutoff"])
+        if not ready:
+            print(f"SOURCE_NOT_READY — {reason}. Nothing was extracted and no run folder was created.")
+            return 3
+        print("Source ready: register non-empty and its report date equals the requested as-of date.\n")
     if package == "entry_pilot_01":
         ready, reason = check_entry_readiness(conn_id)   # before any run folder exists: a not-ready source leaves nothing that looks like a candidate run
         if not ready:
@@ -407,6 +426,13 @@ def main(argv: list[str]) -> int:
                     raise BrokerError("entry_pilot_01 needs an explicit --as-of YYYY-MM-DD: there is no implicit today")
                 try:
                     packages.configure_entry(a.as_of)
+                except ValueError as e:
+                    raise BrokerError(str(e)) from None
+            elif a.package == "pl_actuals_01":
+                if not a.as_of:
+                    raise BrokerError("pl_actuals_01 needs an explicit --as-of YYYY-MM-DD (the register's own report date): there is no implicit today")
+                try:
+                    pl_actuals.configure_pl(a.as_of)
                 except ValueError as e:
                     raise BrokerError(str(e)) from None
             elif a.as_of:
