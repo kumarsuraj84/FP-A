@@ -211,7 +211,7 @@ def verify(conn) -> list[tuple[str, bool, str]]:
     pol = conn.execute("SELECT require_api_layer, require_ui_layer FROM cred.policy_change ORDER BY change_id DESC LIMIT 1").fetchone()
     add("initial policy: API layer required, UI layer not yet", pol == (True, False), str(pol))
     ledger = [r[0] for r in conn.execute("SELECT version FROM cred.schema_migration ORDER BY version")]
-    add("migration ledger records 001 to 007", ledger == ["001", "002", "003", "004", "005", "006", "007"], str(ledger))
+    add("migration ledger records 001 to 008", ledger == ["001", "002", "003", "004", "005", "006", "007", "008"], str(ledger))
     verify_cash(conn, add, one)
     verify_entry(conn, add, one)
     empty = {t: conn.execute(f"SELECT count(*) FROM cred.{t}").fetchone()[0] for t in TABLES if t not in ("policy_change", "schema_migration")}

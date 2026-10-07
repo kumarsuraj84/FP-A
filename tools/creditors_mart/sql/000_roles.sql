@@ -7,11 +7,12 @@
 -- cred_api_reader : read-only, approved masked API views of the live run. No vendor name, no vendor codes.
 -- cash_owner / cash_loader / cash_verifier / cash_promoter / cash_api_reader : the same split for the Cash domain (schema `cash`, migration 004); each is NOLOGIN.
 -- entry_owner / entry_loader / entry_verifier / entry_promoter / entry_api_reader / entry_finance_reader : the accounting-entry layer (schema `entry`, migration 005). entry_finance_reader alone may read the restricted text table. All NOLOGIN.
+-- pnl_owner / pnl_loader / pnl_verifier / pnl_promoter / pnl_api_reader : the store P&L actuals (schema `pnl`, migration 008); each is NOLOGIN.
 -- cred_finance_reader : read-only Finance / CFO view including vendor names and codes. An Admin application role maps here, never to the owner.
 DO $roles$
 DECLARE r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['cred_owner', 'cred_loader', 'cred_verifier', 'cred_promoter', 'cred_api_reader', 'cred_finance_reader', 'cash_owner', 'cash_loader', 'cash_verifier', 'cash_promoter', 'cash_api_reader', 'entry_owner', 'entry_loader', 'entry_verifier', 'entry_promoter', 'entry_api_reader', 'entry_finance_reader'] LOOP
+  FOREACH r IN ARRAY ARRAY['cred_owner', 'cred_loader', 'cred_verifier', 'cred_promoter', 'cred_api_reader', 'cred_finance_reader', 'cash_owner', 'cash_loader', 'cash_verifier', 'cash_promoter', 'cash_api_reader', 'entry_owner', 'entry_loader', 'entry_verifier', 'entry_promoter', 'entry_api_reader', 'entry_finance_reader', 'pnl_owner', 'pnl_loader', 'pnl_verifier', 'pnl_promoter', 'pnl_api_reader'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT', r);
     END IF;

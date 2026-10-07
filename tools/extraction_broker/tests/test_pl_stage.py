@@ -24,7 +24,7 @@ def _write(run: Path, name: str, rows: list[dict], cols: list[str]):
 
 def _entry(run: Path, name, role, kind="extract"):
     f = run / f"{name}.parquet"
-    return {"dataset": name, "kind": kind, "role": role, "source_object": None, "logical_source": None, "copy_id": None, "query_id": 1, "query_hash": "a" * 64, "extracted_at": "x",
+    return {"dataset": name, "kind": kind, "role": role, "source_object": None, "logical_source": None, "copy_id": None, "query_id": 1, "query_hash": "a" * 64, "extracted_at": "2026-10-07T04:00:00+00:00",
             "row_count": pq.ParquetFile(f).metadata.num_rows, "row_cap": 1000, "min_date": None, "max_date": None, "file_name": f"{name}.parquet", "file_size": f.stat().st_size,
             "sha256": mf.sha256_file(f), "status": "ok", "description": name, "error": None}
 

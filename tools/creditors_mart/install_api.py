@@ -3,8 +3,8 @@ One-time administrator step for the Creditors API, run in YOUR OWN terminal (one
 
     python tools/creditors_mart/install_api.py            # database defaults to fpa_pilot
 
-  1. applies any pending mart migrations (002 verified-candidate views, 003 shared run model, 004 cash schema, 005 entry layer, 006 till-day-only entry layer) through the reviewed migration path;
-  2. creates (or re-keys) the login `cred_api_login`: a member of cred_verifier, cred_finance_reader, cred_api_reader, cash_verifier, cash_api_reader, entry_verifier, entry_api_reader and entry_finance_reader ONLY, set
+  1. applies any pending mart migrations (002 verified-candidate views, 003 shared run model, 004 cash schema, 005 entry layer, 006 till-day-only entry layer, 007 entry identity v2, 008 P&L actuals) through the reviewed migration path;
+  2. creates (or re-keys) the login `cred_api_login`: a member of cred_verifier, cred_finance_reader, cred_api_reader, cash_verifier, cash_api_reader, entry_verifier, entry_api_reader, entry_finance_reader, pnl_verifier and pnl_api_reader ONLY, set
      NOINHERIT so it holds no privilege of its own: the API must `SET ROLE` into exactly one of them per request, and the database
      decides what each role may read. It is not a member of any loader, owner or promoter role and has no admin attributes;
   3. writes the random password and a random Finance access token ONLY to the git-ignored file .secrets/cred_api.env;
@@ -23,8 +23,8 @@ from setup_loader import read_env, write_secret_file  # noqa: E402
 
 LOGIN = "cred_api_login"
 SECRET_FILE = HERE.parents[1] / ".secrets" / "cred_api.env"
-MEMBER_OF = ["cred_verifier", "cred_finance_reader", "cred_api_reader", "cash_verifier", "cash_api_reader", "entry_verifier", "entry_api_reader", "entry_finance_reader"]
-FORBIDDEN = ["cred_owner", "cred_loader", "cred_promoter", "cash_owner", "cash_loader", "cash_promoter", "entry_owner", "entry_loader", "entry_promoter"]
+MEMBER_OF = ["cred_verifier", "cred_finance_reader", "cred_api_reader", "cash_verifier", "cash_api_reader", "entry_verifier", "entry_api_reader", "entry_finance_reader", "pnl_verifier", "pnl_api_reader"]
+FORBIDDEN = ["cred_owner", "cred_loader", "cred_promoter", "cash_owner", "cash_loader", "cash_promoter", "entry_owner", "entry_loader", "entry_promoter", "pnl_owner", "pnl_loader", "pnl_promoter"]
 
 
 def provision(admin, secret_path: Path, host: str, port: str, dbname: str) -> dict:
@@ -64,7 +64,7 @@ def check_role(admin) -> list[tuple[str, bool]]:
         out.append((f"NOT a member of {r}", one("SELECT pg_has_role(%s, %s, 'MEMBER')", LOGIN, r) is False))
     out.append(("no privilege of its own on any table or view in schemas cred and cash", not one(
         "SELECT bool_or(has_table_privilege(%s, c.oid, 'SELECT') OR has_table_privilege(%s, c.oid, 'INSERT') OR has_table_privilege(%s, c.oid, 'UPDATE') OR has_table_privilege(%s, c.oid, 'DELETE')) "
-        "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('cred', 'cash', 'core', 'entry') AND c.relkind IN ('r','v')", LOGIN, LOGIN, LOGIN, LOGIN)))
+        "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('cred', 'cash', 'core', 'entry', 'pnl') AND c.relkind IN ('r','v')", LOGIN, LOGIN, LOGIN, LOGIN)))
     return out
 
 
@@ -91,7 +91,8 @@ def check_login(conninfo: str) -> list[tuple[str, bool]]:
                                ("cash_api_reader", "core.v_domain_run", True),
                                ("entry_api_reader", "entry.v_entry_header", True), ("entry_api_reader", "entry.v_entry_line_text", False), ("entry_api_reader", "entry.v_entry_identity", False),
                                ("entry_api_reader", "entry.entry_line_text", False), ("entry_finance_reader", "entry.v_entry_line_text", True), ("entry_finance_reader", "entry.v_entry_identity", True),
-                               ("entry_verifier", "entry.v_entry_line_text", False)):
+                               ("entry_verifier", "entry.v_entry_line_text", False),
+                               ("pnl_api_reader", "pnl.v_gl_site_month", True), ("pnl_api_reader", "pnl.gl_site_month", False), ("pnl_api_reader", "core.v_domain_run", True)):
             try:
                 c.execute(f"SET ROLE {role}")
                 c.execute(f"SELECT 1 FROM {view} LIMIT 1")
