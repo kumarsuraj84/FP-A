@@ -38,3 +38,37 @@ COGS_SCAN_01: tuple[Dataset, ...] = (
 )
 packages.PACKAGES["cogs_scan_01"] = COGS_SCAN_01
 packages.PACKAGE_META["cogs_scan_01"] = {"timeout_s": 900, "attempts": 1}   # a heavy scan is never repeated automatically
+
+
+# cogs_scan_02: the same single pass, now also splitting each month into its first N days (N = the as-of day of the month) and the rest, so a day-aligned comparison
+# (1..7 Oct this year against 1..7 Oct last year) is exact. Every other month is the sum of the two parts. Bounded above by the as-of date.
+def cogs_scan_02(as_of_iso: str) -> tuple[Dataset, ...]:
+    from datetime import date as _d
+
+    n = _d.fromisoformat(as_of_iso).day
+    return (
+        Dataset("g1_site_month", "extract", f"T_CUSTOM_COGS by site, month and 'first {n} days' flag, 1 Apr 2025 to the as-of date: rows, bill days, sales value, tax, COGS, quantity, first and last bill date.",
+                sql=("SELECT TO_CHAR(c.sitecode) AS site_code, TO_CHAR(c.billdate, 'YYYY-MM') AS month, CASE WHEN TO_NUMBER(TO_CHAR(c.billdate, 'DD')) <= " + str(n) + " THEN 1 ELSE 0 END AS early, "
+                     "COUNT(*) AS rows_n, COUNT(DISTINCT c.billdate) AS bill_days, "
+                     f"{_TM9('SUM(c.custom_sl_v)', 'sl_v')}, {_TM9('SUM(c.taxamt)', 'tax_amt')}, {_TM9('SUM(c.custom_cogs_v)', 'cogs_v')}, {_TM9('SUM(c.custom_sl_q)', 'sl_q')}, "
+                     "COUNT(c.taxamt) AS tax_rows, TO_CHAR(MIN(c.billdate), 'YYYY-MM-DD') AS first_bill, TO_CHAR(MAX(c.billdate), 'YYYY-MM-DD') AS last_bill "
+                     f"FROM {_O}.{_T} c WHERE c.billdate >= DATE '2025-04-01' AND c.billdate <= DATE '{as_of_iso}' "
+                     "GROUP BY c.sitecode, TO_CHAR(c.billdate, 'YYYY-MM'), CASE WHEN TO_NUMBER(TO_CHAR(c.billdate, 'DD')) <= " + str(n) + " THEN 1 ELSE 0 END FETCH FIRST 40000 ROWS ONLY"),
+                role=""),
+    )
+
+
+def configure_cogs(as_of: str) -> None:
+    from datetime import date as _d
+
+    try:
+        d = _d.fromisoformat(as_of)
+    except ValueError:
+        raise ValueError("the as-of date must be a real date written YYYY-MM-DD") from None
+    if d.isoformat() != as_of:
+        raise ValueError("the as-of date must be written YYYY-MM-DD")
+    packages.PACKAGES["cogs_scan_02"] = cogs_scan_02(as_of)
+    packages.PACKAGE_META["cogs_scan_02"] = {"timeout_s": 900, "attempts": 1, "contract": {"contract": "cogs-scan-1.1", "as_of_cutoff": as_of, "aligned_days": d.day}}   # a heavy scan is never repeated automatically
+
+
+configure_cogs("2026-10-05")

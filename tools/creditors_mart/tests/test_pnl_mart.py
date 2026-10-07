@@ -239,3 +239,34 @@ def write_evidence():
     for e in sorted(EVIDENCE, key=lambda x: x["id"]):
         lines.append(f"| {e['id']} {e['title']} | " + "; ".join(f"{k}: {json.dumps(v, default=str)}" for k, v in e["detail"].items()) + " |")
     EVIDENCE_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_p12_the_effective_area_is_rederived_in_sql_and_a_wrong_row_is_refused(env):
+    plr, cgr, _ = staged(env)
+    plan = as_role(env, "pnl_loader", lambda a: pl.preflight(plr, cgr))
+    rows = plan.data["store_month_effective_area"]
+    victim = next(e for e in rows if e["effective_area"] is not None and e["active_days"] > 0)
+    victim["effective_area"] = victim["effective_area"] + Decimal("1.0000")           # the stager and the extract-side figures agree on the wrong number...
+    plan.expected = pl.expected_dims(plan.data)
+    with pytest.raises(pl.LoadError) as exc:
+        as_role(env, "pnl_loader", lambda a: pl.load_run(a, plan))
+    assert exc.value.stage == "mart_controls" and "M14_effective_area_recomputed" in exc.value.failed           # ...but the SQL re-derivation from the site master does not
+    assert env["admin"].execute("SELECT count(*) FROM pnl.run").fetchone()[0] == 0
+    ev("P12", "effective area re-derivation", refused_by="M14", rows_left=0)
+
+
+def test_p13_the_review_foundation_is_loaded_and_checked(env):
+    plr, cgr, rep = staged(env)
+    res = load(env, plr, cgr)
+    assert {"M12_aligned_rows_in_the_aligned_month", "M13_effective_area_covers_every_site_month", "M14_effective_area_recomputed", "M15_cogs_early_within_month"} <= set(res["mart_checks"])
+    assert all(v == 0 for v in res["mart_checks"].values())
+    a = env["admin"]
+    assert a.execute("SELECT aligned_days, ly_aligned_month FROM pnl.run").fetchone() == (7, __import__("datetime").date(2025, 10, 1))
+    assert a.execute("SELECT count(*) FROM pnl.store_month_effective_area").fetchone()[0] == 38 and a.execute("SELECT count(*) FROM pnl.gl_aligned").fetchone()[0] == 2
+    assert a.execute("SELECT area FROM pnl.site WHERE site_code = '10'").fetchone()[0] == Decimal("10000.00")
+    assert a.execute("SELECT cogs_early FROM pnl.cogs_site_month WHERE site_code = '10' AND month = '2026-09-01'").fetchone()[0] == Decimal("300")
+    eff = a.execute("SELECT effective_area, reason FROM pnl.store_month_effective_area WHERE site_code = '40' AND month = '2026-05-01'").fetchone()
+    assert eff[0] == (Decimal(8000) * 22 / 31).quantize(Decimal("0.0001")) and "OPENED_IN_MONTH" in eff[1]               # opened 10 May: 22 of 31 days
+    with pytest.raises(E.InsufficientPrivilege):
+        a.execute("UPDATE pnl.store_month_effective_area SET effective_area = 1")
+    ev("P13", "review foundation", checks=len(res["mart_checks"]), effective_area_rows=38, aligned_rows=2)

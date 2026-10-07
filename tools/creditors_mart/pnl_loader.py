@@ -1,7 +1,7 @@
 """
-P&L actuals loader: two validated, immutable run folders (pl_actuals_01 + cogs_scan_01) -> schema `pnl`, in ONE transaction, never promoted.
+P&L actuals loader: two validated, immutable run folders (pl_actuals_01 + cogs_scan_02) -> schema `pnl`, in ONE transaction, never promoted.
 
-    python tools/creditors_mart/pnl_loader.py load   <pl_actuals_01 run folder> <cogs_scan_01 run folder>   # preflight, load, controls, commit (or roll back everything)
+    python tools/creditors_mart/pnl_loader.py load   <pl_actuals_01 run folder> <cogs_scan_02 run folder>   # preflight, load, controls, commit (or roll back everything)
     python tools/creditors_mart/pnl_loader.py verify run_YYYYMMDD_NNN                                       # separate gate: loaded -> verified (structural checks, in SQL)
     python tools/creditors_mart/pnl_loader.py report run_YYYYMMDD_NNN
 
@@ -40,9 +40,10 @@ OTHER_ROLES = ["pnl_owner", "pnl_promoter", "pnl_verifier", "pnl_api_reader", "c
                "cred_verifier", "cred_api_reader", "cred_finance_reader", "entry_owner", "entry_loader", "entry_promoter", "entry_verifier", "entry_api_reader", "entry_finance_reader"]
 SECRET_FILE = HERE.parents[1] / ".secrets" / "pnl_loader.env"
 
-SITE_COLUMNS = ["run_id", "site_code", "store_name", "opening_date", "store_status", "store_current_status", "cluster_type", "region_type", "state", "store_type", "last_bill_date"]
+SITE_COLUMNS = ["run_id", "site_code", "store_name", "opening_date", "store_status", "store_current_status", "cluster_type", "region_type", "state", "store_type", "area", "st_type", "store_grade", "last_bill_date"]
 GL_COLUMNS = ["run_id", "site_code", "month", "glcode", "ledger_name", "group_label", "section", "entry_type_short", "release_status", "debit", "credit", "lines"]
-COGS_COLUMNS = ["run_id", "site_code", "month", "sl_v", "tax_amt", "cogs_v", "sl_q", "rows_n", "bill_days", "first_bill", "last_bill"]
+COGS_COLUMNS = ["run_id", "site_code", "month", "sl_v", "tax_amt", "cogs_v", "sl_q", "rows_n", "bill_days", "first_bill", "last_bill", "sl_v_early", "tax_early", "cogs_early", "sl_q_early"]
+EFF_COLUMNS = ["run_id", "site_code", "month", "actual_area", "opening_date", "closing_date", "active_days", "calendar_days", "effective_area", "reason"]
 TIE_COLUMNS = ["run_id", "site_code", "month", "books_sales", "cogs_table_sales_ex_gst", "difference", "tied"]
 SECTIONS = ps.SECTIONS
 
@@ -144,6 +145,18 @@ def expected_dims(data: dict) -> dict:
     out[("P_tieout", "tied")] = Decimal(sum(1 for t in tie if t["tied"]))
     out[("P_tieout", "difference")] = sum((t["difference"] for t in tie), ZERO)
     out[("P_sites", "rows")] = Decimal(len(data["site_master"]))
+    out[("P_sites", "area")] = sum((s["area"] or ZERO for s in data["site_master"]), ZERO)
+    al = data["gl_aligned"]
+    out[("P_aligned", "rows")], out[("P_aligned", "debit")], out[("P_aligned", "credit")] = Decimal(len(al)), sum((r["debit"] for r in al), ZERO), sum((r["credit"] for r in al), ZERO)
+    for s in SECTIONS:
+        out[("P_aligned_section_net", s)] = sum((r["credit"] - r["debit"] for r in al if r["section"] == s), ZERO)
+    ef = data["store_month_effective_area"]
+    out[("P_effective_area", "rows")] = Decimal(len(ef))
+    out[("P_effective_area", "sum_effective_area")] = sum((e["effective_area"] or ZERO for e in ef), ZERO)
+    out[("P_effective_area", "sum_active_days")] = Decimal(sum(e["active_days"] for e in ef))
+    out[("P_effective_area", "rows_without_area")] = Decimal(sum(1 for e in ef if e["effective_area"] is None))
+    for k in ("sl_v_early", "tax_early", "cogs_early", "sl_q_early"):
+        out[("P_cogs", k)] = sum((r[k] for r in cg), ZERO)
     out[("P_groups", "rows")] = Decimal(len(data["group_section"]))
     return out
 
@@ -159,8 +172,8 @@ def preflight(pl_dir: Path | str, cogs_dir: Path | str) -> Plan:
             raise LoadError("precheck", f"manifest invalid ({d.name}): {v.errors[:3]}")
     m = json.loads((pl_dir / "manifest.json").read_text(encoding="utf-8"))
     mc = json.loads((cogs_dir / "manifest.json").read_text(encoding="utf-8"))
-    if m.get("package") != "pl_actuals_01" or mc.get("package") != "cogs_scan_01":
-        raise LoadError("precheck", "the folders are not a pl_actuals_01 run and a cogs_scan_01 run")
+    if m.get("package") != "pl_actuals_01" or mc.get("package") != "cogs_scan_02":
+        raise LoadError("precheck", "the folders are not a pl_actuals_01 run and a cogs_scan_02 run")
     rep_path = pl_dir / "staging" / "validation_report.json"
     if not rep_path.exists():
         raise LoadError("staging_report", "no staging report: run pl_stage.py first")
@@ -176,7 +189,7 @@ def preflight(pl_dir: Path | str, cogs_dir: Path | str) -> Plan:
     if fresh["aggregates"] != rep["aggregates"] or fresh["controls"] != rep["controls"]:
         raise LoadError("staging_report", "the re-derived figures differ from the staging report")
     data = fresh["derived"]
-    for name in ("gl_site_month", "cogs_site_month", "sales_tieout", "site_master", "group_section"):
+    for name in ("gl_site_month", "gl_aligned", "cogs_site_month", "sales_tieout", "site_master", "group_section", "store_month_effective_area"):
         p = pl_dir / "staging" / f"{name}.parquet"
         if not p.exists():
             raise LoadError("staging_report", f"{name}.parquet is missing")
@@ -207,6 +220,17 @@ def dims_from_db(conn, run_id: str) -> dict:
     r = one("SELECT count(*), count(*) FILTER (WHERE tied), coalesce(sum(difference),0) FROM pnl.sales_tieout WHERE run_id = %s", run_id)
     out[("P_tieout", "rows")], out[("P_tieout", "tied")], out[("P_tieout", "difference")] = Decimal(r[0]), Decimal(r[1]), Decimal(r[2])
     out[("P_sites", "rows")] = Decimal(one("SELECT count(*) FROM pnl.site WHERE run_id = %s", run_id)[0])
+    out[("P_sites", "area")] = Decimal(one("SELECT coalesce(sum(area), 0) FROM pnl.site WHERE run_id = %s", run_id)[0])
+    r = one("SELECT count(*), coalesce(sum(debit), 0), coalesce(sum(credit), 0) FROM pnl.gl_aligned WHERE run_id = %s", run_id)
+    out[("P_aligned", "rows")], out[("P_aligned", "debit")], out[("P_aligned", "credit")] = Decimal(r[0]), Decimal(r[1]), Decimal(r[2])
+    got = dict(conn.execute("SELECT section, sum(credit - debit) FROM pnl.gl_aligned WHERE run_id = %s GROUP BY 1", (run_id,)).fetchall())
+    for s in SECTIONS:
+        out[("P_aligned_section_net", s)] = Decimal(got.get(s, 0))
+    r = one("SELECT count(*), coalesce(sum(effective_area), 0), coalesce(sum(active_days), 0), count(*) FILTER (WHERE effective_area IS NULL) FROM pnl.store_month_effective_area WHERE run_id = %s", run_id)
+    out[("P_effective_area", "rows")], out[("P_effective_area", "sum_effective_area")], out[("P_effective_area", "sum_active_days")], out[("P_effective_area", "rows_without_area")] = Decimal(r[0]), Decimal(r[1]), Decimal(r[2]), Decimal(r[3])
+    r = one("SELECT coalesce(sum(sl_v_early), 0), coalesce(sum(tax_early), 0), coalesce(sum(cogs_early), 0), coalesce(sum(sl_q_early), 0) FROM pnl.cogs_site_month WHERE run_id = %s", run_id)
+    for k, val in zip(("sl_v_early", "tax_early", "cogs_early", "sl_q_early"), r):
+        out[("P_cogs", k)] = Decimal(val)
     out[("P_groups", "rows")] = Decimal(one("SELECT count(*) FROM pnl.group_section WHERE run_id = %s", run_id)[0])
     return out
 
@@ -250,15 +274,18 @@ def load_run(conn, plan: Plan) -> dict:
             c, d = plan.contract, plan.data
             conn.execute(
                 "INSERT INTO pnl.run (run_id, as_of_date, cogs_run_id, cogs_last_bill_date, package, contract_version, rules, manifest_sha256, cogs_manifest_sha256, staging_report_sha256,"
-                " extract_started_at, extract_finished_at, expected_gl_rows, expected_cogs_rows, expected_sites, tolerance_rupees) VALUES (%s,%s,%s,%s,'pl_actuals_01',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                " extract_started_at, extract_finished_at, expected_gl_rows, expected_cogs_rows, expected_sites, tolerance_rupees, aligned_days, ly_aligned_month) VALUES (%s,%s,%s,%s,'pl_actuals_01',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (run_id, plan.as_of, plan.cogs_run_id, plan.cogs_last_bill, c["contract"], json.dumps(c), plan.manifest_sha256, plan.cogs_manifest_sha256, plan.report_sha256,
-                 plan.extract_started_at, plan.extract_finished_at, len(d["gl_site_month"]), len(d["cogs_site_month"]), len(d["site_master"]), plan.tolerance))
+                 plan.extract_started_at, plan.extract_finished_at, len(d["gl_site_month"]), len(d["cogs_site_month"]), len(d["site_master"]), plan.tolerance, c["aligned_days"], c["ly_aligned_month"]))
             _copy(conn, "site", SITE_COLUMNS, ([run_id, s["site_code"], s["store_name"], _d(s["opening_date"]), s["store_status"], s["store_current_status"], s["cluster_type"], s["region_type"],
-                                               s["state"], s["store_type"], _d(s["last_bill_date"])] for s in d["site_master"]))
+                                               s["state"], s["store_type"], s["area"], s["st_type"], s["store_grade"], _d(s["last_bill_date"])] for s in d["site_master"]))
             _copy(conn, "group_section", ["run_id", "group_label", "section"], ([run_id, g["group_label"], g["section"]] for g in d["group_section"]))
             n_gl = _copy(conn, "gl_site_month", GL_COLUMNS, ([run_id] + [r[k] for k in GL_COLUMNS[1:]] for r in d["gl_site_month"]))
-            n_cg = _copy(conn, "cogs_site_month", COGS_COLUMNS, ([run_id, r["site_code"], r["month"], r["sl_v"], r["tax_amt"], r["cogs_v"], r["sl_q"], r["rows_n"], r["bill_days"], _d(r["first_bill"]), _d(r["last_bill"])]
-                                                              for r in d["cogs_site_month"]))
+            n_cg = _copy(conn, "cogs_site_month", COGS_COLUMNS, ([run_id, r["site_code"], r["month"], r["sl_v"], r["tax_amt"], r["cogs_v"], r["sl_q"], r["rows_n"], r["bill_days"], _d(r["first_bill"]), _d(r["last_bill"]),
+                                                               r["sl_v_early"], r["tax_early"], r["cogs_early"], r["sl_q_early"]] for r in d["cogs_site_month"]))
+            _copy(conn, "gl_aligned", GL_COLUMNS, ([run_id] + [r[k] for k in GL_COLUMNS[1:]] for r in d["gl_aligned"]))
+            _copy(conn, "store_month_effective_area", EFF_COLUMNS, ([run_id, e["site_code"], e["month"], e["actual_area"], _d(e["opening_date"]), _d(e["closing_date"]), e["active_days"], e["calendar_days"],
+                                                                     e["effective_area"], e["reason"]] for e in d["store_month_effective_area"]))
             _copy(conn, "sales_tieout", TIE_COLUMNS, ([run_id] + [t[k] for k in TIE_COLUMNS[1:]] for t in d["sales_tieout"]))
             log.info("run %s: %d book rows, %d COGS rows inserted", run_id, n_gl, n_cg)
             for cr in plan.source_controls:

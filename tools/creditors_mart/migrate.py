@@ -21,8 +21,8 @@ import sys
 from pathlib import Path
 
 SQL_DIR = Path(__file__).resolve().parent / "sql"
-SCRIPTS = ["000_roles.sql", "001_cred_schema.sql", "002_candidate_views.sql", "003_core_run_model.sql", "004_cash_schema.sql", "005_entry_schema.sql", "006_entry_till_day_only.sql", "007_entry_identity_v2.sql", "008_pnl_schema.sql"]
-VERSIONS = {"001_cred_schema.sql": "001", "002_candidate_views.sql": "002", "003_core_run_model.sql": "003", "004_cash_schema.sql": "004", "005_entry_schema.sql": "005", "006_entry_till_day_only.sql": "006", "007_entry_identity_v2.sql": "007", "008_pnl_schema.sql": "008"}
+SCRIPTS = ["000_roles.sql", "001_cred_schema.sql", "002_candidate_views.sql", "003_core_run_model.sql", "004_cash_schema.sql", "005_entry_schema.sql", "006_entry_till_day_only.sql", "007_entry_identity_v2.sql", "008_pnl_schema.sql", "009_pnl_review_foundation.sql"]
+VERSIONS = {"001_cred_schema.sql": "001", "002_candidate_views.sql": "002", "003_core_run_model.sql": "003", "004_cash_schema.sql": "004", "005_entry_schema.sql": "005", "006_entry_till_day_only.sql": "006", "007_entry_identity_v2.sql": "007", "008_pnl_schema.sql": "008", "009_pnl_review_foundation.sql": "009"}
 #: databases this tool will never create or migrate: the application database and the maintenance database
 PROTECTED = {"fpa", "postgres", "template0", "template1"}
 _SECRET = re.compile(r"(://[^:/@\s]+:)[^@\s]*@")

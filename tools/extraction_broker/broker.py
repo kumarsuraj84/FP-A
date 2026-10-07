@@ -35,6 +35,7 @@ import manifest as mf  # noqa: E402
 import packages  # noqa: E402
 import pl_actuals  # noqa: E402,F401  (registers pl_actuals_01)
 import pl_probe  # noqa: E402,F401  (registers pl_meta_probe_01)
+import area_probe  # noqa: E402,F401  (registers store_area_probe_01)
 import cogs_probe  # noqa: E402,F401  (registers cogs_meta_probe_01, cogs_scan_01)
 import identity_probe  # noqa: E402,F401  (registers entry_identity_probe_01)
 import readiness  # noqa: E402
@@ -426,6 +427,13 @@ def main(argv: list[str]) -> int:
                     raise BrokerError("entry_pilot_01 needs an explicit --as-of YYYY-MM-DD: there is no implicit today")
                 try:
                     packages.configure_entry(a.as_of)
+                except ValueError as e:
+                    raise BrokerError(str(e)) from None
+            elif a.package == "cogs_scan_02":
+                if not a.as_of:
+                    raise BrokerError("cogs_scan_02 needs an explicit --as-of YYYY-MM-DD (the same date as the P&L run): there is no implicit today")
+                try:
+                    cogs_probe.configure_cogs(a.as_of)
                 except ValueError as e:
                     raise BrokerError(str(e)) from None
             elif a.package == "pl_actuals_01":
