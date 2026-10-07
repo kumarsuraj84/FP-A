@@ -33,3 +33,29 @@ Purchase and sales documents: `PURINVMAIN/DET/CHG*` (131 k / 821 k), `PURORD*`, 
 1. Compare SSRK finance tables to the MISRETAIL cubes already in use (row-estimate and column coverage, metadata only) to see what SSRK adds.
 2. Index and partition metadata for `FINPOST`, `FINCOSTTAG`, `FINVCHMAIN` (`ALL_INDEXES`, `ALL_IND_COLUMNS`, `ALL_TAB_PARTITIONS`) to plan date-bound reads.
 3. First bounded sample (single day, capped) of one finance table.
+
+---
+
+# Part 2: comparison with MISRETAIL, and index / partition plan (2026-10-07)
+
+Runs: `run_20261007_009` (`ssrk_meta_probe_02`) and `run_20261007_010` (`misretail_visibility_probe_01`). Metadata only.
+
+## 1. SSRK vs MISRETAIL
+- **No table name is shared.** MISRETAIL holds 83 tables, all `T_*` report/summary tables (largest: `T_AUTO_BRCD_REQ_V7` 145 M, `T_CUSTOM_COGS` 104 M, customer-segment tables 21 to 24 M, `T_SALE_COMPARE_CONSOLIDATED` 16 M, `T_DASHBOARD_SL_V` 13 M). It has no views and no synonyms. So MISRETAIL is a derived reporting layer, not a mirror of the SSRK finance tables, and nothing in SSRK can be matched to it by name.
+- SSRK's own `MLOG$_*` snapshot logs (masters such as `FINGL`, `FINSL`, `ADMSITE`, `INVITEM`) show SSRK masters are replicated outward; the finance transaction tables (`FINPOST` and the rest) are not among them.
+- **Visibility finding (needs action).** With the new login the MISRETAIL schema shows only those 83 `T_*` tables (all VALID). **The finance registers and cubes the existing pipelines read (`T$FINREGSITE_877`, `T$FINREGSITE_844`, the outstanding cube and the other `T$*` objects) are not visible** to `SSRK_RO` (`ALL_OBJECTS`/`ALL_TABLES` show only objects the login may select). The Creditors, Cash, Entry and P&L extracts will therefore fail at the readiness gate until the role is granted SELECT on those objects, or the old grants are restored. `T_CUSTOM_COGS` is visible.
+- Consequence for the P&L: the books side (the `T$FINREGSITE` registers) can be re-created from SSRK `FINPOST` (+ `FINGL`, `FINGL_SITE`, `FINSL`) only after a reconciliation against the existing, verified runs; nothing is switched automatically.
+
+## 2. Indexes, keys and partitions of the SSRK finance tables
+- **No partitioning** on any of the 17 tables checked (no partition keys, no partitions). Every table has a primary key.
+- **`FINPOST` (8.07 M rows)**: primary key `POSTCODE` (numeric surrogate); single-column indexes on `ENTTYPE`, `GLCODE`, `SLCODE`, `YCODE`, `ADMSITE_CODE_OWNER`, `REF_ADMSITE_CODE`, `RELEASE_STATUS`, `ECODE`, `RELEASE_ECODE`, `DOCNO`, `SCHEME_DOCNO`; composite `(ENTCODE, ENTTYPE)`. **There is no index on `ENTDT` or `DOCDT`**, so a bare date predicate is a full scan.
+- **`FINCOSTTAG` (7.95 M)**: primary key `CODE`; unique composite `(ENTCODE, GLCODE, SLCODE, ADMSITE_CODE, POSTCODE, REF_ADMSITE_CODE)`; single-column indexes on `COSTCODE`, `ENTTYPE`, `GLCODE`, `SLCODE`, `YCODE`, `POSTCODE`, `ADMSITE_CODE`. No date column at all (the date is on the posting).
+- **`FINVCHMAIN` / `FINVCHDET` / `FINJRNMAIN` / `FINJRNDET`**: primary keys on `VCHCODE` / `JRNCODE` / `CODE`; unique `(VCHCODE, GLCODE, SLCODE)` on voucher lines; no date index (`VCHDT`).
+- **`FINGLBUD`**: unique `(GLCODE, COSTCODE, SLCODE, MCODE, ADMOU_CODE)` plus single-column indexes.
+- **`FINCHQDET`**: unique `(BOOKCODE, CHQNO)` and `(GLCODE, CHQNO)`.
+
+## How to read these tables cheaply (proposal, not yet run)
+1. Bound by **financial year first**: `YCODE` is indexed on `FINPOST`, `FINCOSTTAG`, `FINVCHMAIN`, `FINVCHDET` and `FINJRNDET`. Add the exact `ENTDT` / `VCHDT` window on top, and cap the rows.
+2. Find the **`POSTCODE` range** for a month once (a bounded probe by `YCODE`), then read `FINPOST` and `FINCOSTTAG` by `POSTCODE BETWEEN` (primary key and indexed): this avoids repeated full scans of 8 M rows.
+3. Join `FINCOSTTAG` to `FINPOST` by `POSTCODE` (both indexed), never by `ENTNO`/`ENTDT` text.
+4. Run one query at a time, off business peaks if possible, and keep every statement under the broker timeout.
