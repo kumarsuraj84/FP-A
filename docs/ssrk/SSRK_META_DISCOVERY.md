@@ -139,3 +139,21 @@ Runs `run_20261007_020` (`ssrk_cube_probe_01`, metadata only; plus the earlier `
 | `BANKREG` (bank voucher: GL, SL, cheque, balance) | Cash / bank | `FINVCHMAIN` / `FINVCHDET` / `FINPOST` for bank ledgers |
 | `POSBILLSUMM` (bill header: qty, MRP, discounts, net, tax) | Sales / till | `PSITE_POSBILL` (note: the template carries customer name, mobile and e-mail columns, which are never read) |
 | `BUDGETANALYSIS` (budget vs actual by ledger, site, month) | Budget (deferred) | `FINGLBUD` |
+
+---
+
+# Part 8: the outstanding cube (`FINOTSD`) rebuilt from live `FINPOST` (2026-10-07, 17:40)
+
+Runs `run_20261007_021` (`ssrk_otsd_probe_01`: 300 sampled documents) and `run_20261007_022` (`ssrk_otsd_open_01`: every open item of the four creditor ledgers). Code: `tools/extraction_broker/ssrk_otsd.py`. Compared with the verified Creditors run `run_20261005_012` (cube snapshot of 05 Oct, 12,275 open items).
+
+**Mapping proved on the sample (300 documents, 332 cube items; all 300 found):**
+- cube `DOCUMENT_CODE` = `FINPOST.ENTCODE`; `SUB_LEDGER_CODE` = `SLCODE`; `LEDGER_CODE` = `GLCODE`; `DOCUMENT_NO` / dates = `ENTNO` or `DOCNO` / `ENTDT`, `DOCDT`, `DUEDT`.
+- cube `AMOUNT` = `DAMOUNT - CAMOUNT` (credit items negative); cube `ADJUSTED` = `FINPOST.ADJAMT` (empty in the cube when 0); cube `PENDING` = `AMOUNT - ADJAMT` for a debit item and `AMOUNT + ADJAMT` for a credit item; an item is open when `ABS(DAMOUNT - CAMOUNT) <> ADJAMT`.
+- Result: 287 of 332 items agree exactly (amount, adjusted, pending). **All 45 others are items that live are MORE settled than on 05 Oct** (live adjusted is higher, pending nearer zero): none is a logic difference.
+
+**Full set (live today against the 05 Oct snapshot):**
+- Live open keys 12,220 against 12,275 in the cube; 11,628 in both (10,690 identical), 647 only in the cube (settled since), 592 only live (275 dated on or before 05 Oct but posted after the snapshot, 317 entered after it), 938 in both with pending changed.
+- Net pending: cube **-₹295.10 Cr**, live **-₹270.13 Cr** (difference +₹24.97 Cr). By ledger: Apparels (`1000000026`) -₹212.82 Cr live against -₹213.02 Cr; GM (`1000000092`) -₹43.05 Cr against -₹47.49 Cr; Non-Trading (`1000000025`) -₹2.63 Cr against -₹2.39 Cr; **Expenses (`1000000024`) -₹11.64 Cr against -₹32.20 Cr**, where +₹18.83 Cr comes from newly entered debit items (entry types PIM, JMD, PSM, PRM, VDP, PDM) and ₹0.67 Cr from items settled since.
+- The two days between the snapshot and now (06 and 07 Oct) are enough to explain item-level differences, but **not proven to explain the size of the Expenses-ledger movement**. This is why the position cannot be called reconciled.
+
+**What would prove it:** reconstruct the position as of 05 Oct from live data instead of comparing today's with it: take postings created up to the snapshot (`ECODE` / `TIME` on the posting) and subtract only the adjustments recorded up to that time (`FINTAG`: `POSTCODE1`, `POSTCODE2`, `AMOUNT`, `TIME`). First check whether `FINPOST.ADJAMT` equals the sum of `FINTAG` amounts for the posting. If the reconstructed 05 Oct position equals the cube's 12,275 items and ₹-295.10 Cr, the rebuild is exact.
