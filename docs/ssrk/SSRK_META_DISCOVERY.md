@@ -199,3 +199,20 @@ The live tables hold only the current position, so the live extract reads it as 
 - Field mapping checked on the 11,604 items present in both the 05 Oct cube run and the live run: ledger, vendor, class, credit days, document number, due-date basis, creating site and Dr/Cr agree on **all 11,604**; document type and initial agree on all after a seven-pair label dictionary read off those items (V_FIN says "Voucher (AR/AP)", the cube "AR/AP Voucher", and so on; every pair maps one-to-one); the rest differ only for the few hundred items whose amounts or dates changed after 05 Oct.
 - Staging (`creditors_stage.py`, now accepting `creditors_live_01`) passed all 408 controls with no failure: source controls before and after the extract identical, identity unique, Dr/Cr and sign rules, and the independent Oracle-side age and due classification equal to the offline one. The loader (`loader.py`) now accepts the package and records which package a run came from.
 - Live position at extraction: 12,169 open items, net pending -₹271.79 Cr.
+
+---
+
+# Part 11: Cash from live tables, discovery (2026-10-07, 22:30)
+
+Run `run_20261007_035` (`cash_live_probe_01`, code `tools/extraction_broker/cash_live_probe.py`). The Cash run `run_20261005_013` has two parts, assessed separately.
+
+**Bank and cash ledger book figures (34 ledgers): rebuildable.**
+- The 34 ledgers of the verified run are all in `SSRK.FINGL`, and the bank / cash split is explicit there: `TYPE = A` with `SRCTYPE = B` (Bank Account group, 28 ledgers) or `SRCTYPE = C` (Cash-in-hand group, 6 ledgers), with `EXT` for extinct. The cube's "nature" is this classification.
+- Opening balances are in `FINGLOP` (`GLCODE`, `YCODE`, `OPDAMT`, `OPCAMT`): 19 rows for these ledgers across FY 25-26 (`YCODE` 50) and FY 26-27 (51), for example CASH IN HAND(STORES) 96,995 Dr opening in FY 26-27 against 133,624 in FY 25-26.
+- Posted, unposted and future-dated movement comes from `FINPOST` (GL register) and from `FINPOST` + `FINCOSTTAG` (site register), as for the P&L books.
+- Not yet built or reconciled.
+
+**Store till cash (209 stores, 1.49 Cr on 4 Oct): NOT rebuildable from the finance postings.**
+- The verified figure comes from the MISRETAIL view `V_FINANCE_CASH_CUMLATIVE_BLNC` (store x day debit, credit, cumulative balance). Its definition is not visible now (MISRETAIL views are not readable by `SSRK_RO`) and was not captured by any earlier discovery run.
+- The finance postings do not contain it: the till ledger CASH IN HAND(STORES) (`1114925459`) has only **17 posting rows** in FY 26-27 to 04 Oct (all at one owner site) and **no cost-tag rows**, against 209 stores with year-to-date till debits and credits in the view.
+- So the till figure is derived outside the postings, most likely from the point-of-sale settlement tables (`PSITE_POSSTLM` 300 k, `PSITE_POSSTLMDETAIL` 2.5 M, `PSITE_POSSTLMOTH`, `PSITE_POSBILLMOP` 79 M with cash tender per bill, `PSITE_DAY_STLM_ACC/OTH`). That is an inference; the cash-drawer rule (what counts as cash taken, what as banked or settled, and how the running balance is built) has to come from Finance or from the view's author before any live rebuild.
