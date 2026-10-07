@@ -205,8 +205,8 @@ def validate(run_dir: Path, baseline: dict | None = None) -> dict:
         for e in v.errors:
             fail(f"manifest: {e}")
     m = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
-    if m.get("package") != "creditors_pilot_01" or m.get("manifest_version") != 2:
-        fail("manifest: not a creditors_pilot_01 / manifest_version 2 run")
+    if m.get("package") not in ("creditors_pilot_01", "creditors_live_01") or m.get("manifest_version") != 2:
+        fail("manifest: not a creditors_pilot_01 / creditors_live_01 / manifest_version 2 run")
     rules = (m.get("contract") or {})
     if not rules:
         fail("manifest: contract block missing")

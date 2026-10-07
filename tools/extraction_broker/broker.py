@@ -51,6 +51,7 @@ import ssrk_probe8  # noqa: E402,F401  (registers ssrk_masters_01)
 import ssrk_books  # noqa: E402,F401  (registers ssrk_books_probe_01)
 import ssrk_probe9  # noqa: E402,F401  (registers ssrk_cube_probe_01)
 import ssrk_otsd  # noqa: E402,F401  (registers ssrk_otsd_probe_01)
+import creditors_live  # noqa: E402,F401  (registers creditors_live_01)
 import readiness  # noqa: E402
 from packages import PACKAGE_META, PACKAGES, Dataset  # noqa: E402
 
@@ -454,6 +455,13 @@ def main(argv: list[str]) -> int:
                     raise BrokerError("pl_actuals_01 needs an explicit --as-of YYYY-MM-DD (the register's own report date): there is no implicit today")
                 try:
                     pl_actuals.configure_pl(a.as_of)
+                except ValueError as e:
+                    raise BrokerError(str(e)) from None
+            elif a.package == "creditors_live_01":
+                if not a.as_of:
+                    raise BrokerError("creditors_live_01 needs an explicit --as-of YYYY-MM-DD, and it must be today (the live tables hold only the current position)")
+                try:
+                    creditors_live.configure_live(a.as_of)
                 except ValueError as e:
                     raise BrokerError(str(e)) from None
             elif a.as_of:

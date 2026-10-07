@@ -178,3 +178,24 @@ Runs `run_20261007_023` (`ssrk_fintag_probe_01`), `_024` (rule A), `_025` (rule 
 - Not yet explained: the 106 items (about 0.9%) that differ, 80 open in the reconstruction but not in the cube and 26 the other way. The likely cause is adjustments whose `FINTAG` time is the voucher time rather than the moment of adjustment; that is an inference, to be tested on those items.
 
 **Conclusion:** the creditors outstanding position can be sourced from the live SSRK tables with an explicit as-of moment, reproducing the verified run to 99.8% of items and 0.15% of value, and the remaining differences are small and identifiable. Not switched: no page reads this yet.
+
+---
+
+# Part 10: the 106 residual items classified, and the live Creditors extract built (2026-10-07, 21:10)
+
+Runs `run_20261007_028` (residual detail), `_029` (rule D), `_030` (`V_FIN` sample), `_031`/`_032` (vendor and class masters), `_033` (first live extract, not loaded), `_034` (live extract, `creditors_live_01`).
+
+## Classification of the reconstruction residual (rule C at 05 Oct 00:00: 80 only-live, 26 only-cube, 29 differing)
+- **65 of the 80 only-live items**: a `FINTAG` row that settles the item exists but is timed on 05, 06 or 07 Oct (for example 2026-10-07 10:12), and the amount of those late rows equals exactly the amount the reconstruction was missing, yet the cube of 05 Oct already counted the item settled. So `FINTAG.TIME` is not always the time of the adjustment: it is refreshed when the adjusting voucher is saved again. This is an inference from the match of amounts; it means point-in-time reconstruction from `FINTAG` can never be exact for vouchers edited later. 15 further only-live items show no late `FINTAG` row: `ADJAMT` was lowered after 05 Oct (an adjustment was undone), which cannot be rebuilt either.
+- **26 only-cube items**: in 16 the `FINTAG` total before the snapshot equals the cube's ADJUSTED exactly; `FINPOST.ADJAMT` was topped up afterwards by a small round-off adjustment (for example 102,386 against 102,384), so rule C wrongly fell back to `ADJAMT`. Rule D (accept `FINTAG` when `ADJAMT` exceeds it by at most a round-off tolerance) cuts only-cube from 26 to 19 and raises exact items from 12,220 to 12,227; not adopted for the live extract because the live extract needs no history.
+- **29 differing items**: the same two causes (adjustments or edits dated after the snapshot).
+- **Conclusion:** the 0.9% residual is explained by edits and un-adjustments after the snapshot; none points to a wrong rule.
+
+## Consequence for the build: no history logic
+The live tables hold only the current position, so the live extract reads it as it is now (`FINPOST.ADJAMT`, exact by construction) and each daily run is an immutable snapshot; history comes from keeping the runs, not from reconstructing them.
+
+## `creditors_live_01` (code: `tools/extraction_broker/creditors_live.py`)
+- Same eight datasets, columns and controls as the verified pilot: the pilot's own SQL is pointed at an inline view that rebuilds the cube's rows from SSRK (`FINPOST`, `FINGL`, `FINSL`, `ADMCLS`, `V_FIN`, `ADMSITE`). `--as-of` is required and must be today (the live source cannot give a past day); the broker records the extraction moment.
+- Field mapping checked on the 11,604 items present in both the 05 Oct cube run and the live run: ledger, vendor, class, credit days, document number, due-date basis, creating site and Dr/Cr agree on **all 11,604**; document type and initial agree on all after a seven-pair label dictionary read off those items (V_FIN says "Voucher (AR/AP)", the cube "AR/AP Voucher", and so on; every pair maps one-to-one); the rest differ only for the few hundred items whose amounts or dates changed after 05 Oct.
+- Staging (`creditors_stage.py`, now accepting `creditors_live_01`) passed all 408 controls with no failure: source controls before and after the extract identical, identity unique, Dr/Cr and sign rules, and the independent Oracle-side age and due classification equal to the offline one. The loader (`loader.py`) now accepts the package and records which package a run came from.
+- Live position at extraction: 12,169 open items, net pending -₹271.79 Cr.

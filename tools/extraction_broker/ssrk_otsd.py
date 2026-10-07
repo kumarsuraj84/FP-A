@@ -110,3 +110,63 @@ SSRK_OTSD_ASOF_04: tuple[Dataset, ...] = (
     _asof3("d3_asof_0606", "2026-10-06 06:00", "2026-10-06 06:00:00"),
 )
 packages.PACKAGES["ssrk_otsd_asof_04"] = SSRK_OTSD_ASOF_04
+
+
+_RES_PC = "1119313543, 1126760404, 1126812996, 1127713035, 1127713036, 1127762043, 1128570307, 1128570475, 1129277552, 1129678946, 1129701425, 1131610750, 1131663173, 1131663196, 1131676012, 1131676851, 1131678533, 1131941157, 1131941162, 1132320951, 1132655101, 1132674096, 1132704969, 1132749223, 1132755953, 1132762972, 1132767912, 1132826505, 1132969614, 1133216621, 1133228244, 1133315156, 1133332195, 1133338113, 1133339905, 1133369783, 1133443354, 1133516884, 1133517571, 1133517810, 1133517870, 1133517877, 1133517887, 1133526975, 1133526984, 1133528031, 1133529934, 1133529953, 1133531365, 1133566426, 1133566444, 1133581307, 1133581318, 1133581323, 1133581328, 1133581339, 1133590911, 1133594929, 1133610113, 1133629273, 1133631892, 1133634903, 1133648219, 1133655105, 1133655387, 1133660945, 1133661004, 1133661692, 1133663500, 1133672013, 1133672040, 1133672110, 1133672170, 1133683597, 1133703238, 1133704590, 1133705329, 1133717154, 1133717772, 1133731728, 1133732194, 1133733541, 1133733583, 1133733848, 1133734375, 1133736459, 1133742588, 1133750784, 1133759698, 1133764891, 1133777953, 1133778045, 1133778048, 1133778057, 1133778090, 1133781587, 1133793588, 1133794210, 1133794608, 1133794661, 1133800148, 1133823723, 1133830053, 1133844680, 1133849124, 1133852509, 1133898258, 1133899073, 1133904838"
+_RES_EN = "'1115999842', '1116000120', '1116076026', '1117228515', '1117228518', '1117228528', '1125322862', '1125804883', '1126245221', '1126264909', '1126393656', '1127627563', '1127675547', '1128387401', '1128470786', '1128516890', '1128973916', '1129057918', '1130888100', '1131194021', '1131596248', '1133661619', '1133777764', '1133778158', '1133855740', '1133855766'"
+SSRK_RESIDUAL_01: tuple[Dataset, ...] = (
+    Dataset("x1_fintag_rows", "extract", "FINTAG rows touching the residual postings (either side), with adjustment time.",
+            sql=("SELECT t.code, t.postcode1, t.entcode1, t.enttype1, t.postcode2, t.entcode2, t.enttype2, t.slcode, t.amount, t.ecode, t.time AS adj_time "
+                 f"FROM SSRK.FINTAG t WHERE t.time >= DATE '2016-01-01' AND (t.postcode1 IN ({_RES_PC}) OR t.postcode2 IN ({_RES_PC})) ORDER BY t.code FETCH FIRST 20000 ROWS ONLY")),
+    Dataset("x2_postings", "extract", "FINPOST rows of the residual postings: creation, last-access and release times.",
+            sql=("SELECT p.postcode, p.entcode, p.enttype, p.entdt, p.glcode, p.slcode, p.damount, p.camount, p.adjamt, p.release_status, p.time AS created_time, p.last_access_time, p.release_time "
+                 f"FROM SSRK.FINPOST p WHERE p.entdt >= DATE '2016-01-01' AND p.postcode IN ({_RES_PC}) ORDER BY p.postcode FETCH FIRST 5000 ROWS ONLY")),
+    Dataset("x3_only_cube_postings", "extract", "FINPOST rows for the entries the cube lists but the reconstruction does not.",
+            sql=("SELECT p.postcode, p.entcode, p.enttype, p.entdt, p.glcode, p.slcode, p.damount, p.camount, p.adjamt, p.release_status, p.time AS created_time, p.last_access_time, p.release_time "
+                 f"FROM SSRK.FINPOST p WHERE p.entdt >= DATE '2016-01-01' AND p.glcode IN (1000000026, 1000000024, 1000000092, 1000000025) AND p.entcode IN ({_RES_EN}) ORDER BY p.postcode FETCH FIRST 5000 ROWS ONLY")),
+    Dataset("x4_only_cube_fintag", "extract", "FINTAG rows of those entries (entry side 1 or 2).",
+            sql=("SELECT t.code, t.postcode1, t.entcode1, t.enttype1, t.postcode2, t.entcode2, t.enttype2, t.slcode, t.amount, t.ecode, t.time AS adj_time "
+                 f"FROM SSRK.FINTAG t WHERE t.time >= DATE '2016-01-01' AND (t.entcode1 IN ({_RES_EN}) OR t.entcode2 IN ({_RES_EN})) ORDER BY t.code FETCH FIRST 20000 ROWS ONLY")),
+)
+packages.PACKAGES["ssrk_residual_01"] = SSRK_RESIDUAL_01
+
+
+def _asof4(name: str, label: str, ts: str, tol: int = 10) -> Dataset:
+    """Rule D: FINTAG-by-time whenever FINTAG explains the adjustment (equal, or short of ADJAMT by round-off only: at most `tol` rupees); ADJAMT only for legacy adjustments FINTAG does not show."""
+    t = f"TO_DATE('{ts}', 'YYYY-MM-DD HH24:MI:SS')"
+    adj = f"CASE WHEN NVL(p.adjamt, 0) - NVL(b.adj, 0) BETWEEN 0 AND {tol} THEN NVL(a.adj, 0) WHEN NVL(b.adj, 0) = NVL(p.adjamt, 0) THEN NVL(a.adj, 0) ELSE NVL(p.adjamt, 0) END"
+    tag = "(SELECT postcode1 AS postcode, amount, time FROM SSRK.FINTAG UNION ALL SELECT postcode2 AS postcode, amount, time FROM SSRK.FINTAG)"
+    return Dataset(name, "extract", f"Creditor open items RECONSTRUCTED as of {label} (rule D).",
+                   sql=(f"SELECT p.postcode, p.entcode, p.entno, p.entdt, p.enttype, p.glcode, p.slcode, p.damount, p.camount, {adj} AS adj_t, p.adjamt AS adjamt_now, NVL(b.adj, 0) AS fintag_all, p.release_status "
+                        f"FROM SSRK.FINPOST p LEFT JOIN (SELECT x.postcode AS postcode, sum(x.amount) AS adj FROM {tag} x WHERE x.time < {t} GROUP BY x.postcode) a ON a.postcode = p.postcode "
+                        f"LEFT JOIN (SELECT y.postcode AS postcode, sum(y.amount) AS adj FROM {tag} y GROUP BY y.postcode) b ON b.postcode = p.postcode "
+                        f"WHERE p.entdt >= DATE '2016-01-01' AND p.time >= DATE '2016-01-01' AND p.time < {t} AND p.glcode IN (1000000026, 1000000024, 1000000092, 1000000025) "
+                        f"AND ABS(NVL(p.damount, 0) - NVL(p.camount, 0)) <> {adj} ORDER BY p.postcode FETCH FIRST 40000 ROWS ONLY"))
+
+
+SSRK_OTSD_ASOF_05: tuple[Dataset, ...] = (_asof4("e0_asof_0500_tol10", "2026-10-05 00:00 (tolerance 10)", "2026-10-05 00:00:00", 10),
+                                          _asof4("e1_asof_0500_tol100", "2026-10-05 00:00 (tolerance 100)", "2026-10-05 00:00:00", 100))
+packages.PACKAGES["ssrk_otsd_asof_05"] = SSRK_OTSD_ASOF_05
+
+
+SSRK_VFIN_PROBE_01: tuple[Dataset, ...] = (
+    Dataset("v1_vfin_sample", "extract", "SSRK.V_FIN (the finance posting view) for 48 sampled open creditor postings: does it carry the cube's document number, type and initial?",
+            sql=("SELECT v.posting_code, v.document_code, v.document_no, v.document_date, v.ref_no, v.ref_dt, v.duedt, v.type, v.initial_type, v.entry_type, v.entry_type_pos, v.display_docno, "
+                 "v.glcode, v.slcode, v.debit, v.credit, v.adjusted, v.year, v.admou_code "
+                 f"FROM SSRK.V_FIN v WHERE v.document_date >= DATE '2016-01-01' AND v.posting_code IN (1115181905, 1120220659, 1124186757, 1127504941, 1128788787, 1129761305, 1130415647, 1131106349, 1131535987, 1131749154, 1131989209, 1132214653, 1132333422, 1132507948, 1132642007, 1132648496, 1132686381, 1132724464, 1132770024, 1132845498, 1132900196, 1132978820, 1133015040, 1133031022, 1133056963, 1133105962, 1133127232, 1133157108, 1133198763, 1133230085, 1133264256, 1133317358, 1133371824, 1133446167, 1133471042, 1133517326, 1133561174, 1133583652, 1133601005, 1133627344, 1133655928, 1133680215, 1133719212, 1133752774, 1133803293, 1133849386, 1133894672, 1133944050) ORDER BY v.posting_code FETCH FIRST 500 ROWS ONLY")),
+)
+packages.PACKAGES["ssrk_vfin_probe_01"] = SSRK_VFIN_PROBE_01
+
+
+SSRK_VENDOR_PROBE_01: tuple[Dataset, ...] = (
+    Dataset("w1_due_basis_values", "master", "Vendor master: due-date basis, credit days and class by sub-ledger (creditor classes only; no names, addresses or contacts).",
+            sql=("SELECT s.slcode, s.due_date_basis, s.crdays, s.clscode, s.ext FROM SSRK.FINSL s WHERE s.slcode IN "
+                 "(SELECT DISTINCT p.slcode FROM SSRK.FINPOST p WHERE p.entdt >= DATE '2026-09-01' AND p.glcode IN (1000000026, 1000000024, 1000000092, 1000000025)) ORDER BY s.slcode FETCH FIRST 20000 ROWS ONLY")),
+)
+packages.PACKAGES["ssrk_vendor_probe_01"] = SSRK_VENDOR_PROBE_01
+
+
+SSRK_CLASS_PROBE_01: tuple[Dataset, ...] = (
+    Dataset("k1_classes", "master", "Sub-ledger class master.", sql="SELECT clscode, clsname, clstype, ext FROM SSRK.ADMCLS ORDER BY clscode FETCH FIRST 100 ROWS ONLY"),
+)
+packages.PACKAGES["ssrk_class_probe_01"] = SSRK_CLASS_PROBE_01

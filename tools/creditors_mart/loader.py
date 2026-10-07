@@ -169,6 +169,7 @@ class Plan:
     vendors: list[dict]
     source_controls: list[dict]
     expected: dict = field(default_factory=dict)       # extract-layer aggregates to be matched by the mart
+    package: str = "creditors_pilot_01"
 
 
 def _pq(path: Path) -> list[dict]:
@@ -187,8 +188,8 @@ def preflight(run_dir: Path | str, salt: str) -> Plan:
     if not v.ok:
         raise LoadError("precheck", f"manifest validation failed ({len(v.errors)} error(s)): " + "; ".join(e.split(':')[0] for e in v.errors[:3]))
     m = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
-    if m.get("package") != "creditors_pilot_01" or m.get("manifest_version") != 2 or not m.get("contract"):
-        raise LoadError("precheck", "not a creditors_pilot_01 / manifest_version 2 run")
+    if m.get("package") not in ("creditors_pilot_01", "creditors_live_01") or m.get("manifest_version") != 2 or not m.get("contract"):
+        raise LoadError("precheck", "not a creditors_pilot_01 / creditors_live_01 / manifest_version 2 run")
     by = {d["dataset"]: d for d in m["datasets"]}
     for name in cs.EXPECTED_DATASETS:
         if name not in by or by[name]["status"] != "ok":
@@ -273,7 +274,7 @@ def preflight(run_dir: Path | str, salt: str) -> Plan:
     contract = m["contract"]
     plan = Plan(run_id=run_id, run_dir=run_dir, manifest_sha256=manifest_sha, report_sha256=mf.sha256_file(rp), derived_sha256=derived_sha, as_of=report["as_of_date"],
                 contract=contract, extract_started_at=started, extract_finished_at=finished, expected_rows=cs.as_int(c3[0]["item_rows"]),
-                expected_identity_rows=by["e2_identity_all_rows"]["row_count"], items=items, identity=identity, vendors=vendor_rows, source_controls=report["controls"])
+                expected_identity_rows=by["e2_identity_all_rows"]["row_count"], items=items, identity=identity, vendors=vendor_rows, source_controls=report["controls"], package=m["package"])
     plan.expected = dims_from_groups(groups_from_items(items), vendors_from_items(items), classes_from_items(items), counts=(len(items), len(vendor_rows), len(identity), sum(1 for i in identity if i["pending"] != 0)))
     return plan
 
@@ -408,8 +409,8 @@ def load_run(conn, plan: Plan) -> dict:
             conn.execute(
                 "INSERT INTO cred.run (extraction_run_id, as_of_date, package, contract_version, rules_version, hash_spec_version, rules, source_object, scope_ledger_codes,"
                 " manifest_sha256, staging_report_sha256, derived_parquet_sha256, extract_started_at, extract_finished_at, expected_rows, expected_identity_rows)"
-                " VALUES (%s,%s,'creditors_pilot_01',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (run_id, plan.as_of, c["contract_version"], c["rules_version"], c["hash_spec_version"],
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (run_id, plan.as_of, plan.package, c["contract_version"], c["rules_version"], c["hash_spec_version"],
                  json.dumps({k: c[k] for k in ("valid_date_min", "valid_date_max", "age_buckets")}), c["scope"]["source_object"], [str(x) for x in c["scope"]["ledger_codes"]],
                  plan.manifest_sha256, plan.report_sha256, plan.derived_sha256, plan.extract_started_at, plan.extract_finished_at, plan.expected_rows, plan.expected_identity_rows))
             n_v = _copy(conn, "vendor_snapshot", VENDOR_COLUMNS, ([run_id] + [v[col] for col in VENDOR_COLUMNS[1:]] for v in plan.vendors))
