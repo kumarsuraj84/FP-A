@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { CheckCircle2, ChevronRight, X } from "lucide-react";
-import { usePnlHierarchy, usePnlLedgers, usePnlReconciliation, usePnlRun, usePnlStore, usePnlStores, usePnlSummary, usePnlTrend } from "@/api/pnlLiveHooks";
+import { usePnlExpenseExceptions, usePnlHierarchy, usePnlLedgers, usePnlReconciliation, usePnlRevenueExceptions, usePnlRun, usePnlStore, usePnlStores, usePnlSummary, usePnlTrend } from "@/api/pnlLiveHooks";
 import { fmtDate } from "@/lib/format";
 import { DASH, fmtCr, fmtPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,9 @@ import { Skeleton } from "../common";
 import { DataStateBadge, LiveBoundary, NotAvailable } from "../creditors/parts";
 import { Panel, WorkspaceHeader } from "../panels";
 import { monthLabel, PnlTrendChart, PnlWaterfall } from "./PnlCharts";
+import { PnlComparisonTab, PnlPivotTab } from "./PnlPivotTab";
+import { ExpenseExceptionsTab, HeatMapTab, PeersTab, QualityTab, RevenueExceptionsTab } from "./PnlReviewTabs";
+import { FLAG_LABEL, SEVERITY_STYLE, lakh } from "./pnlFormat";
 import { GrowthMarginQuadrant, reference } from "./PnlQuadrant";
 
 /**
@@ -209,9 +212,9 @@ function LedgerDrill({ site, group, q }: { site: string; group: string; q: PnlQu
   );
 }
 
-function StorePanel({ site, q, onClose }: { site: string; q: PnlQuery; onClose: () => void }) {
+function StorePanel({ site, q, onClose, initialGroup }: { site: string; q: PnlQuery; onClose: () => void; initialGroup?: string | null }) {
   const s = usePnlStore(site, q);
-  const [group, setGroup] = useState<string | null>(null);
+  const [group, setGroup] = useState<string | null>(initialGroup ?? null);
   return (
     <Panel
       testId="store-panel"
@@ -398,14 +401,83 @@ function CogsWatch({ months }: { months: { month: string; revenue: string; cogs:
   );
 }
 
+type TabId = "overview" | "pivot" | "comparison" | "stores" | "heatmap" | "expense-exceptions" | "revenue-exceptions" | "peers" | "quality";
+const TABS: { id: TabId; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "pivot", label: "P&L Pivot" },
+  { id: "comparison", label: "MTD / QTD / YTD" },
+  { id: "stores", label: "Store Review" },
+  { id: "heatmap", label: "Heat Map" },
+  { id: "expense-exceptions", label: "Expense Exceptions" },
+  { id: "revenue-exceptions", label: "Revenue Exceptions" },
+  { id: "peers", label: "Peer Comparison" },
+  { id: "quality", label: "Unmapped / Data Quality" },
+];
+
+/** The few exceptions a reviewer should open first, on the Overview. */
+function NeedsAttention({ q, onStore, onTab }: { q: PnlQuery; onStore: (site: string, group?: string | null) => void; onTab: (t: TabId) => void }) {
+  const ex = usePnlExpenseExceptions(q);
+  const rx = usePnlRevenueExceptions(q);
+  return (
+    <Panel testId="attention-panel" eyebrow="Real · verified" title="Needs attention: the exceptions to open first"
+      right={<div className="flex gap-2 text-[11.5px]"><button className="press rounded border px-2 py-1 font-medium hover:bg-muted" onClick={() => onTab("expense-exceptions")} data-testid="attention-all-expense">All expense exceptions</button><button className="press rounded border px-2 py-1 font-medium hover:bg-muted" onClick={() => onTab("revenue-exceptions")} data-testid="attention-all-revenue">All revenue exceptions</button></div>}>
+      <div className="grid grid-cols-2 divide-x @max-[1000px]:grid-cols-1 @max-[1000px]:divide-x-0 @max-[1000px]:divide-y">
+        <div data-testid="attention-expense">
+          <div className="border-b px-4 py-1.5 text-[11.5px] text-muted-foreground">Expenses{ex.data ? `: ${ex.data.total} flagged for ${ex.data.month ? monthLabel(ex.data.month) : DASH} (${ex.data.by_severity.Critical ?? 0} critical, ${ex.data.by_severity.High ?? 0} high)` : ""}</div>
+          <LiveBoundary query={ex} skeleton={<Skeleton className="m-4 h-[120px]" />}>
+            {(d) => (
+              <ul>
+                {d.exceptions.slice(0, 5).map((e) => (
+                  <li key={`${e.site_code}-${e.group}`} data-testid={`attn-e-${e.site_code}-${e.group}`} onClick={() => onStore(e.site_code, e.group)} className="cursor-pointer border-b px-4 py-1.5 text-[12px] last:border-0 hover:bg-muted/50">
+                    <span className={cn("mr-2 rounded px-1.5 py-0.5 text-[10.5px] font-bold", SEVERITY_STYLE[e.severity])}>{e.severity}</span>
+                    <span className="font-medium">{e.store_name ?? `Site ${e.site_code}`}</span> · {e.label} {lakh(e.current)} vs {lakh(e.expected)}
+                    <div className="text-[11px] text-muted-foreground">{e.flags.map((f) => FLAG_LABEL[f] ?? f).join(", ")}</div>
+                  </li>
+                ))}
+                {d.exceptions.length === 0 && <li className="px-4 py-4 text-muted-foreground">No expense exception.</li>}
+              </ul>
+            )}
+          </LiveBoundary>
+        </div>
+        <div data-testid="attention-revenue">
+          <div className="border-b px-4 py-1.5 text-[11.5px] text-muted-foreground">Revenue{rx.data ? `: ${rx.data.total} flagged for ${rx.data.month ? monthLabel(rx.data.month) : DASH} (${rx.data.by_severity.Critical ?? 0} critical, ${rx.data.by_severity.High ?? 0} high)` : ""}</div>
+          <LiveBoundary query={rx} skeleton={<Skeleton className="m-4 h-[120px]" />}>
+            {(d) => (
+              <ul>
+                {d.exceptions.slice(0, 5).map((e) => (
+                  <li key={e.site_code} data-testid={`attn-r-${e.site_code}`} onClick={() => onStore(e.site_code)} className="cursor-pointer border-b px-4 py-1.5 text-[12px] last:border-0 hover:bg-muted/50">
+                    <span className={cn("mr-2 rounded px-1.5 py-0.5 text-[10.5px] font-bold", SEVERITY_STYLE[e.severity])}>{e.severity}</span>
+                    <span className="font-medium">{e.store_name ?? `Site ${e.site_code}`}</span> · {e.flags.map((f) => FLAG_LABEL[f] ?? f).join(", ")}
+                    <div className="text-[11px] text-muted-foreground">{e.why}</div>
+                  </li>
+                ))}
+                {d.exceptions.length === 0 && <li className="px-4 py-4 text-muted-foreground">No revenue exception.</li>}
+              </ul>
+            )}
+          </LiveBoundary>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 export function PnlRoom() {
   const run = usePnlRun();
   const [q, setQ0] = useState<PnlQuery>({ basis: "all" });
-  const [site, setSite] = useState<string | null>(null);
+  const [tab, setTab] = useState<TabId>("overview");
+  const [site, setSite0] = useState<string | null>(null);
+  const [group, setGroup] = useState<string | null>(null);
   const setQ = (f: (p: PnlQuery) => PnlQuery) => setQ0((p) => f(p));
+  const pickStore = (s: string | null, g: string | null = null) => {
+    setSite0(s);
+    setGroup(g);
+  };
   const summary = usePnlSummary(q);
   const trend = usePnlTrend(q);
   const filtered = !!(q.region || q.cluster || q.state || q.vintage);
+  const storePanel = site && tab !== "peers" ? (
+    <div className="px-3 pb-3"><StorePanel key={`${site}|${group ?? ""}`} site={site} q={q} onClose={() => pickStore(null)} initialGroup={group} /></div>
+  ) : null;
   return (
     <div data-testid="pnl-room" className="@container flex min-w-0 flex-1 flex-col overflow-y-auto bg-background">
       <WorkspaceHeader
@@ -420,44 +492,79 @@ export function PnlRoom() {
         <>
           <Controls asOf={run.data?.as_of_date ?? "2026-10-01"} q={q} setQ={setQ} />
           <Strip q={q} filtered={filtered} />
-          <div className="grid grid-cols-2 gap-3 p-3 @max-[1000px]:grid-cols-1">
-            <Panel testId="bridge-panel" eyebrow="Real · verified" title="From net sales to contribution" right={summary.data && <span className="num text-[11.5px] text-muted-foreground">{monthLabel(summary.data.scope.from_month)} to {monthLabel(summary.data.scope.to_month)} · {summary.data.scope.basis_label}</span>}>
-              <LiveBoundary query={summary} skeleton={<Skeleton className="m-4 h-[300px]" />}>{(d) => <PnlWaterfall t={d.totals as PnlMoney} />}</LiveBoundary>
-              {summary.data?.reconciliation && (
-                <div data-testid="bridge-reconciles" className={cn("border-t px-4 py-1.5 text-[11.5px]", summary.data.reconciliation.reconciles ? "text-[oklch(0.4_0.12_155)]" : "tone-bad")}>
-                  <CheckCircle2 className="mr-1 inline h-3 w-3" />
-                  {summary.data.reconciliation.reconciles ? `Company = stores (${cr(summary.data.reconciliation.stores.contribution)}) + head office and depots (${cr(summary.data.reconciliation.non_store.contribution)})` : "Company does not equal stores + non-store"}
-                </div>
-              )}
-            </Panel>
-            <Panel testId="trend-panel" eyebrow="Real · verified" title="Month by month, against last year">
-              <LiveBoundary query={trend} skeleton={<Skeleton className="m-4 h-[300px]" />}>{(d) => <><PnlTrendChart months={d.months} /><CogsWatch months={d.months} /></>}</LiveBoundary>
-            </Panel>
+          <div role="tablist" aria-label="Profitability review" data-testid="pnl-tabs" className="flex flex-wrap gap-0.5 border-b bg-card px-3 pt-1.5">
+            {TABS.map((t) => (
+              <button key={t.id} role="tab" data-testid={`tab-${t.id}`} aria-selected={tab === t.id} onClick={() => setTab(t.id)}
+                className={cn("press -mb-px rounded-t border border-b-0 px-3 py-1.5 text-[12.5px] font-semibold", tab === t.id ? "border-border bg-background text-foreground" : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground")}>
+                {t.label}
+              </button>
+            ))}
           </div>
-          <div className="px-3 pb-3"><Quadrant q={q} onPick={setSite} picked={site} /></div>
-          <div className="grid grid-cols-[1.6fr_1fr] gap-3 px-3 pb-3 @max-[1000px]:grid-cols-1">
-            <League q={q} onPick={setSite} picked={site} />
-            <Panel testId="lines-panel" eyebrow="Real · verified" title="P&L lines (finance groups)">
-              <div className="max-h-[470px] overflow-y-auto">
-                <LiveBoundary query={summary} skeleton={<Skeleton className="m-4 h-[260px]" />}>{(d) => <Lines lines={d.lines} revenue={d.totals.revenue} />}</LiveBoundary>
+          {tab === "overview" && (
+            <>
+              <div className="grid grid-cols-2 gap-3 p-3 @max-[1000px]:grid-cols-1">
+                <Panel testId="bridge-panel" eyebrow="Real · verified" title="From net sales to contribution" right={summary.data && <span className="num text-[11.5px] text-muted-foreground">{monthLabel(summary.data.scope.from_month)} to {monthLabel(summary.data.scope.to_month)} · {summary.data.scope.basis_label}</span>}>
+                  <LiveBoundary query={summary} skeleton={<Skeleton className="m-4 h-[300px]" />}>{(d) => <PnlWaterfall t={d.totals as PnlMoney} />}</LiveBoundary>
+                  {summary.data?.reconciliation && (
+                    <div data-testid="bridge-reconciles" className={cn("border-t px-4 py-1.5 text-[11.5px]", summary.data.reconciliation.reconciles ? "text-[oklch(0.4_0.12_155)]" : "tone-bad")}>
+                      <CheckCircle2 className="mr-1 inline h-3 w-3" />
+                      {summary.data.reconciliation.reconciles ? `Company = stores (${cr(summary.data.reconciliation.stores.contribution)}) + head office and depots (${cr(summary.data.reconciliation.non_store.contribution)})` : "Company does not equal stores + non-store"}
+                    </div>
+                  )}
+                </Panel>
+                <Panel testId="trend-panel" eyebrow="Real · verified" title="Month by month, against last year">
+                  <LiveBoundary query={trend} skeleton={<Skeleton className="m-4 h-[300px]" />}>{(d) => <><PnlTrendChart months={d.months} /><CogsWatch months={d.months} /></>}</LiveBoundary>
+                </Panel>
               </div>
-            </Panel>
-          </div>
-          {site && (
-            <div className="px-3 pb-3">
-              <StorePanel site={site} q={q} onClose={() => setSite(null)} />
-            </div>
+              <div className="px-3 pb-3"><NeedsAttention q={q} onStore={pickStore} onTab={setTab} /></div>
+              <div className="px-3 pb-3"><Quadrant q={q} onPick={(s) => pickStore(s)} picked={site} /></div>
+              <div className="px-3 pb-3">
+                <Panel testId="lines-panel" eyebrow="Real · verified" title="P&L lines (finance groups)">
+                  <div className="max-h-[470px] overflow-y-auto">
+                    <LiveBoundary query={summary} skeleton={<Skeleton className="m-4 h-[260px]" />}>{(d) => <Lines lines={d.lines} revenue={d.totals.revenue} />}</LiveBoundary>
+                  </div>
+                </Panel>
+              </div>
+              {storePanel}
+              <div className="px-3 pb-6">
+                <Panel testId="unavailable-panel" eyebrow="Not available" title="What the sources cannot support yet">
+                  <div className="divide-y">
+                    <NotAvailable testId="unavailable-budget" title="Budget" reason="No FY26-27 plan exists in the sources (the FY25-26 plan ended in March 2026). Budget and variance to budget are left blank; nothing is estimated." />
+                    <NotAvailable testId="unavailable-allocation" title="EBITDA and head-office allocation" reason="Finance has not frozen the EBITDA definition, so the page says Contribution (before other income, finance cost and head office). Company-level EBITDA after head-office and central cost needs that definition and an allocation rule." />
+                    <NotAvailable testId="unavailable-hierarchy" title="Area and zone" reason="The site master carries region, cluster and state only. No area or zone is shown or invented." />
+                  </div>
+                </Panel>
+              </div>
+            </>
           )}
-          <div className="px-3 pb-3"><Reconciliation q={q} /></div>
-          <div className="px-3 pb-6">
-            <Panel testId="unavailable-panel" eyebrow="Not available" title="What the sources cannot support yet">
-              <div className="divide-y">
-                <NotAvailable testId="unavailable-budget" title="Budget" reason="No FY26-27 plan exists in the sources (the FY25-26 plan ended in March 2026). Budget and variance to budget are left blank; nothing is estimated." />
-                <NotAvailable testId="unavailable-allocation" title="Head-office allocation and net store profit" reason="Contribution stops before head-office and depot costs. Allocating them needs a rule from Finance." />
-                <NotAvailable testId="unavailable-hierarchy" title="Area and zone" reason="The site master carries region, cluster and state only. No area or zone is shown or invented." />
-              </div>
-            </Panel>
-          </div>
+          {tab === "pivot" && <PnlPivotTab q={q} />}
+          {tab === "comparison" && <PnlComparisonTab q={q} />}
+          {tab === "stores" && (
+            <>
+              <div className="p-3"><League q={q} onPick={(s) => pickStore(s)} picked={site} /></div>
+              {storePanel}
+            </>
+          )}
+          {tab === "heatmap" && (
+            <>
+              <HeatMapTab q={q} onPick={(s) => pickStore(s)} picked={site} />
+              {storePanel}
+            </>
+          )}
+          {tab === "expense-exceptions" && (
+            <>
+              <ExpenseExceptionsTab q={q} onOpen={(s, g) => pickStore(s, g)} picked={site} />
+              {storePanel}
+            </>
+          )}
+          {tab === "revenue-exceptions" && (
+            <>
+              <RevenueExceptionsTab q={q} onOpen={(s) => pickStore(s)} picked={site} />
+              {storePanel}
+            </>
+          )}
+          {tab === "peers" && <PeersTab q={q} site={site} setSite={(s) => pickStore(s)} />}
+          {tab === "quality" && <QualityTab q={q} reconciliation={<Reconciliation q={q} />} />}
         </>
       )}
     </div>

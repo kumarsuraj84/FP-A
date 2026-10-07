@@ -22,4 +22,14 @@ export const usePnlStore = (site: string | null, p: PnlQuery) => useRunQuery("st
 export const usePnlLedgers = (site: string | null, group: string | null, p: PnlQuery) =>
   useRunQuery("ledgers", (run) => livePnl.ledgers(run, site as string, group as string, p), [site, group, p.from_month, p.to_month, p.basis], !!site && !!group);
 export const usePnlHierarchy = (p: PnlQuery) => useRunQuery("hierarchy", (run) => livePnl.hierarchy(run, p), [p.from_month, p.to_month, p.basis]);
+export const usePnlPivot = (p: PnlQuery, mode: "stores" | "company") => useRunQuery("pivot", (run) => livePnl.pivot(run, p, mode), [p, mode]);
+export const usePnlPivotLedgers = (p: PnlQuery, mode: "stores" | "company", group: string | null) =>
+  useRunQuery("pivotLedgers", (run) => livePnl.pivotLedgers(run, p, mode, group as string), [p, mode, group], !!group);
+export const usePnlComparison = (p: PnlQuery, mode: "stores" | "company") => useRunQuery("comparison", (run) => livePnl.comparison(run, p, mode), [p, mode]);
+export const usePnlExpenses = (p: PnlQuery) => useRunQuery("expenses", (run) => livePnl.expenses(run, p), [p]);
+export const usePnlHeatmap = (p: PnlQuery, sort: string, minRevenueCr?: number) => useRunQuery("heatmap", (run) => livePnl.heatmap(run, p, sort, minRevenueCr), [p, sort, minRevenueCr]);
+export const usePnlPeers = (site: string | null, p: PnlQuery) => useRunQuery("peers", (run) => livePnl.peers(run, site as string, p), [site, p.from_month, p.to_month, p.basis], !!site);
+export const usePnlExpenseExceptions = (p: PnlQuery) => useRunQuery("exc-exp", (run) => livePnl.expenseExceptions(run, p), [p]);
+export const usePnlRevenueExceptions = (p: PnlQuery) => useRunQuery("exc-rev", (run) => livePnl.revenueExceptions(run, p), [p]);
+export const usePnlQuality = (p: PnlQuery) => useRunQuery("quality", (run) => livePnl.quality(run, p), [p.from_month, p.to_month, p.basis]);
 export const usePnlReconciliation = (p: PnlQuery) => useRunQuery("recon", (run) => livePnl.reconciliation(run, p), [p.from_month, p.to_month, p.basis]);

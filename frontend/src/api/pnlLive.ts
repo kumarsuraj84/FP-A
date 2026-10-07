@@ -1,3 +1,4 @@
+import type { PnlComparisonResponse, PnlExceptions, ExpenseException, PnlExpenses, PnlHeatmap, PnlPeers, PnlPivot, PnlPivotLedgers, PnlQuality, RevenueException } from "@/types/pnlReview";
 import type { PnlGroupLedgers, PnlHeader, PnlHierarchy, PnlQuery, PnlReconciliation, PnlStore, PnlStorePage, PnlSummary, PnlTrend } from "@/types/pnlLive";
 
 /** Client for the read-only store P&L actuals API (same-origin through the dev proxy). Only `/pnl` uses it. */
@@ -28,4 +29,14 @@ export const livePnl = {
   ledgers: (run: string, site: string, group: string, p: PnlQuery) => get<PnlGroupLedgers>(`runs/${run}/stores/${encodeURIComponent(site)}/groups/${encodeURIComponent(group)}/ledgers`, { from_month: p.from_month, to_month: p.to_month, basis: p.basis }),
   hierarchy: (run: string, p: PnlQuery) => get<PnlHierarchy>(`runs/${run}/hierarchy`, { from_month: p.from_month, to_month: p.to_month, basis: p.basis }),
   reconciliation: (run: string, p: PnlQuery) => get<PnlReconciliation>(`runs/${run}/reconciliation`, { from_month: p.from_month, to_month: p.to_month, basis: p.basis }),
+  // the review layer
+  pivot: (run: string, p: PnlQuery, mode: "stores" | "company") => get<PnlPivot>(`runs/${run}/pivot`, { ...q(p), mode }),
+  pivotLedgers: (run: string, p: PnlQuery, mode: "stores" | "company", group: string) => get<PnlPivotLedgers>(`runs/${run}/pivot`, { ...q(p), mode, group }),
+  comparison: (run: string, p: PnlQuery, mode: "stores" | "company") => get<PnlComparisonResponse>(`runs/${run}/comparison`, { ...q(p), mode }),
+  expenses: (run: string, p: PnlQuery) => get<PnlExpenses>(`runs/${run}/expenses`, q(p)),
+  heatmap: (run: string, p: PnlQuery, sort: string, minRevenueCr?: number) => get<PnlHeatmap>(`runs/${run}/heatmap`, { ...q(p), sort, limit: 500, min_revenue_cr: minRevenueCr }),
+  peers: (run: string, site: string, p: PnlQuery) => get<PnlPeers>(`runs/${run}/stores/${encodeURIComponent(site)}/peers`, { from_month: p.from_month, to_month: p.to_month, basis: p.basis }),
+  expenseExceptions: (run: string, p: PnlQuery) => get<PnlExceptions<ExpenseException>>(`runs/${run}/exceptions/expenses`, { ...q(p), limit: 500 }),
+  revenueExceptions: (run: string, p: PnlQuery) => get<PnlExceptions<RevenueException>>(`runs/${run}/exceptions/revenue`, { ...q(p), limit: 500 }),
+  quality: (run: string, p: PnlQuery) => get<PnlQuality>(`runs/${run}/quality`, { from_month: p.from_month, to_month: p.to_month, basis: p.basis }),
 };

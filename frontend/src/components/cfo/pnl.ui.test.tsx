@@ -20,6 +20,11 @@ function mount(href = "/profitability") {
   );
   return { router, history };
 }
+async function mountTab(tab: string) {
+  mount();
+  await screen.findByTestId("pnl-strip", {}, T);
+  fireEvent.click(screen.getByTestId(`tab-${tab}`));
+}
 const exact = (id: string) => screen.getByTestId(id).getAttribute("data-exact");
 const text = (id: string) => screen.getByTestId(id).textContent ?? "";
 
@@ -105,7 +110,7 @@ describe("Store P&L: bridge, trend and lines", () => {
 
 describe("Store P&L: the store league and the drill", () => {
   it("ranks stores by contribution, top 10 first, then the bottom 10 in the opposite order", async () => {
-    mount();
+    await mountTab("stores");
     await screen.findByTestId("league-table", {}, T);
     const rowsOf = () => screen.getAllByTestId(/^league-row-/).map((r) => r.getAttribute("data-testid"));
     expect(rowsOf()).toEqual(["league-row-10", "league-row-30", "league-row-20"]);
@@ -117,7 +122,7 @@ describe("Store P&L: the store league and the drill", () => {
   });
 
   it("opens a store, then the ledgers behind a group, and says each adds up", async () => {
-    mount();
+    await mountTab("stores");
     fireEvent.click(await screen.findByTestId("league-row-10", {}, T));
     await screen.findByTestId("store-reconciles", {}, T);
     expect(text("store-reconciles")).toMatch(/add up/);
@@ -135,14 +140,14 @@ describe("Store P&L: the store league and the drill", () => {
 describe("Profitability: the CFO league views", () => {
   const tabs = ["top", "bottom", "gm_high", "gm_low", "opex_high", "grow_fast", "grow_down", "all"];
   it("offers top and bottom contribution, highest and lowest GM %, highest opex %, fastest growth and biggest decline", async () => {
-    mount();
+    await mountTab("stores");
     await screen.findByTestId("league-table", {}, T);
     for (const t of tabs) expect(screen.getByTestId(`league-${t}`)).toBeInTheDocument();
     expect(screen.getByTestId("league-tabs")).toHaveTextContent(/Top contribution.*Bottom contribution.*Highest GM %.*Lowest GM %.*Highest opex %.*Fastest growth.*Biggest decline/);
   });
 
   it("each view asks the API for the right ranking, and percentage and growth rankings apply a small-store floor", async () => {
-    mount();
+    await mountTab("stores");
     await screen.findByTestId("league-table", {}, T);
     const last = () => calls.filter((c) => c.includes("/stores?")).at(-1) ?? "";
     for (const [tab, sort, order] of [["gm_high", "gross_margin_pct", "desc"], ["gm_low", "gross_margin_pct", "asc"], ["opex_high", "opex_pct", "desc"], ["grow_fast", "growth", "desc"], ["grow_down", "growth", "asc"]]) {
@@ -158,7 +163,7 @@ describe("Profitability: the CFO league views", () => {
   });
 
   it("puts stores with no comparable last year last in a growth ranking, never first", async () => {
-    mount();
+    await mountTab("stores");
     await screen.findByTestId("league-table", {}, T);
     fireEvent.click(screen.getByTestId("league-grow_down"));
     await waitFor(() => expect(screen.getAllByTestId(/^league-row-/).map((r) => r.getAttribute("data-testid"))).toEqual(["league-row-30", "league-row-10", "league-row-20"]), T);   // -3.0%, +12.5%, then the store with no last year
@@ -192,7 +197,7 @@ describe("Profitability: growth × contribution margin", () => {
 
 describe("Store P&L: period, filters and basis", () => {
   it("sends the chosen filters, period and basis to the API and narrows the view", async () => {
-    mount();
+    await mountTab("stores");
     await screen.findByTestId("league-table", {}, T);
     fireEvent.change(await screen.findByTestId("ctl-region"), { target: { value: "R1" } });
     await waitFor(() => expect(text("strip-stores-value")).toBe("2"), T);
@@ -207,7 +212,7 @@ describe("Store P&L: period, filters and basis", () => {
   });
 
   it("lists the exclusions and gaps on the reconciliation panel, with the names Finance needs", async () => {
-    mount();
+    await mountTab("quality");
     await screen.findByTestId("recon-panel", {}, T);
     await screen.findByTestId("recon-excluded", {}, T);
     expect(text("recon-tieout")).toMatch(/2 of 3 store-months agree within ₹1,000/);
@@ -228,5 +233,82 @@ describe("Store P&L: failure is shown, never papered over", () => {
     expect(text("pnl-unavailable")).toMatch(/No verified P&L run is available/);
     expect(screen.queryByTestId("pnl-strip")).toBeNull();
     expect(screen.getByTestId("real-state")).toHaveAttribute("data-state", "error");
+  });
+});
+
+describe("P&L Review: tabs", () => {
+  const open = async (tab: string) => {
+    mount();
+    await screen.findByTestId("pnl-strip", {}, T);
+    fireEvent.click(screen.getByTestId(`tab-${tab}`));
+  };
+
+  it("has the nine review tabs", async () => {
+    mount();
+    await screen.findByTestId("pnl-strip", {}, T);
+    for (const id of ["overview", "pivot", "comparison", "stores", "heatmap", "expense-exceptions", "revenue-exceptions", "peers", "quality"]) expect(screen.getByTestId(`tab-${id}`)).toBeInTheDocument();
+  });
+
+  it("pivot: shows the exact cells, a day-aligned last-year YTD, and expands a group to its ledgers", async () => {
+    await open("pivot");
+    await screen.findByTestId("pivot-table", {}, T);
+    expect(screen.getByTestId("pv-revenue-ytd").getAttribute("data-exact")).toBe(String(240 * 1e7));
+    expect(screen.getByTestId("pv-col-ytd")).toBeInTheDocument();
+    expect(text("pivot-note")).toMatch(/day aligned/i);
+    expect(text("pivot-note")).toMatch(/Unmapped \/ Finance classification required/);
+    fireEvent.click(screen.getByTestId("pv-row-g:02-Employee Cost"));
+    await screen.findByTestId("pv-ledger-77", {}, T);
+    fireEvent.click(screen.getByTestId("mode-company"));
+    await waitFor(() => expect(calls.some((c) => c.includes("pivot") && c.includes("mode=company"))).toBe(true), T);
+  });
+
+  it("MTD / QTD / YTD: three windows compared day aligned, never against a whole last-year month", async () => {
+    await open("comparison");
+    await screen.findByTestId("comparison-table", {}, T);
+    for (const w of ["mtd", "qtd", "ytd"]) expect(screen.getByTestId(`cmp-head-${w}`)).toBeInTheDocument();
+    expect(text("comparison-note")).toMatch(/same days of last year/);
+  });
+
+  it("heat map: re-sorts through the API and keeps colours relative, not target based", async () => {
+    await open("heatmap");
+    await screen.findByTestId("heat-table", {}, T);
+    expect(screen.getByTestId("heat-table")).toHaveAttribute("data-sort", "worst_contribution_pct");
+    expect(text("heat-note")).toMatch(/never to a target/);
+    fireEvent.change(screen.getByTestId("heat-sort"), { target: { value: "biggest_opportunity" } });
+    await waitFor(() => expect(screen.getByTestId("heat-table")).toHaveAttribute("data-sort", "biggest_opportunity"), T);
+    expect(calls.some((c) => c.includes("sort=biggest_opportunity"))).toBe(true);
+  });
+
+  it("peers: states the peer basis and positions the store against median and quartiles", async () => {
+    await open("peers");
+    await screen.findByTestId("peer-table", {}, T);
+    expect(text("peer-basis")).toMatch(/region \+ vintage/);
+    expect(screen.getByTestId("peer-power_psf")).toHaveTextContent(/bottom quartile/);
+    expect(screen.getByTestId("peer-contribution_pct")).toHaveTextContent(/top quartile/);
+  });
+
+  it("expense exceptions: ranked with the reason written out, filterable by severity", async () => {
+    await open("expense-exceptions");
+    await screen.findByTestId("expense-exceptions-table", {}, T);
+    expect(screen.getByTestId("sev-Critical")).toHaveAttribute("data-count", "1");
+    expect(screen.getByTestId("exc-10-03-Power and Fuel Expenses")).toHaveTextContent(/3-month average/);
+    fireEvent.click(screen.getByTestId("sev-High"));
+    await waitFor(() => expect(screen.queryByTestId("exc-10-03-Power and Fuel Expenses")).toBeNull(), T);
+    expect(screen.getByTestId("exc-30-01-Rent")).toBeInTheDocument();
+  });
+
+  it("revenue exceptions: lists the sales drop with its reason", async () => {
+    await open("revenue-exceptions");
+    await screen.findByTestId("revenue-exceptions-table", {}, T);
+    expect(screen.getByTestId("rexc-20")).toHaveTextContent(/3-month average/);
+  });
+
+  it("data quality: names the stores without an area and the COGS months that stand out", async () => {
+    await open("quality");
+    await screen.findByTestId("quality-area", {}, T);
+    expect(text("quality-area")).toMatch(/CHARLIE/);
+    expect(text("quality-area")).toMatch(/never given an average area/);
+    expect(text("quality-dates")).toMatch(/1 closed stores have no closing date/);
+    expect(text("quality-cogs")).toMatch(/Aug 26/);
   });
 });
