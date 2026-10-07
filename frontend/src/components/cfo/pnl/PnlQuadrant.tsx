@@ -76,10 +76,11 @@ export function GrowthMarginQuadrant({ stores, refGrowth, refMargin, onPick, pic
   const ms = plotted.map((p) => p.m).sort((a, b) => a - b);
   const q = (a: number[], f: number) => (a.length ? a[Math.min(a.length - 1, Math.floor(f * a.length))] : 0);
   // robust axes: the 3rd to 97th percentile, always containing the reference lines; dots outside are drawn on the edge and marked
-  const gLo = Math.min(q(gs, 0.03), refGrowth, 0) - 5;
-  const gHi = Math.max(q(gs, 0.97), refGrowth) + 5;
+  const gLo = Math.min(q(gs, 0.04), refGrowth, 0) - 5;
+  const gHi = Math.max(q(gs, 0.92), refGrowth) + 5;
   const mLo = Math.min(q(ms, 0.03), refMargin, 0) - 2;
   const mHi = Math.max(q(ms, 0.97), refMargin) + 2;
+  const offScale = plotted.filter((p) => p.g < gLo || p.g > gHi || p.m < mLo || p.m > mHi).length;
   const x = (v: number) => M.l + ((clamp(v, gLo, gHi) - gLo) / (gHi - gLo || 1)) * iw;
   const y = (v: number) => M.t + ih - ((clamp(v, mLo, mHi) - mLo) / (mHi - mLo || 1)) * ih;
   const maxRev = Math.max(1, ...plotted.map((p) => p.rev));
@@ -115,7 +116,7 @@ export function GrowthMarginQuadrant({ stores, refGrowth, refMargin, onPick, pic
           const edge = p.g < gLo || p.g > gHi || p.m < mLo || p.m > mHi;
           return (
             <circle key={p.s.site_code} data-testid={`dot-${p.s.site_code}`} data-quad={p.quad} data-edge={edge ? "1" : "0"} cx={x(p.g)} cy={y(p.m)} r={r(p.rev)} fill={QUADS.find((qd) => qd.id === p.quad)!.colour}
-              fillOpacity={dim ? 0.12 : 0.62} stroke={picked === p.s.site_code ? "black" : "white"} strokeWidth={picked === p.s.site_code ? 2 : 0.8} className="cursor-pointer" onClick={() => onPick(p.s.site_code)}
+              fillOpacity={dim ? 0.12 : 0.62} stroke={picked === p.s.site_code ? "black" : edge ? "oklch(0.35 0.02 260)" : "white"} strokeWidth={picked === p.s.site_code ? 2 : edge ? 1.6 : 0.8} strokeDasharray={edge ? "2 2" : undefined} className="cursor-pointer" onClick={() => onPick(p.s.site_code)}
               onMouseEnter={() => setHover(p.s.site_code)} onMouseLeave={() => setHover(null)}>
               <title>{`${p.s.store_name ?? `Site ${p.s.site_code}`}: growth ${fmtPct(p.g, { signed: true })}, contribution ${fmtPct(p.m)}, net sales ${fmtCr(p.rev)}${edge ? " (plotted on the edge: off the scale)" : ""}`}</title>
             </circle>
@@ -124,7 +125,7 @@ export function GrowthMarginQuadrant({ stores, refGrowth, refMargin, onPick, pic
       </svg>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2 text-[11.5px] text-muted-foreground" data-testid="quadrant-note">
         <span>
-          Reference lines are the like-for-like growth ({fmtPct(refGrowth, { signed: true })}) and the contribution margin ({fmtPct(refMargin)}) of the plotted stores themselves. Bubble size is net sales. {unplotted > 0 && <span data-testid="quadrant-unplotted">{unplotted} stores are not plotted: no comparable last-year months, or below the sales floor.</span>}
+          Reference lines are the like-for-like growth ({fmtPct(refGrowth, { signed: true })}) and the contribution margin ({fmtPct(refMargin)}) of the plotted stores themselves. Bubble size is net sales. {offScale > 0 && <span data-testid="quadrant-offscale">{offScale} are drawn on the edge because they are off the scale (hover for their figures). </span>}{unplotted > 0 && <span data-testid="quadrant-unplotted">{unplotted} stores are not plotted: no comparable last-year months, or below the sales floor.</span>}
         </span>
       </div>
     </div>

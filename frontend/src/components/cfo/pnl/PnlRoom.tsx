@@ -32,6 +32,9 @@ const FILTERS = [
 ] as const;
 type FilterKey = (typeof FILTERS)[number]["key"];
 
+/** A tie-out gap: rupees when it is small (a few paise or rupees must not read as "₹0.0 L"), crore or lakh when it is not. */
+const gap = (m: string) => (Math.abs(Number(m)) < 1e5 ? `${Number(m) < 0 ? "−" : ""}₹${Math.abs(Math.round(Number(m))).toLocaleString("en-IN")}` : cr(m));
+
 function monthOptions(asOf: string): string[] {
   const end = asOf.slice(0, 7);
   const out: string[] = [];
@@ -51,7 +54,7 @@ function Cell({ label, value, exact, sub, testId, tone: t }: { label: string; va
       <span data-testid={`${testId}-value`} data-exact={exact} className={cn("num-mono whitespace-nowrap text-[22px] font-semibold leading-tight", t)}>
         {value}
       </span>
-      {sub && <span className="num max-w-full truncate text-[11.5px] text-muted-foreground">{sub}</span>}
+      {sub && <span className="num line-clamp-2 max-w-full text-[11.5px] leading-snug text-muted-foreground">{sub}</span>}
     </div>
   );
 }
@@ -66,7 +69,7 @@ function Strip({ q, filtered }: { q: PnlQuery; filtered: boolean }) {
         const g = c?.growth;
         return (
           <section aria-label="Verified figures" data-testid="pnl-strip" className="border-b bg-card">
-            <div className="grid grid-cols-7 divide-x @max-[1300px]:grid-cols-4 @max-[1300px]:divide-y @max-[640px]:grid-cols-2">
+            <div className="grid grid-cols-7 divide-x @max-[1500px]:grid-cols-4 @max-[1500px]:divide-y @max-[640px]:grid-cols-2">
               <Cell testId="strip-sales" label="Net sales ex-GST" value={cr(t.revenue)} exact={t.revenue} sub={`${monthLabel(d.scope.from_month)} to ${monthLabel(d.scope.to_month)}${d.scope.partial_last_month ? " (last month partial)" : ""}`} />
               <Cell testId="strip-gm" label="Gross margin" value={cr(t.gross_margin)} exact={t.gross_margin} sub={`${pct(t.gross_margin_pct)} of sales`} />
               <Cell testId="strip-opex" label="Store opex" value={cr(t.opex)} exact={t.opex} sub={`${pct(t.opex_pct)} of sales`} tone="" />
@@ -284,11 +287,6 @@ function League({ q, onPick, picked }: { q: PnlQuery; onPick: (s: string) => voi
               </select>
             </label>
           )}
-          <label className="flex items-center gap-1 text-[11.5px]"><span className="eyebrow">View</span>
-            <select aria-label="League view" data-testid="league-view" value={viewId} onChange={(e) => setViewId(e.target.value)} className="h-7 rounded border bg-card px-1.5 text-[12px] font-medium">
-              {VIEWS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-            </select>
-          </label>
         </div>
       }
     >
@@ -368,7 +366,7 @@ function Reconciliation({ q }: { q: PnlQuery }) {
             <div data-testid="recon-tieout">
               <div className="border-b px-4 py-2 text-[12px]"><span className="font-semibold">Books vs COGS table, sales ex-GST.</span> {d.sales_tieout.tied.toLocaleString("en-IN")} of {d.sales_tieout.site_months.toLocaleString("en-IN")} store-months agree within ₹{Number(d.tolerance_rupees).toLocaleString("en-IN")}.</div>
               <table className="w-full text-[12px]"><thead><tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground"><th className="px-4 py-1.5 font-semibold">Month</th><th className="px-3 py-1.5 text-right font-semibold">Tied</th><th className="px-3 py-1.5 text-right font-semibold">Gap ₹ Cr</th></tr></thead>
-                <tbody>{d.sales_tieout.months.map((m) => <tr key={m.month} className="border-b last:border-0"><td className="px-4 py-1">{monthLabel(m.month)}</td><td className="num-mono px-3 py-1 text-right">{m.tied}/{m.site_months}</td><td className={cn("num-mono px-3 py-1 text-right", Number(m.difference) !== 0 && "text-muted-foreground")}>{cr(m.difference)}</td></tr>)}</tbody></table>
+                <tbody>{d.sales_tieout.months.map((m) => <tr key={m.month} className="border-b last:border-0"><td className="px-4 py-1">{monthLabel(m.month)}</td><td className="num-mono px-3 py-1 text-right">{m.tied}/{m.site_months}</td><td className={cn("num-mono px-3 py-1 text-right", Number(m.difference) !== 0 && "text-muted-foreground")}>{gap(m.difference)}</td></tr>)}</tbody></table>
             </div>
             <div data-testid="recon-excluded">
               <div className="border-b px-4 py-2 text-[12px]"><span className="font-semibold">{d.excluded_unmapped.label}: {d.excluded_unmapped.count} ledgers in this period</span> ({d.excluded_unmapped.run_ledgers} across the run; net {cr(d.excluded_unmapped.net)} in the period). The finance mapping has no group for them, so none is in any total. Mostly purchases and stock transfers, which reach the P&L through COGS.</div>
@@ -440,7 +438,9 @@ export function PnlRoom() {
           <div className="grid grid-cols-[1.6fr_1fr] gap-3 px-3 pb-3 @max-[1000px]:grid-cols-1">
             <League q={q} onPick={setSite} picked={site} />
             <Panel testId="lines-panel" eyebrow="Real · verified" title="P&L lines (finance groups)">
-              <LiveBoundary query={summary} skeleton={<Skeleton className="m-4 h-[260px]" />}>{(d) => <Lines lines={d.lines} revenue={d.totals.revenue} />}</LiveBoundary>
+              <div className="max-h-[470px] overflow-y-auto">
+                <LiveBoundary query={summary} skeleton={<Skeleton className="m-4 h-[260px]" />}>{(d) => <Lines lines={d.lines} revenue={d.totals.revenue} />}</LiveBoundary>
+              </div>
             </Panel>
           </div>
           {site && (
