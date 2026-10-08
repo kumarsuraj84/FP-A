@@ -305,3 +305,12 @@ def test_failed_datasets_are_never_loadable_and_empty_is_not_missing(tmp_path):
     v = mf.validate_manifest(tmp_path)
     assert v.ok and any("zero rows" in w for w in v.warnings)
     assert json.loads((tmp_path / "manifest.json").read_text())["datasets"][0]["min_date"] is None
+
+
+def test_names_defined_by_the_statement_itself_are_not_objects_but_real_tables_still_must_be_qualified():
+    ok = "WITH b AS (SELECT x FROM SSRK.T WHERE d >= DATE '2026-01-01'), q AS (SELECT x FROM b) SELECT x FROM q JOIN b ON b.x = q.x FETCH FIRST 5 ROWS ONLY"
+    assert guard.check(ok, "sample")
+    with pytest.raises(guard.GuardError, match="OWNER-qualified"):
+        guard.check("WITH b AS (SELECT x FROM SSRK.T) SELECT x FROM b JOIN other_table o ON o.x = b.x FETCH FIRST 5 ROWS ONLY", "sample")
+    with pytest.raises(guard.GuardError, match="OWNER-qualified"):
+        guard.check("SELECT x FROM b FETCH FIRST 5 ROWS ONLY", "sample")           # b is not defined here

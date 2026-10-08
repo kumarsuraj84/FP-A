@@ -122,6 +122,7 @@ class Plan:
     banks: list[dict]
     source_controls: list[dict]
     expected: dict = field(default_factory=dict)
+    package: str = "cash_pilot_01"
 
 
 def _pq(path: Path) -> list[dict]:
@@ -139,8 +140,8 @@ def preflight(run_dir: Path | str) -> Plan:
         raise LoadError("precheck", f"manifest invalid: {v.errors[:3]}")
     manifest_sha = mf.sha256_file(run_dir / "manifest.json")
     m = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
-    if m.get("package") != "cash_pilot_01":
-        raise LoadError("precheck", "not a cash_pilot_01 run")
+    if m.get("package") not in ("cash_pilot_01", "cash_live_01"):
+        raise LoadError("precheck", "not a cash_pilot_01 / cash_live_01 run")
     rep_path = run_dir / "staging" / "validation_report.json"
     if not rep_path.exists():
         raise LoadError("staging_report", "no staging report: run cash_stage.py first")
@@ -181,7 +182,7 @@ def preflight(run_dir: Path | str) -> Plan:
         expected[("B_position_site_register", k)] = Decimal(val)
     c = m["contract"]
     times = [d.get("extracted_at") for d in m["datasets"] if d.get("extracted_at")]
-    return Plan(run_dir.name, run_dir, manifest_sha, mf.sha256_file(rep_path), agg["as_of_date"], agg["till_balance_date"], c, min(times), max(times), stores, banks, rep["controls"], expected)
+    return Plan(run_dir.name, run_dir, manifest_sha, mf.sha256_file(rep_path), agg["as_of_date"], agg["till_balance_date"], c, min(times), max(times), stores, banks, rep["controls"], expected, package=m["package"])
 
 
 def dims_from_db(conn, run_id: str) -> dict:
@@ -242,8 +243,8 @@ def load_run(conn, plan: Plan) -> dict:
             c = plan.contract
             conn.execute(
                 "INSERT INTO cash.run (run_id, as_of_date, till_balance_date, package, contract_version, rules, manifest_sha256, staging_report_sha256, extract_started_at,"
-                " extract_finished_at, expected_store_rows, expected_bank_rows) VALUES (%s,%s,%s,'cash_pilot_01',%s,%s,%s,%s,%s,%s,%s,%s)",
-                (run_id, plan.as_of, plan.till_date, c["contract"], json.dumps({k: v for k, v in c.items() if k != "caps"}), plan.manifest_sha256, plan.report_sha256,
+                " extract_finished_at, expected_store_rows, expected_bank_rows) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (run_id, plan.as_of, plan.till_date, plan.package, c["contract"], json.dumps({k: v for k, v in c.items() if k != "caps"}), plan.manifest_sha256, plan.report_sha256,
                  plan.extract_started_at, plan.extract_finished_at, len(plan.stores), len(plan.banks)))
             n_t = _copy(conn, "store_till", TILL_COLUMNS, ([run_id] + [s[k] for k in TILL_COLUMNS[1:]] for s in plan.stores))
             n_b = _copy(conn, "bank_ledger", BANK_COLUMNS, ([run_id] + [b[BANK_MAP.get(k, k)] for k in BANK_COLUMNS[1:]] for b in plan.banks))

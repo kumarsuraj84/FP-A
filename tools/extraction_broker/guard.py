@@ -121,7 +121,8 @@ def check(sql: str, kind: str) -> Checked:
     if kind == "metadata" and not dictionary_only:
         raise GuardError("a metadata query may only read ALL_* / USER_* dictionary views (or the login's own privilege views)")
     if kind != "metadata":
-        unscoped = [o for o in objects if "." not in o]
+        ctes = {n.upper() for n in re.findall(r"(?:\bwith|,)\s*(\w+)\s+as\s*\(", no_lit, re.I)}      # names the statement defines itself are not database objects
+        unscoped = [o for o in objects if "." not in o and o not in ctes]
         if unscoped:
             raise GuardError(f"data objects must be OWNER-qualified (found {unscoped[0]})")
     if kind != "metadata" and dictionary_only:
