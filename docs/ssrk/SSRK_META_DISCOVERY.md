@@ -255,3 +255,20 @@ So till movement = POS Bill less PTC Head, and a store's balance is its running 
 - **No rule has been guessed or added to close the gap.**
 
 **What is needed to finish it:** the definition of the extra debit and credit in the verified view `V_FINANCE_CASH_CUMLATIVE_BLNC` (for example other cash receipts, refunds or timing of unsettled days), from its author or from Finance. Until then the live till stays unavailable and the verified till (05 Oct run) is the only till figure.
+
+---
+
+# Part 14: the store till is ledger 1000000008 "Cash Drawer" (2026-10-08, 11:30)
+
+On the user's pointer that GL 1000000008 is the cash-balance ledger in the site register. Runs `run_20261008_005` to `_009` (`till_probe_04` to `till_probe_08`). Part 13's settlement-summary route is superseded for the till: the settlement cash summary is a close relative, but the verified till is this ledger.
+
+**The ledger.** `FINGL` 1000000008 = **Cash Drawer**, group Cash-in-hand, type A, srctype **G** (which is why it is not among the 34 bank / cash ledgers, whose srctype is B or C), **cost-centre applicable (`COSTAPP = Y`)**, so every posting is split by store through `FINCOSTTAG.ADMSITE_CODE`. Postings are entry types CSM (retail sale, debit) and PJN (POS journal, credit) plus a few journals; there is no opening entry type.
+
+**Rebuild rule, tested store by store against the verified till (209 stores, `run_20261005_013`, till date 04 Oct):**
+- store movement = `FINCOSTTAG` rows of the ledger by store: FY 26-27 to 04 Oct (`FINPOST` joined for year, date and status, or `FINCOSTTAG` alone, which carries its own date and ledger);
+- store opening = the store's cost-tag balance for everything dated before 2026-04-01 (all history from 2016);
+- **cumulative balance = opening + FYTD debit - FYTD credit: equal for 198 of 209 stores to the paisa.** FYTD credit equals for 198, month-to-date debit for 201 and credit for 198; FYTD debit equals when the opening (if debit) is counted in it, as the verified view does (201). Ledger totals: store openings add up to ₹40,472,370.54, against **₹40,432,370.54 in the ledger-level opening (`FINGLOP`): a difference of exactly ₹40,000.00** between the store balances and the ledger opening, to be explained by Finance.
+- The 11 stores that differ all carry **unposted** entries; their verified balance lies between the posted-only and the all-status figure, which is what a change in release status between the 05 Oct run and today produces (live is read three days later). This is the same drift seen in the other domains; not proven store by store, because this extract is a single moment.
+- Not needed after all: the POS settlement tables and bill-level payment lines of Part 13.
+
+**Next:** build `cash_live_01` = this till (store x day view rebuilt from `FINCOSTTAG`, same controls and shape as the pilot's till datasets) plus the 34 bank / cash ledgers of Part 12, so that the existing Cash stager, loader and gate can take a complete live Cash run. Not built yet.

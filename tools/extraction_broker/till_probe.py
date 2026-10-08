@@ -54,3 +54,57 @@ TILL_PROBE_03: tuple[Dataset, ...] = (
     Dataset("b1_store_43", "extract", "Bill-level payment lines of ONE store (site 43), FY26-27 to 04 Oct, by mode type: the cash tender against the settlement's POS Bill figure.", sql=_one_store(43)),
 )
 packages.PACKAGES["till_probe_03"] = TILL_PROBE_03
+
+
+_G8 = "p.glcode = 1000000008 AND p.ycode = 51 AND p.entdt >= DATE '2026-04-01' AND p.entdt < DATE '2026-10-05'"
+TILL_PROBE_04: tuple[Dataset, ...] = (
+    Dataset("g1_ledger", "master", "Ledger 1000000008: name, group, type, cost-centre and sub-ledger flags.",
+            sql="SELECT g.glcode, g.glname, g.type, g.srctype, g.grpcode, p.grpname, g.ext, g.costapp, g.slapp FROM SSRK.FINGL g LEFT JOIN SSRK.FINGRP p ON p.grpcode = g.grpcode WHERE g.glcode = 1000000008 FETCH FIRST 5 ROWS ONLY"),
+    Dataset("g2_opening", "master", "Opening balances of ledger 1000000008.", sql="SELECT o.glcode, o.ycode, o.opdamt, o.opcamt FROM SSRK.FINGLOP o WHERE o.glcode = 1000000008 AND o.ycode IN (50, 51) FETCH FIRST 10 ROWS ONLY"),
+    Dataset("g3_by_costtag_site", "extract", "Ledger 1000000008 by cost-tag site: FY26-27 to 04 Oct and month to date, by release status.",
+            sql=("SELECT c.admsite_code AS site_code, p.release_status AS status, count(*) AS lines_n, sum(c.damount) AS fytd_debit, sum(c.camount) AS fytd_credit, "
+                 "sum(CASE WHEN p.entdt >= DATE '2026-10-01' THEN c.damount ELSE 0 END) AS mtd_debit, sum(CASE WHEN p.entdt >= DATE '2026-10-01' THEN c.camount ELSE 0 END) AS mtd_credit, max(p.entdt) AS last_entry "
+                 f"FROM SSRK.FINPOST p JOIN SSRK.FINCOSTTAG c ON c.postcode = p.postcode WHERE {_G8} GROUP BY c.admsite_code, p.release_status FETCH FIRST 5000 ROWS ONLY")),
+    Dataset("g4_by_owner_site", "extract", "Ledger 1000000008 by owner site, same measures (no cost-tag join).",
+            sql=("SELECT p.admsite_code_owner AS site_code, p.release_status AS status, count(*) AS lines_n, sum(p.damount) AS fytd_debit, sum(p.camount) AS fytd_credit, "
+                 "sum(CASE WHEN p.entdt >= DATE '2026-10-01' THEN p.damount ELSE 0 END) AS mtd_debit, sum(CASE WHEN p.entdt >= DATE '2026-10-01' THEN p.camount ELSE 0 END) AS mtd_credit, max(p.entdt) AS last_entry "
+                 f"FROM SSRK.FINPOST p WHERE {_G8} GROUP BY p.admsite_code_owner, p.release_status FETCH FIRST 5000 ROWS ONLY")),
+)
+packages.PACKAGES["till_probe_04"] = TILL_PROBE_04
+
+
+TILL_PROBE_05: tuple[Dataset, ...] = (
+    Dataset("g1_ledger", "master", "Ledger 1000000008: name, group, type, cost-centre and sub-ledger flags.",
+            sql="SELECT g.glcode, g.glname, g.type, g.srctype, g.grpcode, p.grpname, g.ext, g.costapp, g.slapp FROM SSRK.FINGL g LEFT JOIN SSRK.FINGRP p ON p.grpcode = g.grpcode WHERE g.glcode = 1000000008 FETCH FIRST 5 ROWS ONLY"),
+    Dataset("g2_opening", "master", "Opening balances of ledger 1000000008.", sql="SELECT o.glcode, o.ycode, o.opdamt, o.opcamt FROM SSRK.FINGLOP o WHERE o.glcode = 1000000008 AND o.ycode IN (50, 51) FETCH FIRST 10 ROWS ONLY"),
+    Dataset("g5_opening_documents", "extract", "Opening documents of ledger 1000000008 by owner site and year (FINOPDOC): the store openings.",
+            sql=("SELECT d.admsite_code_owner AS site_code, d.ycode, d.enttype, count(*) AS docs, sum(d.damount) AS debit, sum(d.camount) AS credit, min(d.entdt) AS first_date, max(d.entdt) AS last_date "
+                 "FROM SSRK.FINOPDOC d WHERE d.entdt >= DATE '2025-03-01' AND d.glcode = 1000000008 GROUP BY d.admsite_code_owner, d.ycode, d.enttype ORDER BY 1, 2 FETCH FIRST 2000 ROWS ONLY")),
+)
+packages.PACKAGES["till_probe_05"] = TILL_PROBE_05
+
+
+TILL_PROBE_06: tuple[Dataset, ...] = (
+    Dataset("o1_site_openings", "master", "Per-site opening of ledger 1000000008 (Cash Drawer) from the cost-centre opening table, FY26-27 and FY25-26.",
+            sql="SELECT o.admsite_code AS site_code, o.ycode, o.damount, o.camount FROM SSRK.FINCOSTOP o WHERE o.glcode = 1000000008 AND o.ycode IN (50, 51) ORDER BY o.admsite_code, o.ycode FETCH FIRST 2000 ROWS ONLY"),
+)
+packages.PACKAGES["till_probe_06"] = TILL_PROBE_06
+
+
+TILL_PROBE_07: tuple[Dataset, ...] = (
+    Dataset("p1_cashdrawer_types", "extract", "Ledger 1000000008 postings since Jan 2026 by year code, entry type and month (is there an opening / carry-forward entry?).",
+            sql=("SELECT p.ycode, p.enttype, TRUNC(p.entdt, 'MM') AS month, count(*) AS lines_n, sum(p.damount) AS debit, sum(p.camount) AS credit "
+                 "FROM SSRK.FINPOST p WHERE p.glcode = 1000000008 AND p.entdt >= DATE '2026-01-01' AND p.entdt < DATE '2026-10-05' GROUP BY p.ycode, p.enttype, TRUNC(p.entdt, 'MM') ORDER BY 3, 1, 2 FETCH FIRST 500 ROWS ONLY")),
+    Dataset("p2_cashdrawer_tags_by_year", "extract", "Cost-tag rows of ledger 1000000008 by year code and entry type for entries dated since Mar 2026.",
+            sql=("SELECT c.ycode, c.enttype, count(*) AS tags, count(DISTINCT c.admsite_code) AS sites, sum(c.damount) AS debit, sum(c.camount) AS credit, min(c.entdt) AS first_date, max(c.entdt) AS last_date "
+                 "FROM SSRK.FINCOSTTAG c WHERE c.glcode = 1000000008 AND c.entdt >= DATE '2026-03-01' AND c.entdt < DATE '2026-04-02' GROUP BY c.ycode, c.enttype ORDER BY 1, 2 FETCH FIRST 200 ROWS ONLY")),
+)
+packages.PACKAGES["till_probe_07"] = TILL_PROBE_07
+
+
+TILL_PROBE_08: tuple[Dataset, ...] = (
+    Dataset("c1_prior_balance_by_site", "extract", "Cash Drawer (1000000008) cost-tag balance by site for everything dated before 2026-04-01 (the carried-forward store opening).",
+            sql=("SELECT c.admsite_code AS site_code, count(*) AS tags, sum(c.damount) AS debit, sum(c.camount) AS credit, min(c.entdt) AS first_date, max(c.entdt) AS last_date "
+                 "FROM SSRK.FINCOSTTAG c WHERE c.glcode = 1000000008 AND c.entdt >= DATE '2005-01-01' AND c.entdt < DATE '2026-04-01' GROUP BY c.admsite_code FETCH FIRST 2000 ROWS ONLY")),
+)
+packages.PACKAGES["till_probe_08"] = TILL_PROBE_08
