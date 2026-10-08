@@ -54,6 +54,7 @@ import ssrk_otsd  # noqa: E402,F401  (registers ssrk_otsd_probe_01)
 import creditors_live  # noqa: E402,F401  (registers creditors_live_01)
 import cash_live_probe  # noqa: E402,F401  (registers cash_live_probe_01)
 import cash_bank_live  # noqa: E402,F401  (registers cash_bank_live_01)
+import till_probe  # noqa: E402,F401  (registers till_probe_01)
 import readiness  # noqa: E402
 from packages import PACKAGE_META, PACKAGES, Dataset  # noqa: E402
 
