@@ -234,3 +234,24 @@ Runs `run_20261007_036` (`cash_bank_live_01`, code `tools/extraction_broker/cash
 **One hard tie fails, and it is a real finding, not a pipeline error:** the FY 25-26 closing of **AXIS BANK-8218 (CKSPL)** (`1114927514`) is ₹26,117,493.60 on the live postings, but its FY 26-27 opening in `FINGLOP` is ₹23,573,789.60: a difference of **₹2,543,704.00**. The cause: five FY 25-26 postings (dated on or before 31 Mar 2026, ₹2,543,704.00 Dr in total) were **created in July 2026**, after the year-end carry-forward of openings, so the opening was not updated. The verified 05 Oct run did not see them because its prior-year register (`T$FINREG_886`) predates July; its closing (₹23,573,789.90 before unposted, ₹23,573,789.60 with unposted) matched the opening. Finance should confirm whether the FY 26-27 opening of this ledger needs re-carrying, or whether those five entries belong in FY 26-27.
 
 **Not done:** the live bank/cash figures are not loaded into the Cash mart (the Cash schema, loader and API require the till datasets; making the till optional is a separate change that needs a decision), and no page reads them.
+
+---
+
+# Part 13: store till cash and the POS day-end cash summary (2026-10-08, 10:50)
+
+Runs `run_20261008_002` (`till_probe_01`), `_003` (`till_probe_02`), `_004` (`till_probe_03`, one store). Every table SSRK-qualified; settlement aggregates only. Reference: the verified Cash run `run_20261005_013` (store till rows of 04 Oct).
+
+**What the store till is.** The physical cash held in each store's till: cash taken from customers, less what the store then banks or pays out. Verified Cash run, 209 stores on 04 Oct: sum of the cumulative store balances **₹3.25 Cr (32,493,887.21)** = FYTD debit ₹373.09 Cr less FYTD credit ₹369.84 Cr. (An earlier discovery note quoted ₹1.49 Cr for the same date; the verified run's own store rows add up to ₹3.25 Cr, which is the figure to use.)
+
+**Where it lives in SSRK.** `PSITE_POSSTLMDETAIL` joined to `PSITE_POSSTLM` (one settlement per store per day, `STLMFOR` = the day, `STATUS` C closed / U unsettled / O open) holds a **`CashSummary`** block for payment mode 112 (Cash), per store per day:
+- sub-type `Opening`: the day's opening cash (37,191 store-days this year, sum of daily openings ₹564.27 Cr, which is about ₹1.5 lakh per store-day, the same scale as the till balances);
+- sub-type `POS Bill`: cash from bills (₹368.26 Cr this year to 04 Oct, 35,044 lines);
+- sub-type `PTC Head`: cash paid out of the till (-₹368.97 Cr, 115,310 lines): **Cash/CMS Deposit (banking) -₹365.05 Cr** and petty-cash heads such as staff welfare, repairs, loading, printing, conveyance.
+So till movement = POS Bill less PTC Head, and a store's balance is its running cash.
+
+**Test against the verified till, store by store** (209 stores in common; the 213 live stores include four not in the verified run: sites 299, 437, 457, 469; store names, `ADMSITE.SHRTNAME`, equal for all 209):
+- POS Bill is **close to, but not equal to**, the verified FYTD debit (for example site 43: ₹24,284,571 verified against ₹24,057,195 settlement, +0.9%; in total ₹373.09 Cr against ₹368.26 Cr, +1.3%); -PTC Head is close to the verified FYTD credit (site 43: ₹24,110,451 against ₹24,078,277; total ₹369.84 Cr against ₹368.97 Cr). Exact equality holds for only 1 store on FYTD and 60 on month to date.
+- So the settlement cash summary is the right family, but the verified view adds something further on the debit side (and a little on the credit side) that this extract does not reproduce. The bill-level cash lines (`PSITE_POSBILLMOP`, mode type CSH) do not explain it: for site 43 their `BASEAMT` nets to -₹21,082 (change given back) and `BASETENDER` holds sentinel values, so the cash tender cannot simply be summed. Reading that 79 M-row table by date needs the `(ADMSITE_CODE, billdate)` index and one store takes about 30 s, so it is not a candidate for a network-wide scan.
+- **No rule has been guessed or added to close the gap.**
+
+**What is needed to finish it:** the definition of the extra debit and credit in the verified view `V_FINANCE_CASH_CUMLATIVE_BLNC` (for example other cash receipts, refunds or timing of unsettled days), from its author or from Finance. Until then the live till stays unavailable and the verified till (05 Oct run) is the only till figure.

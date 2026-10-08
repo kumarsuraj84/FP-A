@@ -25,3 +25,32 @@ TILL_PROBE_01: tuple[Dataset, ...] = (
                  "WHERE i.owner = 'SSRK' AND i.table_name IN ('PSITE_POSBILLMOP', 'PSITE_POSBILL', 'PSITE_POSPAYMOP', 'PSITE_POSSTLM') ORDER BY i.table_name, i.index_name, c.column_position FETCH FIRST 300 ROWS ONLY")),
 )
 packages.PACKAGES["till_probe_01"] = TILL_PROBE_01
+
+
+_J = "FROM SSRK.PSITE_POSSTLMDETAIL d JOIN SSRK.PSITE_POSSTLM s ON s.code = d.psite_posstlm_code JOIN SSRK.ADMSITE a ON a.code = s.admsite_code"
+TILL_PROBE_02: tuple[Dataset, ...] = (
+    Dataset("t1_store_fytd", "extract", "Cash summary per store and sub-type: FY26-27 to 04 Oct and month-to-date (Oct), lines and amount, all settlement statuses.",
+            sql=("SELECT s.admsite_code AS site_code, a.shrtname AS store_name, d.subtype, count(*) AS lines_n, sum(d.amount) AS fytd_amount, "
+                 "sum(CASE WHEN s.stlmfor >= DATE '2026-10-01' THEN d.amount ELSE 0 END) AS mtd_amount, max(s.stlmfor) AS last_day "
+                 f"{_J} WHERE d.type = 'CashSummary' AND d.psite_mop_code = 112 AND s.stlmfor >= DATE '2026-04-01' AND s.stlmfor < DATE '2026-10-05' "
+                 "GROUP BY s.admsite_code, a.shrtname, d.subtype FETCH FIRST 5000 ROWS ONLY")),
+    Dataset("t2_store_last_days", "extract", "Cash summary lines of the last two days (03 and 04 Oct) per store, with the settlement status.",
+            sql=("SELECT s.admsite_code AS site_code, s.stlmfor AS day, s.status, d.subtype, d.particulars, d.amount "
+                 f"{_J} WHERE d.type = 'CashSummary' AND d.psite_mop_code = 112 AND s.stlmfor >= DATE '2026-10-03' AND s.stlmfor < DATE '2026-10-05' ORDER BY s.admsite_code, s.stlmfor FETCH FIRST 5000 ROWS ONLY")),
+    Dataset("t3_ptc_heads", "extract", "What the 'PTC Head' payout lines are: particulars with lines and amount, FY26-27 to 04 Oct.",
+            sql=("SELECT d.particulars, count(*) AS lines_n, sum(d.amount) AS amount "
+                 f"{_J} WHERE d.type = 'CashSummary' AND d.subtype = 'PTC Head' AND s.stlmfor >= DATE '2026-04-01' AND s.stlmfor < DATE '2026-10-05' GROUP BY d.particulars ORDER BY 3 FETCH FIRST 300 ROWS ONLY")),
+)
+packages.PACKAGES["till_probe_02"] = TILL_PROBE_02
+
+
+def _one_store(site: int) -> str:
+    return ("SELECT m.admsite_code AS site_code, m.moptype, m.mopshortcode, count(*) AS lines_n, sum(m.baseamt) AS baseamt, sum(m.basetender) AS basetender, sum(m.adjbaseamt) AS adjbaseamt, "
+            "sum(CASE WHEN m.billdate >= DATE '2026-10-01' THEN m.baseamt ELSE 0 END) AS mtd_baseamt "
+            f"FROM SSRK.PSITE_POSBILLMOP m WHERE m.admsite_code = {site} AND m.billdate >= DATE '2026-04-01' AND m.billdate < DATE '2026-10-05' GROUP BY m.admsite_code, m.moptype, m.mopshortcode FETCH FIRST 100 ROWS ONLY")
+
+
+TILL_PROBE_03: tuple[Dataset, ...] = (
+    Dataset("b1_store_43", "extract", "Bill-level payment lines of ONE store (site 43), FY26-27 to 04 Oct, by mode type: the cash tender against the settlement's POS Bill figure.", sql=_one_store(43)),
+)
+packages.PACKAGES["till_probe_03"] = TILL_PROBE_03
