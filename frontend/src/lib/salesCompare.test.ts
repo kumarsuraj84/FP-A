@@ -11,7 +11,7 @@ describe("reference dates", () => {
   it("29 Feb has no equivalent: 28 Feb is used and the note says so", () => {
     const r = sameDateLastYear("2028-02-29");
     expect(r.date).toBe("2027-02-28");
-    expect(r.note).toMatch(/no last-year equivalent/);
+    expect(r.note).toMatch(/no LY equivalent/);
   });
   it("same weekday is 364 days earlier and really is the same weekday", () => {
     expect(sameWeekdayLastYear("2026-10-01")).toBe("2025-10-02");

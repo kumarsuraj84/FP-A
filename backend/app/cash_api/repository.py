@@ -118,4 +118,5 @@ def creditor_obligations(db) -> dict:
         "credit_outstanding": s["credit_outstanding"], "creditor_debit_balance": s["creditor_debit_balance"], "signed_net": s["signed_net"],
         "past_due_credit": s["past_due_credit"], "not_yet_due_credit": due["NOT_YET_DUE"]["credit_outstanding"], "due_unavailable_credit": s["due_unavailable_credit"],
         "credit_items": s["credit_items"], "credit_vendors": s["credit_vendors"],
+        **({"related_party_excluded": s["related_party_excluded"]} if "related_party_excluded" in s else {}),
     }

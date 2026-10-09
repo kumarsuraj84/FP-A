@@ -153,8 +153,8 @@ function Evidence({ e, run, named, billRef }: { e: Entry; run: EntryRunHeader; n
   );
 }
 
-function Body({ e, run, named, billRef }: { e: Entry; run: EntryRunHeader; named: boolean; billRef?: string }) {
-  const detail = useEntryLineDetail(e.entry_ref);
+function Body({ e, run, named, billRef, entity }: { e: Entry; run: EntryRunHeader; named: boolean; billRef?: string; entity?: string }) {
+  const detail = useEntryLineDetail(e.entry_ref, entity);
   const map = new Map<number, EntryLineDetail>((detail.data?.lines ?? []).map((d) => [d.line_no, d]));
   const diff = (num(e.total_dr) - num(e.total_cr)).toFixed(2);
   return (
@@ -193,7 +193,7 @@ export function EntryPage() {
   const raw = useRouterState({ select: (s) => s.location.search as Record<string, unknown> });
   const p = parseEntrySearch(raw);
   const run = useEntryRun();
-  const q = useEntry(p.ref ?? null);
+  const q = useEntry(p.ref ?? null, p.entity);
   const title = q.data ? `${q.data.entry.entry_type_short} · ${q.data.named && q.data.entry.identity ? q.data.entry.identity.entry_no : q.data.entry.entry_ref}` : p.ref ? `Voucher ${p.ref}` : "Voucher";
   return (
     <div data-testid="entry-page" className="@container">
@@ -208,7 +208,7 @@ export function EntryPage() {
         <NotAvailable testId="entry-no-ref" title="No voucher selected" reason="Open a voucher from a creditor bill, a P&L ledger or a store till day. A voucher link carries its key in the address." />
       ) : (
         <LiveBoundary query={q} skeleton={<div className="space-y-4 p-4"><Skeleton className="h-16 w-full" /><Skeleton className="h-[260px] w-full" /></div>}>
-          {(d) => (run.data ? <Body e={d.entry} run={run.data} named={d.named} billRef={p.bill} /> : null)}
+          {(d) => (run.data ? <Body e={d.entry} run={run.data} named={d.named} billRef={p.bill} entity={p.entity} /> : null)}
         </LiveBoundary>
       )}
     </div>

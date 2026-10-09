@@ -44,13 +44,13 @@ def mart_figures(db, run_id: str, basis: str, lo: str, hi: str) -> dict:
     lo_d = date(int(lo[:4]), int(lo[5:7]), 1) if lo >= "0001" else date(1, 1, 1)
     hi_d = date(int(hi[:4]), int(hi[5:7]), 1) if hi <= "9998" else date(9999, 12, 1)
     with db.session("pnl_verifier") as c:
-        g = c.execute(f"SELECT site_code, month, section, sum(credit - debit) AS net FROM pnl.v_gl_site_month WHERE run_id = %s {cond} GROUP BY 1, 2, 3", (run_id,)).fetchall()
-        k = c.execute("SELECT site_code, month, sum(cogs_v) AS cogs FROM pnl.v_cogs_site_month WHERE run_id = %s GROUP BY 1, 2", (run_id,)).fetchall()
+        g = c.execute(f"SELECT site_code, month, section, location_type, coalesce(group_label, '') = '24-Interest Income' AS is_interest, sum(credit - debit) AS net FROM pnl.v_gl_site_month WHERE run_id = %s {cond} GROUP BY 1, 2, 3, 4, 5", (run_id,)).fetchall()
+        k = c.execute("SELECT site_code, month, sum(cogs_v) AS cogs FROM pnl.v_cogs_site_month WHERE run_id = %s AND site_kind = 'STORE' GROUP BY 1, 2", (run_id,)).fetchall()
         sites = {r["site_code"]: r for r in c.execute("SELECT * FROM pnl.v_site WHERE run_id = %s", (run_id,)).fetchall()}
         stores = {r["site_code"] for r in c.execute("SELECT DISTINCT site_code FROM pnl.v_gl_site_month WHERE run_id = %s AND ledger_name = 'Sales - POS'", (run_id,)).fetchall()}
         run = c.execute("SELECT publication_state, as_of_date FROM pnl.v_serving_run WHERE run_id = %s", (run_id,)).fetchone()
         tie = c.execute("SELECT count(*) AS n, count(*) FILTER (WHERE tied) AS tied, coalesce(sum(difference), 0) AS diff FROM pnl.v_sales_tieout WHERE run_id = %s AND month BETWEEN %s AND %s", (run_id, lo_d, hi_d)).fetchone()
-        unm = c.execute(f"SELECT count(DISTINCT glcode) AS n, coalesce(sum(credit - debit), 0) AS net FROM pnl.v_gl_site_month WHERE run_id = %s AND section = 'UNMAPPED' AND month BETWEEN %s AND %s {cond}", (run_id, lo_d, hi_d)).fetchone()
+        unm = c.execute(f"SELECT count(DISTINCT glcode) AS n, coalesce(sum(credit - debit), 0) AS net FROM pnl.v_gl_site_month WHERE run_id = %s AND mapping_state = 'UNMAPPED' AND month BETWEEN %s AND %s {cond}", (run_id, lo_d, hi_d)).fetchone()
     return {"gl": g, "cogs": k, "sites": sites, "stores": stores, "run": run, "tie": tie, "unmapped": unm}
 
 
@@ -58,12 +58,20 @@ def figures(m: dict, lo, hi, site_pred=lambda s: True) -> dict:
     t = defaultdict(lambda: ZERO)
     for r in m["gl"]:
         if lo <= str(r["month"])[:7] <= hi and site_pred(r["site_code"]):
-            t[r["section"]] += D(r["net"])
+            sec, loc = r["section"], r["location_type"]
+            if sec in ("STORE_OPEX", "COGS_BOOKS") and loc != "STORES":      # DC / HO cost is not a store line
+                t["DC" if loc == "DC" else "HO"] += D(r["net"])
+            else:
+                t[sec] += D(r["net"])
+            if sec == "OTHER_INCOME":
+                t["INTEREST" if r["is_interest"] else "OOI"] += D(r["net"])
     for r in m["cogs"]:
         if lo <= str(r["month"])[:7] <= hi and site_pred(r["site_code"]):
             t["COGS"] += D(r["cogs"])
     rev, cg, cb, ox = t["REVENUE"], t["COGS"], t["COGS_BOOKS"], t["STORE_OPEX"]
-    return {"revenue": rev, "cogs": cg, "cogs_books": cb, "opex": ox, "other_income": t["OTHER_INCOME"], "finance_cost": t["FINANCE_COST"], "gross_margin": rev - cg + cb, "contribution": rev - cg + cb + ox}
+    gm = rev + t["OOI"] - cg + cb
+    return {"revenue": rev, "cogs": cg, "cogs_books": cb, "opex": ox, "other_income": t["OTHER_INCOME"], "finance_cost": t["FINANCE_COST"], "gross_margin": gm, "contribution": gm + ox,
+            "dc_cost": t["DC"], "ho_cost": t["HO"], "corporate_ebitda": gm + ox + t["DC"] + t["HO"]}
 
 
 def reconcile(client, db, run_id: str) -> list[Check]:
@@ -79,7 +87,7 @@ def reconcile(client, db, run_id: str) -> list[Check]:
         lo, hi = s["scope"]["from_month"], s["scope"]["to_month"]
         m = mart_figures(db, run_id, basis, lo, hi)
         f = figures(m, lo, hi)
-        for key in ("revenue", "cogs", "cogs_books", "opex", "other_income", "finance_cost", "gross_margin", "contribution"):
+        for key in ("revenue", "cogs", "cogs_books", "opex", "other_income", "finance_cost", "gross_margin", "contribution", "dc_cost", "ho_cost", "corporate_ebitda"):
             add("PNL-C1", f"company {key} ({basis}, {lo} to {hi})", f[key], s["totals"][key])
         api_rev[basis] = D(s["totals"]["revenue"])
         add("PNL-C1", f"every reconciles flag in the summary is true ({basis})", 1, int(s.get("reconciliation", {}).get("reconciles") is True))
@@ -87,7 +95,8 @@ def reconcile(client, db, run_id: str) -> list[Check]:
         add("PNL-C1", f"excluded unmapped net ({basis})", m["unmapped"]["net"], s["excluded_unmapped"]["net"])
         line_sum = sum((D(x["amount"]) for x in s["lines"] if x["section"] == "REVENUE"), ZERO)
         add("PNL-C1", f"lines add up to revenue ({basis})", f["revenue"], line_sum)
-        add("PNL-C1", f"lines add up to opex ({basis})", f["opex"], sum((D(x["amount"]) for x in s["lines"] if x["section"] == "STORE_OPEX"), ZERO))
+        add("PNL-C1", f"lines add up to Store Expenses ({basis})", f["opex"], sum((D(x["amount"]) for x in s["lines"] if x["section"] == "STORE_OPEX"), ZERO))
+        add("PNL-C1", f"lines add up to DC cost + HO cost ({basis})", f["dc_cost"] + f["ho_cost"], sum((D(x["amount"]) for x in s["lines"] if x["section"] in ("DC_COST", "HO_COST")), ZERO))
         # trend
         tr = client.get(base + "/trend", params={"basis": basis}).json()
         y0, m0 = int(lo[:4]), int(lo[5:])
@@ -164,7 +173,7 @@ def reconcile(client, db, run_id: str) -> list[Check]:
     expect = {"unpublished": "verified_candidate", "live": "live"}.get(cur["publication_state"] if cur["run_id"] == run_id else s["publication_state"], s["publication_state"])
     add("PNL-STATE", "data_state stated by the API matches the run's publication state", 1, int(s["data_state"] == expect))
     add("PNL-STATE", "budget is null and says so", 1, int(s["budget"] is None and "not available" in s["budget_note"]))
-    add("PNL-STATE", "contribution is defined as before other income, finance cost and allocation", 1, int("Before other income" in s["flags"]["contribution_definition"]))
+    add("PNL-STATE", "Store EBITDA is defined as before DC cost, HO cost, interest income and finance cost", 1, int("Before DC cost, HO cost, interest income and finance cost" in s["flags"]["contribution_definition"]))
     add("PNL-STATE", "the COGS lag against the books is stated", 1, int("cogs_lags_books" in s["flags"] and "cogs_through" in s["flags"]))
     from .reconcile_review import reconcile_review
 

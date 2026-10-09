@@ -60,7 +60,7 @@ function Trajectory({ ws }: { ws: StoreWorkspace }) {
     <Panel
       testId="store-trajectory"
       eyebrow="Monthly trajectory · FY 2026-27"
-      title="Actual vs budget, with forecast"
+      title="Actual vs AOP, with forecast"
       right={
         <div role="tablist" aria-label="Metric" className="flex rounded bg-muted p-0.5">
           {ws.trajectory.map((m) => (
@@ -79,7 +79,7 @@ function Trajectory({ ws }: { ws: StoreWorkspace }) {
       }
     >
       <div className={cn("px-4 pt-3 text-[13px] font-semibold", toneClass(t.gap < 0 ? "bad" : "good"))} data-testid="traj-headline">
-        Landing {fmtCr(t.landing)} vs budget {fmtCr(t.budgetFy)} ({deltaCr(t.gap)})
+        Landing {fmtCr(t.landing)} vs AOP {fmtCr(t.budgetFy)} ({deltaCr(t.gap)})
       </div>
       <div className="h-[250px] px-2 pb-2 pt-1" data-testid="traj-chart">
         <ResponsiveContainer width="100%" height="100%">
@@ -96,7 +96,7 @@ function Trajectory({ ws }: { ws: StoreWorkspace }) {
         </ResponsiveContainer>
       </div>
       <div className="flex items-center gap-4 border-t px-4 py-2 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1"><i className="h-0.5 w-4 bg-[oklch(0.66_0.03_260)]" /> Budget</span>
+        <span className="flex items-center gap-1"><i className="h-0.5 w-4 bg-[oklch(0.66_0.03_260)]" /> AOP</span>
         <span className="flex items-center gap-1"><i className="h-0.5 w-4" style={{ background: NAVY }} /> Actual</span>
         <span className="flex items-center gap-1"><i className="h-0.5 w-4 border-t-2 border-dashed border-[oklch(0.58_0.15_255)]" /> Forecast</span>
       </div>
@@ -135,7 +135,7 @@ function ExpensePressure({ ws, onSelect, selected }: { ws: StoreWorkspace; onSel
           </li>
         ))}
       </ul>
-      <div className="px-4 py-2 text-[11px] text-muted-foreground">Overspend shown in red to the right. The contribution impact is in the last column.</div>
+      <div className="px-4 py-2 text-[11px] text-muted-foreground">Overspend shown in red to the right. The 4-Wall EBITDA impact is in the last column.</div>
     </Panel>
   );
 }
@@ -214,7 +214,7 @@ function Why({ ws, onSelect, selected }: { ws: StoreWorkspace; onSelect: (id: st
           </li>
         ))}
       </ul>
-      <div className="px-4 py-2 text-[11px] text-muted-foreground">Drivers are supplied by the service and add up to the contribution gap. Select one to see its accounts.</div>
+      <div className="px-4 py-2 text-[11px] text-muted-foreground">Drivers are supplied by the service and add up to the 4-Wall EBITDA gap. Select one to see its accounts.</div>
     </Panel>
   );
 }

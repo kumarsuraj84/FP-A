@@ -1,4 +1,4 @@
-"""Entry / voucher drill views over gold_fpa.voucher_lines (+ creditors_open_items, cash_drawer_store, dim_ledger, dim_site, control_totals).
+"""Entry / voucher drill views over (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL') (+ creditors_open_items, cash_drawer_store, dim_ledger, dim_site, control_totals).
 
 Grain decisions (see docs/GOLD_SOURCE_GAPS_ENTRY.md):
   * entry (voucher)  = one `entcode`. Paired document types (PSC/PSD, PIC/PIM, CTC/CTM ...) share an entcode, so the header shows them together ('PSC/PSD').
@@ -18,7 +18,7 @@ from __future__ import annotations
 from .db import vendor_salt
 
 TILL_LEDGER = 1000000008
-COVERAGE_FLOOR = "(SELECT min(entdt) FROM gold_fpa.voucher_lines)"
+COVERAGE_FLOOR = "(SELECT min(entdt) FROM (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL'))"
 AS_OF = "(SELECT max(as_of_date) FROM gold_fpa.cash_drawer_store)"
 RUN_ID = f"('ENTRY-' || to_char({AS_OF}, 'YYYYMMDD'))"
 CASH_RUN = f"('CASH-' || to_char({AS_OF}, 'YYYYMMDD'))"
@@ -48,26 +48,26 @@ def _relations() -> dict[str, str]:
                    min(entdt) AS entry_date,
                    CASE WHEN bool_and(release_status = 'P') THEN 'Posted' WHEN bool_and(release_status <> 'P') THEN 'Unposted' ELSE 'Mixed' END AS release_status,
                    count(*)::integer AS line_count, sum(coalesce(damount, 0)) AS total_dr, sum(coalesce(camount, 0)) AS total_cr, bool_or(glcode = {TILL_LEDGER}) AS has_till
-            FROM gold_fpa.voucher_lines GROUP BY entcode) h"""
+            FROM (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL') GROUP BY entcode) h"""
 
     entry_line = f"""SELECT {RUN_ID} AS entry_run_id, entcode AS entry_ref, (row_number() OVER (PARTITION BY entcode ORDER BY cost_tag_key))::integer AS line_no,
         cost_tag_key::text AS source_seq, glcode::text AS ledger_code, glname AS ledger_name, ledger_type AS ledger_nature,
         CASE WHEN slcode IS NOT NULL THEN 'V' || substr(md5('{salt}' || slcode::text), 1, 12) END AS sub_ledger_ref,
         coalesce(damount, 0) AS debit, coalesce(camount, 0) AS credit, {status.format(c='release_status')} AS release_status, NULL::text AS cube_name
-      FROM gold_fpa.voucher_lines"""
+      FROM (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL')"""
 
     entry_line_text = f"""SELECT {RUN_ID} AS entry_run_id, entcode AS entry_ref, (row_number() OVER (PARTITION BY entcode ORDER BY cost_tag_key))::integer AS line_no,
         slcode::text AS sub_ledger_code, narration, coalesce(docno, scheme_docno) AS reference_no, doc_date::text AS reference_date,
         NULL::text AS cheque_no, NULL::text AS cheque_date, NULL::text AS counter_ledgers, NULL::text AS prepared_by, NULL::text AS prepared_on,
         NULL::text AS modified_by, NULL::text AS modified_on, NULL::text AS released_by, NULL::text AS released_on
-      FROM gold_fpa.voucher_lines"""
+      FROM (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL')"""
 
     entry_identity = f"""SELECT {RUN_ID} AS entry_run_id, h.entcode AS entry_ref, h.site_code, h.entry_type_short, h.entry_no,
         coalesce(s.store_name, h.created_by_site_code) AS created_by_site
       FROM (SELECT entcode, coalesce(min(created_by_site_code), min(tag_site_code))::text AS site_code, string_agg(DISTINCT enttype, '/' ORDER BY enttype) AS entry_type_short,
                    coalesce(min(entno), min(scheme_docno), min(docno), entcode) AS entry_no, min(created_by_site_code)::text AS created_by_site_code,
                    min(created_by_site_code) AS created_by_site_int
-            FROM gold_fpa.voucher_lines GROUP BY entcode) h
+            FROM (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL') GROUP BY entcode) h
       LEFT JOIN gold_fpa.dim_site s ON s.site_code = h.created_by_site_int"""
 
     # one row per store per active day of the current FY, an opening day (FY start - 1) and a closing row on the as-of day
@@ -78,11 +78,11 @@ def _relations() -> dict[str, str]:
           FROM gold_fpa.cash_drawer_store c WHERE c.opening_balance <> 0
         UNION ALL
         SELECT v.tag_site_code, v.entdt, sum(coalesce(v.damount, 0)), sum(coalesce(v.camount, 0))
-          FROM gold_fpa.voucher_lines v WHERE v.glcode = {TILL_LEDGER} AND (v.entdt >= {FY_START} OR v.release_status = 'U') AND v.entdt <= {AS_OF}
+          FROM (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL') v WHERE v.glcode = {TILL_LEDGER} AND (v.entdt >= {FY_START} OR v.release_status = 'U') AND v.entdt <= {AS_OF}
            AND v.tag_site_code IN (SELECT site_code FROM gold_fpa.cash_drawer_store) GROUP BY v.tag_site_code, v.entdt
         UNION ALL
         SELECT c.site_code, {AS_OF}, 0, 0 FROM gold_fpa.cash_drawer_store c
-         WHERE NOT EXISTS (SELECT 1 FROM gold_fpa.voucher_lines v WHERE v.glcode = {TILL_LEDGER} AND v.tag_site_code = c.site_code AND v.entdt = {AS_OF})
+         WHERE NOT EXISTS (SELECT 1 FROM (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL') v WHERE v.glcode = {TILL_LEDGER} AND v.tag_site_code = c.site_code AND v.entdt = {AS_OF})
       ) d"""
 
     bill_link = f"""SELECT {RUN_ID} AS entry_run_id, {CRED_RUN} AS creditors_run_id, o.postcode::text AS source_row_key, o.ledger_code::text AS ledger_code,
@@ -93,7 +93,7 @@ def _relations() -> dict[str, str]:
         NULL::numeric AS entry_net_amount, NULL::boolean AS amount_agrees,
         CASE WHEN o.document_date < {COVERAGE_FLOOR} THEN 'BEFORE_COVERAGE' WHEN o.document_date < {FY_START} THEN 'PRIOR_YEARS_IN_COVERAGE' ELSE 'CURRENT_FY' END AS coverage
       FROM gold_fpa.creditors_open_items o
-      LEFT JOIN (SELECT DISTINCT entcode FROM gold_fpa.voucher_lines) m ON m.entcode = o.document_code"""
+      LEFT JOIN (SELECT DISTINCT entcode FROM (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL')) m ON m.entcode = o.document_code"""
 
     bank_entry = """SELECT NULL::text AS entry_run_id, NULL::text AS ledger_code, NULL::text AS ledger_name, NULL::date AS entry_date, NULL::text AS entry_ref,
         NULL::text AS entry_type_short, NULL::text AS entry_type_long, NULL::integer AS line_no, NULL::numeric AS debit, NULL::numeric AS credit,
@@ -101,7 +101,7 @@ def _relations() -> dict[str, str]:
 
     # extraction's control_totals (per month and ledger type) against a recompute from voucher_lines, plus the till and bill-link figures
     control = f"""WITH a AS (SELECT date_trunc('month', entdt)::date AS period, ledger_type AS group_key, count(*)::numeric AS n, sum(coalesce(damount, 0)) AS dr, sum(coalesce(camount, 0)) AS cr
-                      FROM gold_fpa.voucher_lines GROUP BY 1, 2),
+                      FROM (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL') GROUP BY 1, 2),
              c AS (SELECT period, group_key, row_count, sum_debit, sum_credit FROM gold_fpa.control_totals WHERE table_name = 'voucher_lines'),
              k AS (SELECT a.period, a.group_key, a.n, a.dr, a.cr, c.row_count, c.sum_debit, c.sum_credit FROM a JOIN c USING (period, group_key)),
              r AS (SELECT {RUN_ID} AS rid)
@@ -133,3 +133,10 @@ def _relations() -> dict[str, str]:
 
 
 RELATIONS = _relations()
+
+# HoldCo (gold entity VENTURES) copies of the voucher relations, named <relation>_vn, for the single-voucher lookup of a Citykart Ventures voucher (/entry?entity=VENTURES).
+# Kept apart from RELATIONS (the old-mart contract, RETAIL only); gold/db.py registers EXTRA_RELATIONS too. The pseudonymous party reference uses a different salt.
+EXTRA_RELATIONS = {
+    _n + "_vn": RELATIONS[_n].replace("entity = 'RETAIL'", "entity = 'VENTURES'").replace(f"md5('{_salt()}'", f"md5('{_salt()}VENTURES'")
+    for _n in ("entry.v_entry_header", "entry.v_entry_line", "entry.v_entry_line_text", "entry.v_entry_identity")
+}

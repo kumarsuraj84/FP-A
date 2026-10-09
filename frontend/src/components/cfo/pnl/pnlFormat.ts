@@ -49,15 +49,15 @@ export const FLAG_LABEL: Record<string, string> = {
   GROWTH_MARGIN_FALL: "Growth, falling GM",
   GROWTH_NO_PROFIT: "Growth, no profit growth",
   COST_DETERIORATION: "Growth, cost deterioration",
-  NEW_STORE_BELOW_RAMP: "New store below ramp-up",
-  SAME_STORE_BELOW_PEER: "Same store below peers",
+  NEW_STORE_BELOW_RAMP: "Non-LFL store below ramp-up",
+  SAME_STORE_BELOW_PEER: "Same Store below peers",
 };
 
 export const METRIC_LABEL: Record<string, { label: string; kind: "pct" | "psf"; higher: boolean }> = {
-  growth_pct: { label: "Sales growth", kind: "pct", higher: true },
-  gross_margin_pct: { label: "Gross margin %", kind: "pct", higher: true },
-  contribution_pct: { label: "Contribution %", kind: "pct", higher: true },
-  opex_pct: { label: "Store opex % of sales", kind: "pct", higher: false },
+  growth_pct: { label: "Y-o-Y Growth", kind: "pct", higher: true },
+  gross_margin_pct: { label: "Gross Margin %", kind: "pct", higher: true },
+  contribution_pct: { label: "4-Wall EBITDA %", kind: "pct", higher: true },
+  opex_pct: { label: "Store Expenses % of revenue", kind: "pct", higher: false },
   sales_psf: { label: "Sales per sq ft / month", kind: "psf", higher: true },
   payroll_psf: { label: "Payroll per sq ft / month", kind: "psf", higher: false },
   rent_psf: { label: "Rent per sq ft / month", kind: "psf", higher: false },

@@ -253,7 +253,7 @@ export function buildProfitPortfolio(ctx: QueryCtx): ProfitPortfolio {
     quadrants,
     headline: `${need.length} of ${stores.length} stores earn below the network margin of ${n.split.marginPct.toFixed(1)}%; largest shortfall is ${worst.name} (${fmtCr(worst.contributionVsComparison, { signed: true })} ${cmp.label.toLowerCase()})`,
     comparisonLabel: cmp.label,
-    basisNote: `Contribution before head-office costs; not the same measure as company operating profit · network ${gap >= 0 ? "ahead of" : "behind"} ${cmp.short.toLowerCase()} by ${money(gap)}`,
+    basisNote: `4-Wall EBITDA before DC and HO costs; not the same measure as Corporate EBITDA · network ${gap >= 0 ? "ahead of" : "behind"} ${cmp.short.toLowerCase()} by ${money(gap)}`,
   };
 }
 
@@ -315,11 +315,11 @@ export function buildStoreWorkspace(ctx: QueryCtx, storeId: string): StoreWorksp
   const opexPct = (m.opexA / m.rev) * 100;
   const cmB = (m.contribB / m.revBudget) * 100;
   const kpis: StoreKpi[] = [
-    { id: "revenue", label: "Revenue", value: m.rev, unit: "cr", sub: `${dot.revenueGrowthPct >= 0 ? "+" : "−"}${Math.abs(dot.revenueGrowthPct).toFixed(1)}% year on year`, variance: r4(m.rev - m.revBudget), tone: toneOf(m.rev - m.revBudget) },
+    { id: "revenue", label: "Revenue", value: m.rev, unit: "cr", sub: `${dot.revenueGrowthPct >= 0 ? "+" : "−"}${Math.abs(dot.revenueGrowthPct).toFixed(1)}% Y-o-Y Growth`, variance: r4(m.rev - m.revBudget), tone: toneOf(m.rev - m.revBudget) },
     { id: "gm", label: "Gross Margin", value: m.gmA, unit: "cr", sub: `${dot.gmPct.toFixed(1)}% of revenue`, variance: r4(m.gmA - m.gmB), tone: toneOf(m.gmA - m.gmB) },
-    { id: "opex", label: "Opex", value: m.opexA, unit: "cr", sub: `${opexPct.toFixed(1)}% of revenue`, variance: r4(-(m.opexA - m.opexB)), tone: toneOf(-(m.opexA - m.opexB)) },
-    { id: "contribution", label: "Contribution", value: m.contribA, unit: "cr", sub: `${dot.contributionMarginPct.toFixed(1)}% of revenue`, variance: dot.contributionVsComparison, tone: toneOf(dot.contributionVsComparison) },
-    { id: "contributionPct", label: "Contribution %", value: dot.contributionMarginPct, unit: "pct", sub: `network ${net.split.marginPct.toFixed(1)}%`, variance: r2(dot.contributionMarginPct - cmB), tone: toneOf(dot.contributionMarginPct - cmB) },
+    { id: "opex", label: "Store Expenses", value: m.opexA, unit: "cr", sub: `${opexPct.toFixed(1)}% of revenue`, variance: r4(-(m.opexA - m.opexB)), tone: toneOf(-(m.opexA - m.opexB)) },
+    { id: "contribution", label: "4-Wall EBITDA", value: m.contribA, unit: "cr", sub: `${dot.contributionMarginPct.toFixed(1)}% of revenue`, variance: dot.contributionVsComparison, tone: toneOf(dot.contributionVsComparison) },
+    { id: "contributionPct", label: "4-Wall EBITDA %", value: dot.contributionMarginPct, unit: "pct", sub: `network ${net.split.marginPct.toFixed(1)}%`, variance: r2(dot.contributionMarginPct - cmB), tone: toneOf(dot.contributionMarginPct - cmB) },
   ];
 
   /* bridge: comparison contribution → sales → GM → opex lines → actual */
@@ -331,19 +331,19 @@ export function buildStoreWorkspace(ctx: QueryCtx, storeId: string): StoreWorksp
     ["rent", "Rent", imp.rent, "cost"],
     ["electricity", "Electricity", imp.electricity, "cost"],
     ["logistics", "Logistics", imp.logistics, "cost"],
-    ["other_opex", "Other Opex", otherOpex, "cost"],
+    ["other_opex", "Other Store Expenses", otherOpex, "cost"],
   ];
-  const startLabel = cmp.startLabel.replace("Profit", "Contribution");
+  const startLabel = cmp.startLabel.replace("Profit", "4-Wall EBITDA");
   const bridgeItems: BridgeItem[] = [
     { id: "budget_contribution", label: startLabel, kind: "total", value: m.contribB, tone: "neutral", family: "margin" },
     ...impactItems.map(([id, label, v, family]) => ({ id, label, kind: "delta" as const, value: v, tone: toneOf(v), family })),
-    { id: "actual_contribution", label: "Actual Contribution", kind: "total", value: m.contribA, tone: "neutral", family: "margin" },
+    { id: "actual_contribution", label: "Actual 4-Wall EBITDA", kind: "total", value: m.contribA, tone: "neutral", family: "margin" },
   ];
   const gap = r4(m.contribA - m.contribB);
   const bridge: Bridge = {
     id: `store-${dot.id}`,
-    title: `Why is ${dot.name} contribution ${gap >= 0 ? "ahead of" : "behind"} ${cmp.short.toLowerCase()}?`,
-    subtitle: `${per.label} · Contribution (store level) · ${cmp.label}`,
+    title: `Why is ${dot.name} 4-Wall EBITDA ${gap >= 0 ? "ahead of" : "behind"} ${cmp.short.toLowerCase()}?`,
+    subtitle: `${per.label} · 4-Wall EBITDA (store level) · ${cmp.label}`,
     unitNote: "₹ Cr · axis truncated for variance visibility",
     items: bridgeItems,
   };
@@ -380,7 +380,7 @@ export function buildStoreWorkspace(ctx: QueryCtx, storeId: string): StoreWorksp
   const traj: TrajectoryMetric[] = [
     trajectory("revenue", "Revenue", fy.rev, fy.revBudget, `${storeId}|rev|${ctx.scenario}`),
     trajectory("gm", "Gross Margin", fy.gmA, fy.gmB, `${storeId}|gm|${ctx.scenario}`),
-    trajectory("contribution", "Contribution", fy.contribA, fy.contribB, `${storeId}|ct|${ctx.scenario}`),
+    trajectory("contribution", "4-Wall EBITDA", fy.contribA, fy.contribB, `${storeId}|ct|${ctx.scenario}`),
   ];
 
   /* benchmarks */
@@ -409,7 +409,7 @@ export function buildStoreWorkspace(ctx: QueryCtx, storeId: string): StoreWorksp
 
   const movements: StoreMovement[] = [
     { id: "budget_contribution", label: startLabel, amount: m.contribB, family: "margin", kind: "total" },
-    { id: "actual_contribution", label: "Actual Contribution", amount: m.contribA, family: "margin", kind: "total" },
+    { id: "actual_contribution", label: "Actual 4-Wall EBITDA", amount: m.contribA, family: "margin", kind: "total" },
     ...impactItems.map(([id, label, v, family]) => ({ id, label, amount: v, family, kind: "impact" as const })),
     { id: "security", label: "Security", amount: imp.security, family: "cost", kind: "impact" },
     { id: "repairs", label: "Repairs & maintenance", amount: imp.repairs, family: "cost", kind: "impact" },
@@ -424,13 +424,13 @@ export function buildStoreWorkspace(ctx: QueryCtx, storeId: string): StoreWorksp
     trajectory: traj,
     expenses,
     benchmarks: {
-      rows: [row("growth", "Revenue growth"), row("gm", "GM %"), row("opex", "Opex %"), row("contribution", "Contribution %")],
+      rows: [row("growth", "Y-o-Y Revenue Growth"), row("gm", "GM %"), row("opex", "Store Expenses %"), row("contribution", "4-Wall EBITDA %")],
       labels: { zone: `${m.base.zone} zone`, region: m.base.region, cluster: m.base.cluster, comparable: `${m.base.format} stores` },
       comparableCount: comparable.length,
     },
     why: {
       gap,
-      headline: gap < 0 ? `Contribution gap ${fmtCr(gap)}` : gap > 0 ? `Contribution ahead ${fmtCr(gap, { signed: true })}` : "Contribution on plan",
+      headline: gap < 0 ? `4-Wall EBITDA gap ${fmtCr(gap)}` : gap > 0 ? `4-Wall EBITDA ahead ${fmtCr(gap, { signed: true })}` : "4-Wall EBITDA on AOP",
       drivers,
       restIds: rest.map((x) => x.id),
     },
@@ -497,7 +497,7 @@ function linesOf(ws: StoreWorkspace, groupId: string): { lines: Line[]; levelBas
   const costs = costIds.map((id) => ({ id, label: by(id).label, amount: -(actual ? exp(id).actual : exp(id).budget), delta: actual ? by(id).amount : 0 }));
   const total = actual ? by("actual_contribution").amount : by("budget_contribution").amount;
   const other = { id: "other_exp", label: "Other expenses", amount: r4(total - gmLevel - sum(costs.map((c) => c.amount))), delta: actual ? by("other_exp").amount : 0 };
-  const gm = { id: "gm_var", label: "Gross margin", amount: gmLevel, delta: actual ? r4(by("sales_var").amount + by("gm_var").amount) : 0 };
+  const gm = { id: "gm_var", label: "Gross Margin", amount: gmLevel, delta: actual ? r4(by("sales_var").amount + by("gm_var").amount) : 0 };
   return { lines: [gm, ...costs, other], levelBased: true };
 }
 
@@ -524,18 +524,18 @@ function emptyView(label: string): DrillView {
 }
 
 const WHY_TEXT: Record<string, string> = {
-  sales_var: "Footfall and conversion differ from plan; the effect is valued at budget gross margin.",
-  gm_var: "Markdown depth, mix and shrinkage move gross margin away from plan.",
-  payroll: "Headcount, overtime and incentive payout against the staffing plan.",
+  sales_var: "Footfall and conversion differ from AOP; the effect is valued at AOP Gross Margin.",
+  gm_var: "Markdown depth, mix and shrinkage move Gross Margin away from AOP.",
+  payroll: "Headcount, overtime and incentive payout against the staffing AOP.",
   rent: "Base rent and CAM against the lease schedule.",
-  electricity: "Grid tariff, DG running hours and AC load against plan.",
-  logistics: "Inbound freight and inter-store transfers against plan.",
-  security: "Guarding and CCTV maintenance against plan.",
-  repairs: "Repairs, AMC and fixture replacement against plan.",
+  electricity: "Grid tariff, DG running hours and AC load against AOP.",
+  logistics: "Inbound freight and inter-store transfers against AOP.",
+  security: "Guarding and CCTV maintenance against AOP.",
+  repairs: "Repairs, AMC and fixture replacement against AOP.",
   other_exp: "Printing, communication, card charges and housekeeping.",
   other_opex: "Security, repairs and other expenses together.",
   other_drivers: "The smaller drivers not listed individually.",
-  actual_contribution: "Gross margin less store operating costs.",
+  actual_contribution: "Gross Margin less Store Expenses.",
   budget_contribution: "The comparison baseline for this store.",
 };
 

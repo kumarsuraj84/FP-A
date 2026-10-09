@@ -1,0 +1,3 @@
+ledger,mgmt_group,major_group,category,location_rule,source,note
+Example Salary Ledger,02-Employee Cost,03-Expense,Salaries,by_site,workbook,
+Example Inventory Flow,EXCLUDED,,inventory flow,excluded,engine_default,COGS comes from cogs_store_month

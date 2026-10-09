@@ -258,7 +258,7 @@ function explain(origin: DrillOrigin, label: string, amount: number, variance: n
     case "cash":
       return `${label} is ${money(amount)}. Timing of vendor payment runs against inflows drives the movement. ${lead}`;
     default:
-      return `${label} is ${money(variance)} ${dir} budget. ${lead}`;
+      return `${label} is ${money(variance)} ${dir} AOP. ${lead}`;
   }
 }
 

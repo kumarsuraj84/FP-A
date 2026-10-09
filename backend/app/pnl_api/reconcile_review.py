@@ -36,8 +36,9 @@ def mart_rows(db, run_id: str, basis: str = "all") -> dict:
     cond = "AND release_status = 'Posted'" if basis == "posted" else ""
     with db.session("pnl_verifier") as c:
         run = c.execute("SELECT * FROM pnl.v_serving_run WHERE run_id = %s", (run_id,)).fetchone()
-        gl = c.execute(f"SELECT site_code, month, section, group_label, glcode, sum(credit - debit) AS net FROM pnl.v_gl_site_month WHERE run_id = %s AND section <> 'UNMAPPED' {cond} GROUP BY 1, 2, 3, 4, 5", (run_id,)).fetchall()
-        cogs = c.execute("SELECT site_code, month, cogs_v, sl_v - tax_amt AS sales, cogs_early, sl_v_early - tax_early AS sales_early FROM pnl.v_cogs_site_month WHERE run_id = %s", (run_id,)).fetchall()
+        gl = [r for r in c.execute(f"SELECT site_code, month, section, location_type, group_label, glcode, sum(credit - debit) AS net FROM pnl.v_gl_site_month WHERE run_id = %s AND section <> 'UNMAPPED' {cond} GROUP BY 1, 2, 3, 4, 5, 6", (run_id,)).fetchall()
+              if not (r["section"] in ("STORE_OPEX", "COGS_BOOKS") and r["location_type"] != "STORES")]     # DC / HO cost is not a store line
+        cogs = c.execute("SELECT site_code, month, cogs_v, sl_v - tax_amt AS sales, cogs_early, sl_v_early - tax_early AS sales_early FROM pnl.v_cogs_site_month WHERE run_id = %s AND site_kind = 'STORE'", (run_id,)).fetchall()
         eff = c.execute("SELECT site_code, month, effective_area FROM pnl.v_store_month_effective_area WHERE run_id = %s", (run_id,)).fetchall()
         aligned = c.execute(f"SELECT site_code, section, group_label, sum(credit - debit) AS net FROM pnl.v_gl_aligned WHERE run_id = %s AND section <> 'UNMAPPED' {cond} GROUP BY 1, 2, 3", (run_id,)).fetchall()
         sites = {r["site_code"]: r for r in c.execute("SELECT * FROM pnl.v_site WHERE run_id = %s", (run_id,)).fetchall()}
@@ -68,7 +69,7 @@ class Figures:
         self.ly_month = run.get("ly_aligned_month")
 
     def line(self, sites, months, ly=False):
-        t = {"revenue": ZERO, "cogs": ZERO, "cogs_books": ZERO, "opex": ZERO}
+        t = {"revenue": ZERO, "cogs": ZERO, "cogs_books": ZERO, "opex": ZERO, "ooi": ZERO}
         for m in months:
             lm = add_months(m, -12)
             aligned = ly and m == self.as_of_month and self.partial
@@ -82,12 +83,15 @@ class Figures:
                     sec = self.sec.get(key)
                     cg = self.cogs.get(key)
                     cogs_amt = cg["cogs_v"] if cg else ZERO
+                grp = self.al_grp.get(s) if aligned else self.grp.get((s, lm if ly else m))
+                if grp:
+                    t["ooi"] += grp.get("02-Other Income", ZERO)
                 if sec:
                     t["revenue"] += sec.get("REVENUE", ZERO)
                     t["cogs_books"] += sec.get("COGS_BOOKS", ZERO)
                     t["opex"] += sec.get("STORE_OPEX", ZERO)
                 t["cogs"] += cogs_amt
-        t["gm"] = t["revenue"] - t["cogs"] + t["cogs_books"]
+        t["gm"] = t["revenue"] + t["ooi"] - t["cogs"] + t["cogs_books"]
         t["contribution"] = t["gm"] + t["opex"]
         return t
 

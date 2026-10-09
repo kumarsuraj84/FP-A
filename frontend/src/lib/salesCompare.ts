@@ -33,7 +33,7 @@ export function sameDateLastYear(iso: string): { date: string; note?: string } {
   const m = d.getUTCMonth();
   const day = d.getUTCDate();
   const candidate = new Date(Date.UTC(y, m, day));
-  if (candidate.getUTCMonth() !== m) return { date: toIso(new Date(Date.UTC(y, m, day - 1))), note: `${iso} (29 Feb) has no last-year equivalent; 28 Feb used` };
+  if (candidate.getUTCMonth() !== m) return { date: toIso(new Date(Date.UTC(y, m, day - 1))), note: `${iso} (29 Feb) has no LY equivalent; 28 Feb used` };
   return { date: toIso(candidate) };
 }
 

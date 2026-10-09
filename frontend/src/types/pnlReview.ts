@@ -13,6 +13,11 @@ export interface ReviewMoney {
   contribution_pct: string | null;
   other_income: string;
   finance_cost: string;
+  other_operating_income?: string;
+  dc_cost?: string;
+  ho_cost?: string;
+  total_corporate_cost?: string;
+  corporate_ebitda?: string;
 }
 
 export interface ComparisonWindow {

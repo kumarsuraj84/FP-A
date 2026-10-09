@@ -10,8 +10,10 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VoucherRouteImport } from './routes/voucher'
+import { Route as RelatedPartyRouteImport } from './routes/related-party'
 import { Route as ProfitabilityRouteImport } from './routes/profitability'
 import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as MgmtRouteImport } from './routes/mgmt'
 import { Route as LedgerRouteImport } from './routes/ledger'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as EntryRouteImport } from './routes/entry'
@@ -20,6 +22,11 @@ import { Route as CashRouteImport } from './routes/cash'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProfitabilityStoreRouteImport } from './routes/profitability_.store'
 import { Route as OperationsSalesRouteImport } from './routes/operations.sales'
+import { Route as MgmtStoresRouteImport } from './routes/mgmt_.stores'
+import { Route as MgmtStoreExpensesRouteImport } from './routes/mgmt_.store-expenses'
+import { Route as MgmtReconciliationRouteImport } from './routes/mgmt_.reconciliation'
+import { Route as MgmtMappingRouteImport } from './routes/mgmt_.mapping'
+import { Route as MgmtDcExpensesRouteImport } from './routes/mgmt_.dc-expenses'
 import { Route as EntryTillRouteImport } from './routes/entry_.till'
 import { Route as EntryListRouteImport } from './routes/entry_.list'
 import { Route as CreditorsVendorRouteImport } from './routes/creditors_.vendor'
@@ -27,6 +34,11 @@ import { Route as CreditorsVendorRouteImport } from './routes/creditors_.vendor'
 const VoucherRoute = VoucherRouteImport.update({
   id: '/voucher',
   path: '/voucher',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RelatedPartyRoute = RelatedPartyRouteImport.update({
+  id: '/related-party',
+  path: '/related-party',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfitabilityRoute = ProfitabilityRouteImport.update({
@@ -37,6 +49,11 @@ const ProfitabilityRoute = ProfitabilityRouteImport.update({
 const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MgmtRoute = MgmtRouteImport.update({
+  id: '/mgmt',
+  path: '/mgmt',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LedgerRoute = LedgerRouteImport.update({
@@ -79,6 +96,31 @@ const OperationsSalesRoute = OperationsSalesRouteImport.update({
   path: '/operations/sales',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MgmtStoresRoute = MgmtStoresRouteImport.update({
+  id: '/mgmt_/stores',
+  path: '/mgmt/stores',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MgmtStoreExpensesRoute = MgmtStoreExpensesRouteImport.update({
+  id: '/mgmt_/store-expenses',
+  path: '/mgmt/store-expenses',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MgmtReconciliationRoute = MgmtReconciliationRouteImport.update({
+  id: '/mgmt_/reconciliation',
+  path: '/mgmt/reconciliation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MgmtMappingRoute = MgmtMappingRouteImport.update({
+  id: '/mgmt_/mapping',
+  path: '/mgmt/mapping',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MgmtDcExpensesRoute = MgmtDcExpensesRouteImport.update({
+  id: '/mgmt_/dc-expenses',
+  path: '/mgmt/dc-expenses',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const EntryTillRoute = EntryTillRouteImport.update({
   id: '/entry_/till',
   path: '/entry/till',
@@ -102,12 +144,19 @@ export interface FileRoutesByFullPath {
   '/entry': typeof EntryRoute
   '/home': typeof HomeRoute
   '/ledger': typeof LedgerRoute
+  '/mgmt': typeof MgmtRoute
   '/profile': typeof ProfileRoute
   '/profitability': typeof ProfitabilityRoute
+  '/related-party': typeof RelatedPartyRoute
   '/voucher': typeof VoucherRoute
   '/creditors/vendor': typeof CreditorsVendorRoute
   '/entry/list': typeof EntryListRoute
   '/entry/till': typeof EntryTillRoute
+  '/mgmt/dc-expenses': typeof MgmtDcExpensesRoute
+  '/mgmt/mapping': typeof MgmtMappingRoute
+  '/mgmt/reconciliation': typeof MgmtReconciliationRoute
+  '/mgmt/store-expenses': typeof MgmtStoreExpensesRoute
+  '/mgmt/stores': typeof MgmtStoresRoute
   '/operations/sales': typeof OperationsSalesRoute
   '/profitability/store': typeof ProfitabilityStoreRoute
 }
@@ -118,12 +167,19 @@ export interface FileRoutesByTo {
   '/entry': typeof EntryRoute
   '/home': typeof HomeRoute
   '/ledger': typeof LedgerRoute
+  '/mgmt': typeof MgmtRoute
   '/profile': typeof ProfileRoute
   '/profitability': typeof ProfitabilityRoute
+  '/related-party': typeof RelatedPartyRoute
   '/voucher': typeof VoucherRoute
   '/creditors/vendor': typeof CreditorsVendorRoute
   '/entry/list': typeof EntryListRoute
   '/entry/till': typeof EntryTillRoute
+  '/mgmt/dc-expenses': typeof MgmtDcExpensesRoute
+  '/mgmt/mapping': typeof MgmtMappingRoute
+  '/mgmt/reconciliation': typeof MgmtReconciliationRoute
+  '/mgmt/store-expenses': typeof MgmtStoreExpensesRoute
+  '/mgmt/stores': typeof MgmtStoresRoute
   '/operations/sales': typeof OperationsSalesRoute
   '/profitability/store': typeof ProfitabilityStoreRoute
 }
@@ -135,12 +191,19 @@ export interface FileRoutesById {
   '/entry': typeof EntryRoute
   '/home': typeof HomeRoute
   '/ledger': typeof LedgerRoute
+  '/mgmt': typeof MgmtRoute
   '/profile': typeof ProfileRoute
   '/profitability': typeof ProfitabilityRoute
+  '/related-party': typeof RelatedPartyRoute
   '/voucher': typeof VoucherRoute
   '/creditors_/vendor': typeof CreditorsVendorRoute
   '/entry_/list': typeof EntryListRoute
   '/entry_/till': typeof EntryTillRoute
+  '/mgmt_/dc-expenses': typeof MgmtDcExpensesRoute
+  '/mgmt_/mapping': typeof MgmtMappingRoute
+  '/mgmt_/reconciliation': typeof MgmtReconciliationRoute
+  '/mgmt_/store-expenses': typeof MgmtStoreExpensesRoute
+  '/mgmt_/stores': typeof MgmtStoresRoute
   '/operations/sales': typeof OperationsSalesRoute
   '/profitability_/store': typeof ProfitabilityStoreRoute
 }
@@ -153,12 +216,19 @@ export interface FileRouteTypes {
     | '/entry'
     | '/home'
     | '/ledger'
+    | '/mgmt'
     | '/profile'
     | '/profitability'
+    | '/related-party'
     | '/voucher'
     | '/creditors/vendor'
     | '/entry/list'
     | '/entry/till'
+    | '/mgmt/dc-expenses'
+    | '/mgmt/mapping'
+    | '/mgmt/reconciliation'
+    | '/mgmt/store-expenses'
+    | '/mgmt/stores'
     | '/operations/sales'
     | '/profitability/store'
   fileRoutesByTo: FileRoutesByTo
@@ -169,12 +239,19 @@ export interface FileRouteTypes {
     | '/entry'
     | '/home'
     | '/ledger'
+    | '/mgmt'
     | '/profile'
     | '/profitability'
+    | '/related-party'
     | '/voucher'
     | '/creditors/vendor'
     | '/entry/list'
     | '/entry/till'
+    | '/mgmt/dc-expenses'
+    | '/mgmt/mapping'
+    | '/mgmt/reconciliation'
+    | '/mgmt/store-expenses'
+    | '/mgmt/stores'
     | '/operations/sales'
     | '/profitability/store'
   id:
@@ -185,12 +262,19 @@ export interface FileRouteTypes {
     | '/entry'
     | '/home'
     | '/ledger'
+    | '/mgmt'
     | '/profile'
     | '/profitability'
+    | '/related-party'
     | '/voucher'
     | '/creditors_/vendor'
     | '/entry_/list'
     | '/entry_/till'
+    | '/mgmt_/dc-expenses'
+    | '/mgmt_/mapping'
+    | '/mgmt_/reconciliation'
+    | '/mgmt_/store-expenses'
+    | '/mgmt_/stores'
     | '/operations/sales'
     | '/profitability_/store'
   fileRoutesById: FileRoutesById
@@ -202,12 +286,19 @@ export interface RootRouteChildren {
   EntryRoute: typeof EntryRoute
   HomeRoute: typeof HomeRoute
   LedgerRoute: typeof LedgerRoute
+  MgmtRoute: typeof MgmtRoute
   ProfileRoute: typeof ProfileRoute
   ProfitabilityRoute: typeof ProfitabilityRoute
+  RelatedPartyRoute: typeof RelatedPartyRoute
   VoucherRoute: typeof VoucherRoute
   CreditorsVendorRoute: typeof CreditorsVendorRoute
   EntryListRoute: typeof EntryListRoute
   EntryTillRoute: typeof EntryTillRoute
+  MgmtDcExpensesRoute: typeof MgmtDcExpensesRoute
+  MgmtMappingRoute: typeof MgmtMappingRoute
+  MgmtReconciliationRoute: typeof MgmtReconciliationRoute
+  MgmtStoreExpensesRoute: typeof MgmtStoreExpensesRoute
+  MgmtStoresRoute: typeof MgmtStoresRoute
   OperationsSalesRoute: typeof OperationsSalesRoute
   ProfitabilityStoreRoute: typeof ProfitabilityStoreRoute
 }
@@ -219,6 +310,13 @@ declare module '@tanstack/react-router' {
       path: '/voucher'
       fullPath: '/voucher'
       preLoaderRoute: typeof VoucherRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/related-party': {
+      id: '/related-party'
+      path: '/related-party'
+      fullPath: '/related-party'
+      preLoaderRoute: typeof RelatedPartyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profitability': {
@@ -233,6 +331,13 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/profile'
       preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mgmt': {
+      id: '/mgmt'
+      path: '/mgmt'
+      fullPath: '/mgmt'
+      preLoaderRoute: typeof MgmtRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/ledger': {
@@ -291,6 +396,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OperationsSalesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/mgmt_/stores': {
+      id: '/mgmt_/stores'
+      path: '/mgmt/stores'
+      fullPath: '/mgmt/stores'
+      preLoaderRoute: typeof MgmtStoresRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mgmt_/store-expenses': {
+      id: '/mgmt_/store-expenses'
+      path: '/mgmt/store-expenses'
+      fullPath: '/mgmt/store-expenses'
+      preLoaderRoute: typeof MgmtStoreExpensesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mgmt_/reconciliation': {
+      id: '/mgmt_/reconciliation'
+      path: '/mgmt/reconciliation'
+      fullPath: '/mgmt/reconciliation'
+      preLoaderRoute: typeof MgmtReconciliationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mgmt_/mapping': {
+      id: '/mgmt_/mapping'
+      path: '/mgmt/mapping'
+      fullPath: '/mgmt/mapping'
+      preLoaderRoute: typeof MgmtMappingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mgmt_/dc-expenses': {
+      id: '/mgmt_/dc-expenses'
+      path: '/mgmt/dc-expenses'
+      fullPath: '/mgmt/dc-expenses'
+      preLoaderRoute: typeof MgmtDcExpensesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/entry_/till': {
       id: '/entry_/till'
       path: '/entry/till'
@@ -322,12 +462,19 @@ const rootRouteChildren: RootRouteChildren = {
   EntryRoute: EntryRoute,
   HomeRoute: HomeRoute,
   LedgerRoute: LedgerRoute,
+  MgmtRoute: MgmtRoute,
   ProfileRoute: ProfileRoute,
   ProfitabilityRoute: ProfitabilityRoute,
+  RelatedPartyRoute: RelatedPartyRoute,
   VoucherRoute: VoucherRoute,
   CreditorsVendorRoute: CreditorsVendorRoute,
   EntryListRoute: EntryListRoute,
   EntryTillRoute: EntryTillRoute,
+  MgmtDcExpensesRoute: MgmtDcExpensesRoute,
+  MgmtMappingRoute: MgmtMappingRoute,
+  MgmtReconciliationRoute: MgmtReconciliationRoute,
+  MgmtStoreExpensesRoute: MgmtStoreExpensesRoute,
+  MgmtStoresRoute: MgmtStoresRoute,
   OperationsSalesRoute: OperationsSalesRoute,
   ProfitabilityStoreRoute: ProfitabilityStoreRoute,
 }

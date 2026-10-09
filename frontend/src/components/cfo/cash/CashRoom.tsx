@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { BankLedger, BankReview, CashSummary, CashTill, CreditorObligations } from "@/types/cashLive";
 import { Skeleton } from "../common";
 import { DataStateBadge, LiveBoundary, NotAvailable } from "../creditors/parts";
+import { RelatedExcludedNote } from "../related/ExcludedNote";
 import { Panel, WorkspaceHeader } from "../panels";
 import { AppLink, useHere } from "../entry/parts";
 import { tillHref } from "@/lib/entryLinks";
@@ -155,6 +156,7 @@ function CreditorsPanel({ c }: { c: CreditorObligations }) {
       <div className="border-t px-4 py-2 text-[11px] text-muted-foreground">
         Credit Outstanding {cr(c.credit_outstanding)}. Creditor debit balances {cr(c.creditor_debit_balance)} are separate and not netted. Creditors run {c.creditors_run_id}, as of {fmtDate(c.as_of_date)} ({c.data_state === "live" ? "live" : "verified candidate, not live"}). Same figures as the Creditors page.
       </div>
+      <RelatedExcludedNote excluded={c.related_party_excluded} testId="cash-related-excluded-note" />
     </Panel>
   );
 }

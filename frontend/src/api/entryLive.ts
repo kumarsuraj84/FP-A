@@ -49,6 +49,8 @@ async function named<T>(runPath: string, path: string, params: Params = {}): Pro
 }
 
 export interface LedgerEntriesQuery {
+  /** HoldCo (Citykart Ventures) vouchers; absent = RETAIL (SubCo), the API default */
+  entity?: "RETAIL" | "VENTURES";
   site?: string | number;
   glcode?: string | number;
   from_month?: string;
@@ -62,8 +64,8 @@ export interface LedgerEntriesQuery {
 
 export const liveEntry = {
   current: () => get<EntryRunHeader>("current"),
-  entry: (run: string, ref: string) => named<EntryResponse>(run, `entry/${encodeURIComponent(ref)}`),
-  lineDetail: (run: string, ref: string) => named<LineDetailResponse>(run, `entry/${encodeURIComponent(ref)}/line-detail`),
+  entry: (run: string, ref: string, entity?: string) => named<EntryResponse>(run, `entry/${encodeURIComponent(ref)}`, { entity }),
+  lineDetail: (run: string, ref: string, entity?: string) => named<LineDetailResponse>(run, `entry/${encodeURIComponent(ref)}/line-detail`, { entity }),
   ledgerEntries: (run: string, q: LedgerEntriesQuery) => named<LedgerEntriesPage>(run, "ledger-entries", { limit: 100, ...q }),
   billLink: (run: string, creditorsRun: string, itemRef: string) =>
     get<BillLinkResponse>(`runs/${run}/creditors/items/${encodeURIComponent(billKey(itemRef))}/link`, { creditors_run: creditorsRun }),

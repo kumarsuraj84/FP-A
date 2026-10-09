@@ -8,7 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
 import { routeTree } from "@/routeTree.gen";
 import { isLiveCfo, isMockApi } from "@/api";
-import { CASH, CRED, PNL, installLiveSources } from "@/test/cfoLiveFixture";
+import { CASH, CRED, MGMT, PNL, installLiveSources } from "@/test/cfoLiveFixture";
 
 /* The Command Center on REAL data (synthetic API responses): per-source stamps, honest gaps, no demo controls. */
 
@@ -49,7 +49,7 @@ describe("Command Center on real data", () => {
     expect(screen.queryByTestId("select-scenario")).toBeNull();
     expect(screen.getByTestId("scenario-live-note")).toHaveTextContent(/demo only/i);
     const compare = screen.getByTestId("select-comparison") as HTMLSelectElement;
-    expect(within(compare).getByRole("option", { name: /Budget.*not available/ })).toBeInTheDocument();
+    expect(within(compare).getByRole("option", { name: /AOP.*not available/ })).toBeInTheDocument();
     expect(within(compare).getByRole("option", { name: /Forecast.*not available/ })).toBeInTheDocument();
   });
 
@@ -65,7 +65,7 @@ describe("Command Center on real data", () => {
     mount();
     await screen.findByTestId("pulse-revenue", {}, T);
     expect(text("pulse-revenue")).toMatch(/₹1,000\.00 Cr/);
-    expect(text("pulse-source-revenue")).toBe(`P&L · ${PNL.run} · 09 Oct 2026`);
+    expect(text("pulse-source-revenue")).toBe(`Management P&L · ${MGMT.run} · 09 Oct 2026`);
     expect(text("pulse-source-creditors")).toBe(`Creditors · ${CRED.run} · 07 Oct 2026`);
     expect(text("pulse-source-cash")).toBe(`Cash · ${CASH.run} · 08 Oct 2026`);
     expect(text("pulse-cash")).toMatch(/Store till cash/);
@@ -76,18 +76,25 @@ describe("Command Center on real data", () => {
     expect(text("pulse-advances")).not.toMatch(/₹0/);
   });
 
-  it("budget is not available: the default comparison shows an em dash with the reason", async () => {
+  it("AOP is not available: the default comparison shows an em dash with the reason", async () => {
     mount();
     await screen.findByTestId("pulse-revenue", {}, T);
     expect(text("pulse-revenue")).toMatch(/—/);
-    expect(text("pulse-revenue")).toMatch(/Budget not available/);
+    expect(text("pulse-revenue")).toMatch(/Revenue from operations/);
+    expect(text("pulse-gm")).toMatch(/Material Margin/);
+    expect(text("pulse-gm")).toMatch(/includes management adjustments/);
+    expect(text("pulse-profit")).toMatch(/Store EBITDA/);
+    expect(text("pulse-profit")).toMatch(/includes management adjustments/);
+    expect(text("pulse-revenue")).toMatch(/AOP not available/);
   });
 
   it("the hero bridge is the real P&L composition, with its source line", async () => {
     mount();
     await screen.findByTestId("waterfall", {}, T);
-    expect(text("hero-title")).toMatch(/net sales become store contribution/);
-    await waitFor(() => expect(screen.getByTestId("hero").textContent).toMatch(new RegExp(`${PNL.run} · as of 09 Oct 2026`)));
+    expect(text("hero-title")).toMatch(/revenue from operations become Corporate EBITDA/);
+    await waitFor(() => expect(screen.getByTestId("hero").textContent).toMatch(new RegExp(`${MGMT.run} · as of 09 Oct 2026`)));
+    expect(screen.getByTestId("hero").textContent).toMatch(/Corporate EBITDA/);
+    expect(screen.getByTestId("hero").textContent).toMatch(/includes management adjustments/);
     fireEvent.click(screen.getByTestId("hero-tab-cash"));
     await within(screen.getByTestId("hero")).findByTestId("state-unavailable", {}, T);
     expect(screen.getByTestId("hero")).toHaveTextContent(/No opening-cash or cash-flow source exists/);
@@ -127,7 +134,7 @@ describe("Command Center on real data", () => {
     const drawer = await screen.findByTestId("investigation-drawer", {}, T);
     await within(drawer).findByTestId("drill-rows", {}, T);
     expect(within(drawer).getByTestId("drill-row-Top store:10")).toHaveTextContent("ALPHA");
-    expect(within(drawer).getByTestId("source-lines")).toHaveTextContent(`P&L · ${PNL.run} · as of 09 Oct 2026`);
+    expect(within(drawer).getByTestId("source-lines")).toHaveTextContent(`Management P&L · ${MGMT.run} · as of 09 Oct 2026`);
     expect(within(drawer).queryByTestId("open-ledger")).toBeNull();
     fireEvent.click(within(drawer).getByTestId("open-live-page"));
     await waitFor(() => expect(router.state.location.pathname).toBe("/profitability"));

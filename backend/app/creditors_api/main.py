@@ -13,6 +13,8 @@ from ..entry_api.router import router as entry_router
 from ..pnl_api.router import router as pnl_router
 from ..gold.ledger_entries import router as ledger_entries_router
 from ..pnl_api.review_router import router as pnl_review_router
+from ..mgmt.router import router as mgmt_router
+from ..gold.related_party import router as related_party_router
 
 
 def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> FastAPI:
@@ -32,6 +34,8 @@ def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> Fas
     app.include_router(ledger_entries_router)
     app.include_router(pnl_router)
     app.include_router(pnl_review_router)
+    app.include_router(mgmt_router)
+    app.include_router(related_party_router)
     return app
 
 

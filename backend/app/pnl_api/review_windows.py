@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 
 from . import repository as repo
+from .repository import GROUP_NAME
 from .review import Review, q4
 
 ZERO = Decimal(0)
@@ -52,7 +53,8 @@ def _bps(a: Decimal | None, b: Decimal | None) -> Decimal | None:
 
 
 def _mm(t: dict) -> dict:
-    return {k: t[k] for k in ("revenue", "cogs", "cogs_books", "gross_margin", "gross_margin_pct", "opex", "opex_pct", "contribution", "contribution_pct", "other_income", "finance_cost")}
+    return {k: t[k] for k in ("revenue", "cogs", "cogs_books", "gross_margin", "gross_margin_pct", "opex", "opex_pct", "contribution", "contribution_pct", "other_income", "finance_cost",
+                              "other_operating_income", "dc_cost", "ho_cost", "total_corporate_cost", "corporate_ebitda")}
 
 
 def compare_windows(rv: Review, pick) -> list[dict]:
@@ -131,17 +133,23 @@ def pivot(rv: Review, pick, company: bool) -> dict:
         else:
             t = window(rv, pick, months)
             gv = {g: group_effect(rv, pick, g, months) for g in groups + other}
-        v = {"revenue": t["revenue"], "cogs": -t["cogs"], "cogs_books": t["cogs_books"], "gross_margin": t["gross_margin"], "store_opex": t["opex"], "contribution": t["contribution"],
+        v = {"revenue": t["revenue"], "cogs": -t["cogs"], "cogs_books": t["cogs_books"], "other_operating_income": t["other_operating_income"], "gross_margin": t["gross_margin"], "store_opex": t["opex"],
+             "contribution": t["contribution"], "dc_cost": t["dc_cost"], "ho_cost": t["ho_cost"], "total_corporate_cost": t["total_corporate_cost"], "corporate_ebitda": t["corporate_ebitda"],
              "other_income": t["other_income"], "finance_cost": t["finance_cost"]}
         v.update({"g:" + g: gv[g] for g in groups + other})
         return v
 
     cells = {c["id"]: values(c["months"], False) for c in cols}
     ly = values(ytd["months"], True)
-    contribution_label = "Contribution, all sites (before other income and finance cost)" if company else "Store contribution (before other income, finance cost and head office)"
-    defs = [("revenue", "Net sales (ex-GST)", "line", 0), ("cogs", "COGS (COGS table)", "line", 0), ("cogs_books", "Other COGS items (books)", "line", 0), ("gross_margin", "Gross margin", "subtotal", 0)]
-    defs += [("g:" + g, g.split("-", 1)[-1], "group", 1) for g in groups]
-    defs += [("store_opex", "Store operating expenses", "subtotal", 0), ("contribution", contribution_label, "subtotal", 0), ("other_income", "Other income", "memo", 0), ("finance_cost", "Finance cost", "memo", 0)]
+    contribution_label = "Store EBITDA (before DC cost, HO cost, interest income and finance cost)" if company else "4-Wall EBITDA (Gross Margin less store expenses)"
+    gm_label = "Material Margin" if company else "Gross Margin"
+    defs = [("revenue", "Revenue from operations", "line", 0), ("cogs", "Material Cost (COGS table)", "line", 0), ("cogs_books", "Other material cost items (books)", "line", 0),
+            ("other_operating_income", "Other operating income", "line", 0), ("gross_margin", gm_label, "subtotal", 0)]
+    defs += [("g:" + g, GROUP_NAME.get(g, g.split("-", 1)[-1]), "group", 1) for g in groups]
+    defs += [("store_opex", "Store Expenses", "subtotal", 0), ("contribution", contribution_label, "subtotal", 0)]
+    if company:
+        defs += [("dc_cost", "DC cost", "line", 0), ("ho_cost", "HO cost", "line", 0), ("total_corporate_cost", "Total Corporate Cost", "subtotal", 0), ("corporate_ebitda", "Corporate EBITDA", "subtotal", 0)]
+    defs += [("other_income", "Other operating income and interest income (memo)", "memo", 0), ("finance_cost", "Finance cost", "memo", 0)]
     rows = []
     for rid, label, kind, level in defs:
         r = {"id": rid, "label": label, "kind": kind, "level": level, "group": rid[2:] if rid.startswith("g:") else None, "cells": {c["id"]: cells[c["id"]].get(rid) for c in cols}, "ly_ytd": ly.get(rid) if ly else None}

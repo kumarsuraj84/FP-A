@@ -46,9 +46,19 @@ describe("Store P&L: the verified strip", () => {
     expect(text("strip-growth-value")).toBe("+25.0%");
     expect(screen.getByTestId("strip-growth")).toHaveTextContent("complete months");
     const note = text("strip-note");
-    expect(note).toMatch(/Contribution is before other income, finance cost and head-office allocation/);
-    expect(note).toMatch(/Budget: not available \(blank\)/);
-    expect(note).toMatch(/COGS runs to 06 Oct 2026, the books to 07 Oct 2026/);
+    expect(note).toMatch(/Books basis, before management adjustments; see Management P&L/);
+    expect(note).toMatch(/Store EBITDA is Material Margin less Store Expenses \(STORES location only\), before DC cost, HO cost, interest income and finance cost/);
+    expect(note).toMatch(/AOP: not available \(blank\)/);
+    expect(note).toMatch(/Material Cost runs to 06 Oct 2026, the books to 07 Oct 2026/);
+    // the MIS names, not the old ones
+    expect(text("pnl-strip")).toMatch(/Revenue from operations/);
+    expect(text("strip-gm")).toMatch(/Material Margin/);
+    expect(text("strip-opex")).toMatch(/Store Expenses/);
+    expect(text("strip-contribution")).toMatch(/Store EBITDA/);
+    expect(text("strip-corporate")).toMatch(/Corporate EBITDA/);
+    expect(text("strip-growth")).toMatch(/Y-o-Y Growth vs LY/);
+    expect(text("strip-budget")).toMatch(/AOP/);
+    expect(text("pnl-strip")).not.toMatch(/Net sales|Gross margin|Store opex|Contribution/);
     expect(note).toMatch(/Provisional \(unposted sales\): Oct 26/);
     expect(note).toMatch(/2 ledgers are Unmapped \/ Finance classification required/);
   });
@@ -86,7 +96,7 @@ describe("Store P&L: bridge, trend and lines", () => {
     expect(exact("wf-contribution")).toBe(String(Number(TOTALS.contribution) / 1e7));
     expect(exact("wf-gross_margin")).toBe(String(Number(TOTALS.gross_margin) / 1e7));
     await screen.findByTestId("bridge-reconciles", {}, T);
-    expect(text("bridge-reconciles")).toMatch(/Company = stores .* \+ head office and depots/);
+    expect(text("bridge-reconciles")).toMatch(/Company Store EBITDA = stores .* \+ virtual and other non-store sites/);
   });
 
   it("marks the partial, provisional month and hides its margin from the line", async () => {
@@ -139,11 +149,11 @@ describe("Store P&L: the store league and the drill", () => {
 
 describe("Profitability: the CFO league views", () => {
   const tabs = ["top", "bottom", "gm_high", "gm_low", "opex_high", "grow_fast", "grow_down", "all"];
-  it("offers top and bottom contribution, highest and lowest GM %, highest opex %, fastest growth and biggest decline", async () => {
+  it("offers top and bottom 4-Wall EBITDA, highest and lowest GM %, highest store expenses %, fastest growth and biggest decline", async () => {
     await mountTab("stores");
     await screen.findByTestId("league-table", {}, T);
     for (const t of tabs) expect(screen.getByTestId(`league-${t}`)).toBeInTheDocument();
-    expect(screen.getByTestId("league-tabs")).toHaveTextContent(/Top contribution.*Bottom contribution.*Highest GM %.*Lowest GM %.*Highest opex %.*Fastest growth.*Biggest decline/);
+    expect(screen.getByTestId("league-tabs")).toHaveTextContent(/Top 4-Wall EBITDA.*Bottom 4-Wall EBITDA.*Highest GM %.*Lowest GM %.*Highest store expenses %.*Fastest growth.*Biggest decline/);
   });
 
   it("each view asks the API for the right ranking, and percentage and growth rankings apply a small-store floor", async () => {
@@ -219,7 +229,7 @@ describe("Store P&L: period, filters and basis", () => {
     expect(text("recon-excluded")).toMatch(/Unmapped \/ Finance classification required: 1 ledgers in this period \(3 across the run/);
     expect(text("recon-excluded")).toMatch(/None is assigned automatically/);
     expect(text("recon-excluded")).toMatch(/Mystery Fee/);
-    expect(text("recon-missing")).toMatch(/1 sites have sales in the COGS table but none in the books/);
+    expect(text("recon-missing")).toMatch(/1 sites have sales in the Material Cost table but none in the books/);
     expect(STORES.length).toBe(3);
   });
 });

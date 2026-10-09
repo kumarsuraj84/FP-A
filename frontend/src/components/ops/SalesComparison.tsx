@@ -36,14 +36,14 @@ import { SAMPLE_AS_OF, SAMPLE_STORES, buildSample } from "@/mocks/salesSample";
  */
 
 const MODES: { id: CompareMode; label: string; hint: string }[] = [
-  { id: "same_dates", label: "Same dates", hint: "Each day against the same calendar date last year" },
+  { id: "same_dates", label: "Same dates", hint: "Each day against the same calendar date LY" },
   { id: "same_weekdays", label: "Same weekdays", hint: "Each day against the day 364 days earlier (same weekday)" },
   { id: "custom", label: "Custom period", hint: "Any two periods; unequal lengths are flagged" },
 ];
 const COHORTS: { id: CohortFilter; label: string }[] = [
-  { id: "comparable", label: "Comparable stores" },
+  { id: "comparable", label: "Comparable stores (Same Store / LFL)" },
   { id: "all", label: "All stores" },
-  { id: "new", label: "New stores" },
+  { id: "new", label: "New stores (Non-LFL)" },
 ];
 type ViewState = "normal" | "loading" | "empty";
 const VIEW_STATES: { id: ViewState; label: string }[] = [
@@ -489,7 +489,7 @@ export function SalesComparison() {
                     {th("Current", "cur")}
                     {th("Reference", "ref")}
                     {th("Difference", "delta")}
-                    {th("Growth", "growth")}
+                    {th("Y-o-Y Growth", "growth")}
                   </tr>
                 </thead>
                 <tbody>

@@ -22,6 +22,7 @@ const monthName = (m: string) => new Date(`${m}-01T00:00:00Z`).toLocaleDateStrin
 
 function scopeText(s: Page["scope"]): string {
   const bits: string[] = [];
+  if (s.entity === "VENTURES") bits.push("HoldCo (Citykart Ventures)");
   if (s.site != null) bits.push(`site ${s.site}`);
   if (s.from_date && s.from_date === s.to_date) bits.push(fmtDate(s.from_date));
   else if (s.from_date || s.to_date) bits.push(`${s.from_date ? fmtDate(s.from_date) : "start"} to ${s.to_date ? fmtDate(s.to_date) : "now"}`);
@@ -82,7 +83,7 @@ function Table({ d, p, next }: { d: Page; p: ListParams; next: ReturnType<typeof
               <td className="num px-4 py-1.5">{fmtDate(e.entry_date)}</td>
               <td className="px-2 py-1.5"><span className="font-medium">{e.entry_type_short}</span><span className="block text-[10.5px] text-muted-foreground">{e.entry_type_long}</span></td>
               <td className="px-2 py-1.5">
-                <AppLink href={entryHref(e.entry_ref, next)} testId={`open-entry-${e.entry_ref}`} className="num-mono font-semibold text-primary underline-offset-2 hover:underline">{e.entry_ref}</AppLink>
+                <AppLink href={entryHref(e.entry_ref, next, undefined, p.entity)} testId={`open-entry-${e.entry_ref}`} className="num-mono font-semibold text-primary underline-offset-2 hover:underline">{e.entry_ref}</AppLink>
               </td>
               <td className="px-2 py-1.5"><StatusChip status={e.release_status} /></td>
               {named && <td className="max-w-[30ch] truncate px-2 py-1.5 text-muted-foreground" title={e.narration ?? undefined}>{e.narration ?? DASH}</td>}
@@ -119,7 +120,7 @@ export function LedgerEntriesPage() {
   const raw = useRouterState({ select: (s) => s.location.search as Record<string, unknown> });
   const p = parseListSearch(raw);
   const valid = p.site !== undefined || p.glcode !== undefined;
-  const q = useLedgerEntries(valid ? { site: p.site, glcode: p.glcode, from_month: p.from_month, to_month: p.to_month, from_date: p.from_date, to_date: p.to_date, basis: p.basis, limit: PAGE, offset: p.offset } : null);
+  const q = useLedgerEntries(valid ? { entity: p.entity, site: p.site, glcode: p.glcode, from_month: p.from_month, to_month: p.to_month, from_date: p.from_date, to_date: p.to_date, basis: p.basis, limit: PAGE, offset: p.offset } : null);
   const title = p.title ?? q.data?.scope.ledger_name ?? "Vouchers";
   const { next } = useHere(p.trail, title);
   return (

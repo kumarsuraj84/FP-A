@@ -47,6 +47,14 @@ export default defineConfig({
             proxy.on("proxyReq", (proxyReq) => proxyReq.removeHeader("authorization")); // the P&L API has no Finance-only routes: nothing to add, nothing to forward
           },
         },
+        "/mgmt-api": {
+          target,
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/mgmt-api/, "/api/v1/mgmt"),
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => proxyReq.removeHeader("authorization")); // the Management P&L API has no Finance-only routes: nothing to add, nothing to forward
+          },
+        },
         "/entry-api": {
           target,
           changeOrigin: false,
@@ -56,6 +64,18 @@ export default defineConfig({
               proxyReq.removeHeader("authorization"); // never forward a browser-supplied credential
               const token = financeToken(); // narration and raw sub-ledger codes live behind the Finance routes only
               if (token && (req.url ?? "").includes("/finance/")) proxyReq.setHeader("Authorization", `Bearer ${token}`);
+            });
+          },
+        },
+        "/related-api": {
+          target,
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/related-api/, "/api/v1/related-party"),
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("authorization"); // never forward a browser-supplied credential
+              const token = financeToken(); // party names and document codes: every Related Party route is Finance-only
+              if (token) proxyReq.setHeader("Authorization", `Bearer ${token}`);
             });
           },
         },

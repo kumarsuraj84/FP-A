@@ -515,14 +515,14 @@ export function buildForecast(ctx: QueryCtx): ForecastTrajectory {
     landing: { value: landing },
     budgetFy: { value: S.fcBudgetFy },
     gap: { value: gap },
-    headline: `Landing ₹${landing.toFixed(2)} Cr vs budget ₹${S.fcBudgetFy.toFixed(2)} Cr (${gap >= 0 ? "+" : "−"}₹${Math.abs(gap).toFixed(2)} Cr)`,
+    headline: `Landing ₹${landing.toFixed(2)} Cr vs AOP ₹${S.fcBudgetFy.toFixed(2)} Cr (${gap >= 0 ? "+" : "−"}₹${Math.abs(gap).toFixed(2)} Cr)`,
     bridge: {
       id: "forecast",
       title: "Where are we landing, and why?",
-      subtitle: "FY 2026-27 · Budget to latest forecast · cumulative operating profit",
+      subtitle: "FY 2026-27 · AOP to latest forecast · cumulative operating profit",
       unitNote: "₹ Cr · axis truncated for variance visibility",
       items: [
-        { id: "budget_fy", label: "Budget FY Profit", kind: "total", value: S.fcBudgetFy, tone: "neutral", family: "forecast" },
+        { id: "budget_fy", label: "AOP FY Profit", kind: "total", value: S.fcBudgetFy, tone: "neutral", family: "forecast" },
         { id: "sales_risk", label: "Sales Risk", kind: "delta", value: S.fcSales, tone: tone(S.fcSales), family: "volume" },
         { id: "margin_risk", label: "Margin Risk", kind: "delta", value: S.fcMargin, tone: tone(S.fcMargin), family: "margin" },
         { id: "cost_risk", label: "Cost Risk", kind: "delta", value: S.fcCost, tone: tone(S.fcCost), family: "cost" },

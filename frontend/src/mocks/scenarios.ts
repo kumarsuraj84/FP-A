@@ -168,7 +168,7 @@ export const SCENARIOS: Record<ScenarioId, ScenarioParams> = {
   margin_pressure: {
     ...normal,
     label: "Margin Pressure",
-    blurb: "Markdown depth and mix shift erode gross margin",
+    blurb: "Markdown depth and mix shift erode Material Margin",
     gmPct: 37.9,
     gmBps: -310,
     deltas: { salesVolume: -0.6, gm: -3.84, payroll: -0.64, occupancy: 0.31, electricity: -0.22, productivity: 0.4 },
@@ -192,8 +192,8 @@ export const PERIODS: Record<PeriodId, { label: string; short: string; k: number
 };
 
 export const COMPARISONS: Record<ComparisonId, { label: string; short: string; c: number; startLabel: string }> = {
-  budget: { label: "vs Budget", short: "Budget", c: 1, startLabel: "Budget Profit" },
-  ly: { label: "vs Last Year", short: "Last Year", c: 0.7, startLabel: "Last Year Profit" },
+  budget: { label: "vs AOP", short: "AOP", c: 1, startLabel: "AOP Profit" },
+  ly: { label: "vs LY", short: "LY", c: 0.7, startLabel: "LY Profit" },
   forecast: { label: "vs Last Forecast", short: "Last Forecast", c: 0.35, startLabel: "Last Forecast Profit" },
 };
 

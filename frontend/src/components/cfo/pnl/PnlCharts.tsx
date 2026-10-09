@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useElementSize } from "@/hooks/useElementSize";
 import { fmtCr } from "@/lib/format";
+import { T } from "@/lib/nomenclature";
 import type { PnlMoney, PnlTrendRow } from "@/types/pnlLive";
 
 const cr = (m: string | null | undefined) => (m === null || m === undefined ? null : Number(m) / 1e7);
@@ -19,18 +20,28 @@ interface Step {
   kind: "total" | "delta";
 }
 
-/** Net sales -> COGS -> other COGS items -> Gross margin -> Store opex -> Contribution. Every bar is an exact figure from the API (shown in Cr). */
-export function PnlWaterfall({ t, height = 300 }: { t: PnlMoney; height?: number }) {
+/** The MIS chain on the books basis: Revenue from operations -> Material Cost -> other items -> Material Margin -> Store Expenses -> Store EBITDA -> DC cost -> HO cost -> Corporate EBITDA.
+ *  Other operating income is part of Material Margin. Every bar is an exact figure from the API (shown in Cr). A store has no DC or HO bars (they are company level). */
+export function PnlWaterfall({ t, height = 300, store = false }: { t: PnlMoney; height?: number; store?: boolean }) {
   const [ref, size] = useElementSize<HTMLDivElement>(560);
   const [hover, setHover] = useState<string | null>(null);
   const rev = cr(t.revenue) ?? 0;
+  const ooi = cr(t.other_operating_income) ?? 0;
   const steps: Step[] = [
-    { id: "revenue", label: "Net sales ex-GST", value: rev, kind: "total" },
-    { id: "cogs", label: "COGS", value: -(cr(t.cogs) ?? 0), kind: "delta" },
-    { id: "cogs_books", label: "Other COGS items", value: cr(t.cogs_books) ?? 0, kind: "delta" },
-    { id: "gross_margin", label: "Gross margin", value: cr(t.gross_margin) ?? 0, kind: "total" },
-    { id: "opex", label: "Store opex", value: cr(t.opex) ?? 0, kind: "delta" },
-    { id: "contribution", label: "Contribution", value: cr(t.contribution) ?? 0, kind: "total" },
+    { id: "revenue", label: T.revenue, value: rev, kind: "total" },
+    { id: "cogs", label: T.materialCost, value: -(cr(t.cogs) ?? 0), kind: "delta" },
+    { id: "cogs_books", label: "Other material cost items", value: cr(t.cogs_books) ?? 0, kind: "delta" },
+    ...(ooi !== 0 ? [{ id: "ooi", label: T.otherOperatingIncome, value: ooi, kind: "delta" as const }] : []),
+    { id: "gross_margin", label: store ? T.grossMargin : T.materialMargin, value: cr(t.gross_margin) ?? 0, kind: "total" },
+    { id: "opex", label: T.storeExpenses, value: cr(t.opex) ?? 0, kind: "delta" },
+    { id: "contribution", label: store ? T.fourWall : T.storeEbitda, value: cr(t.contribution) ?? 0, kind: "total" },
+    ...(!store && t.corporate_ebitda !== undefined
+      ? [
+          { id: "dc_cost", label: T.dcCost, value: cr(t.dc_cost) ?? 0, kind: "delta" as const },
+          { id: "ho_cost", label: T.hoCost, value: cr(t.ho_cost) ?? 0, kind: "delta" as const },
+          { id: "corporate_ebitda", label: T.corporateEbitda, value: cr(t.corporate_ebitda) ?? 0, kind: "total" as const },
+        ]
+      : []),
   ];
   const W = Math.max(320, size.width);
   const M = { l: 14, r: 14, t: 30, b: 46 };
@@ -50,7 +61,7 @@ export function PnlWaterfall({ t, height = 300 }: { t: PnlMoney; height?: number
   const x = (i: number) => M.l + (iw / steps.length) * (i + 0.5);
   return (
     <div ref={ref} className="w-full" data-testid="pnl-waterfall">
-      <svg role="img" aria-label="P&L bridge from net sales to contribution" width={W} height={height} className="block">
+      <svg role="img" aria-label="P&L bridge from revenue from operations to Corporate EBITDA" width={W} height={height} className="block">
         <line x1={M.l} x2={W - M.r} y1={y(0)} y2={y(0)} stroke={GRID} />
         {bars.map((b) => {
           const colour = b.kind === "total" ? NAVY : b.value < 0 ? BAD : GOOD;
@@ -63,7 +74,7 @@ export function PnlWaterfall({ t, height = 300 }: { t: PnlMoney; height?: number
               {b.id === "gross_margin" && rev !== 0 && (
                 <text x={x(b.i)} y={y(b.hi) - 22} textAnchor="middle" fontSize={10.5} fill={INK}>{`${((b.value / rev) * 100).toFixed(1)}% of sales`}</text>
               )}
-              {b.id === "contribution" && rev !== 0 && (
+              {(b.id === "contribution" || b.id === "corporate_ebitda") && rev !== 0 && (
                 <text x={x(b.i)} y={y(b.hi) - 22} textAnchor="middle" fontSize={10.5} fill={INK}>{`${((b.value / rev) * 100).toFixed(1)}% of sales`}</text>
               )}
               <text x={x(b.i)} y={height - 24} textAnchor="middle" fontSize={11} fill={INK}>
@@ -82,7 +93,7 @@ export function PnlWaterfall({ t, height = 300 }: { t: PnlMoney; height?: number
   );
 }
 
-/** Monthly net sales (bars), contribution margin % (line), last year's sales (tick). The current month is partial (hatched); provisional months are marked. */
+/** Monthly revenue from operations (bars), Store EBITDA margin % (line), LY revenue (tick). The current month is partial (hatched); provisional months are marked. */
 export function PnlTrendChart({ months, height = 300 }: { months: PnlTrendRow[]; height?: number }) {
   const [ref, size] = useElementSize<HTMLDivElement>(560);
   const [hover, setHover] = useState<number | null>(null);
@@ -106,7 +117,7 @@ export function PnlTrendChart({ months, height = 300 }: { months: PnlTrendRow[];
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top);
   return (
     <div ref={ref} className="w-full" data-testid="pnl-trend">
-      <svg role="img" aria-label="Monthly net sales and contribution margin" width={W} height={height} className="block">
+      <svg role="img" aria-label="Monthly revenue from operations and Store EBITDA margin" width={W} height={height} className="block">
         <defs>
           <pattern id="partial" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <rect width="3" height="6" fill={NAVY} opacity={0.55} />
@@ -125,7 +136,7 @@ export function PnlTrendChart({ months, height = 300 }: { months: PnlTrendRow[];
             <text x={xm(i)} y={height - 22} textAnchor="middle" fontSize={11} fill={INK}>{monthLabel(m.month)}</text>
             {m.provisional && <text x={xm(i)} y={height - 9} textAnchor="middle" fontSize={9.5} fill="oklch(0.55 0.15 60)">provisional</text>}
             {m.partial && !m.provisional && <text x={xm(i)} y={height - 9} textAnchor="middle" fontSize={9.5} fill={INK}>partial</text>}
-            <title>{`${monthLabel(m.month)}: sales ${fmtCr(revs[i])}${m.last_year ? `, last year ${fmtCr(lys[i])}` : ""}${m.contribution_pct ? `, contribution ${Number(m.contribution_pct).toFixed(1)}%` : ""}${m.partial ? " (partial month)" : ""}`}</title>
+            <title>{`${monthLabel(m.month)}: revenue ${fmtCr(revs[i])}${m.last_year ? `, LY ${fmtCr(lys[i])}` : ""}${m.contribution_pct ? `, Store EBITDA ${Number(m.contribution_pct).toFixed(1)}%` : ""}${m.partial ? " (partial month)" : ""}`}</title>
           </g>
         ))}
         {line && <polyline points={line} fill="none" stroke={GOOD} strokeWidth={2} />}
@@ -137,9 +148,9 @@ export function PnlTrendChart({ months, height = 300 }: { months: PnlTrendRow[];
         ))}
       </svg>
       <div className="flex flex-wrap items-center gap-4 px-4 pb-2 text-[11px] text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-sm" style={{ background: NAVY }} /> Net sales ex-GST (₹ Cr)</span>
-        <span className="inline-flex items-center gap-1.5"><i className="h-[3px] w-3.5" style={{ background: "oklch(0.72 0.15 75)" }} /> Same month last year</span>
-        <span className="inline-flex items-center gap-1.5"><i className="h-[3px] w-3.5" style={{ background: GOOD }} /> Contribution % of sales (hollow = costs not fully booked)</span>
+        <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-sm" style={{ background: NAVY }} /> Revenue from operations (₹ Cr)</span>
+        <span className="inline-flex items-center gap-1.5"><i className="h-[3px] w-3.5" style={{ background: "oklch(0.72 0.15 75)" }} /> Same month LY</span>
+        <span className="inline-flex items-center gap-1.5"><i className="h-[3px] w-3.5" style={{ background: GOOD }} /> Store EBITDA % of revenue (hollow = costs not fully booked)</span>
       </div>
     </div>
   );

@@ -14,8 +14,8 @@ function useRunQuery<T>(key: string, fn: (run: string, h: NonNullable<ReturnType
   return q;
 }
 
-export const useEntry = (ref: string | null) => useRunQuery("entry", (run) => liveEntry.entry(run, ref as string), [ref], !!ref);
-export const useEntryLineDetail = (ref: string | null) => useRunQuery("lines", (run) => liveEntry.lineDetail(run, ref as string), [ref], !!ref);
+export const useEntry = (ref: string | null, entity?: string) => useRunQuery("entry", (run) => liveEntry.entry(run, ref as string, entity), [ref, entity], !!ref);
+export const useEntryLineDetail = (ref: string | null, entity?: string) => useRunQuery("lines", (run) => liveEntry.lineDetail(run, ref as string, entity), [ref, entity], !!ref);
 export const useLedgerEntries = (q: LedgerEntriesQuery | null) => useRunQuery("ledger-entries", (run) => liveEntry.ledgerEntries(run, q as LedgerEntriesQuery), [q], !!q);
 /** Link status of one creditors open item (`item_ref` from the creditors API). The cash/creditors run ids come from the entry run header. */
 export const useBillLink = (itemRef: string | null) => useRunQuery("bill-link", (run, h) => liveEntry.billLink(run, h.creditors_run_id, itemRef as string), [itemRef], !!itemRef);

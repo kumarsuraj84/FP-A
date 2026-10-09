@@ -84,6 +84,7 @@ export type CreditorObligations =
       due_unavailable_credit: Money;
       credit_items: number;
       credit_vendors: number;
+      related_party_excluded?: { payable_cr: Money; debit_balance_cr: Money; parties: number; items: number };
     };
 
 export interface CashSummary extends CashHeader {

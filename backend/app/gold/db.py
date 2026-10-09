@@ -46,7 +46,9 @@ def relations() -> dict[str, str]:
     out: dict[str, str] = {}
     for mod in ("cash", "pnl", "entry"):
         try:
-            out.update(import_module(f"{__package__}.{mod}").RELATIONS)
+            m = import_module(f"{__package__}.{mod}")
+            out.update(m.RELATIONS)
+            out.update(getattr(m, "EXTRA_RELATIONS", {}))
         except ModuleNotFoundError as e:
             if e.name != f"{__package__}.{mod}":
                 raise

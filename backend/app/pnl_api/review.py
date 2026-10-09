@@ -36,10 +36,10 @@ RULES = {
     "psf": "cost per sq ft at least 1.5 times the peer median",
     "trend_break": "stable for 5 months (variation under 15%), then a move of at least 3 standard deviations (25% when it was perfectly flat)",
     "sales_drop": "sales at least 25% below the average of the prior 3 complete months",
-    "sales_psf_drop": "sales per sq ft at least 15% below the same month last year",
-    "growth_margin_fall": "sales growth of at least 15% while gross margin fell at least 150 bps against last year",
-    "growth_no_profit": "sales growth of at least 10% while contribution in rupees did not grow",
-    "cost_deterioration": "sales growing while store opex rose at least 200 bps of sales against last year",
+    "sales_psf_drop": "sales per sq ft at least 15% below the same month LY",
+    "growth_margin_fall": "Y-o-Y Growth of at least 15% while Gross Margin fell at least 150 bps against LY",
+    "growth_no_profit": "Y-o-Y Growth of at least 10% while 4-Wall EBITDA in rupees did not grow",
+    "cost_deterioration": "sales growing while Store Expenses rose at least 200 bps of sales against LY",
     "new_store_ramp": "opened within 12 months and sales per sq ft below 70% of the median of new stores in the region",
     "same_store_peer": "same store whose growth is at least 15 points below the peer median",
     "severity": "Critical: two or more flags and an impact of ₹5 lakh or more, or an impact of ₹10 lakh or more. High: an impact of ₹1 lakh or more, or two or more flags. Medium: the rest.",
@@ -73,11 +73,13 @@ def effective_areas(conn, run_id: str) -> dict[tuple[str, date], Decimal | None]
 
 
 def group_months(conn, run_id: str, basis: str) -> tuple[dict[tuple[str, date], dict[str, Decimal]], dict[str, str]]:
-    """{(site, month): {group_label: profit effect}}, and {group_label: section}. UNMAPPED ledgers are never in it."""
+    """{(site, month): {group_label: profit effect}}, and {group_label: section}. UNMAPPED ledgers are never in it; cost postings at DC / HO sites are left out (they are DC / HO cost)."""
     cond = "AND release_status = 'Posted'" if basis == "posted" else ""
     out: dict[tuple[str, date], dict[str, Decimal]] = defaultdict(lambda: defaultdict(lambda: ZERO))
     sec: dict[str, str] = {}
-    for r in conn.execute(f"SELECT site_code, month, section, group_label, sum(credit - debit) AS net FROM pnl.v_gl_site_month WHERE run_id = %s AND section <> 'UNMAPPED' {cond} GROUP BY 1, 2, 3, 4", (run_id,)).fetchall():
+    for r in conn.execute(f"SELECT site_code, month, section, location_type, group_label, sum(credit - debit) AS net FROM pnl.v_gl_site_month WHERE run_id = %s AND section <> 'UNMAPPED' {cond} GROUP BY 1, 2, 3, 4, 5", (run_id,)).fetchall():
+        if r["section"] in ("STORE_OPEX", "COGS_BOOKS") and r["location_type"] != "STORES":
+            continue                        # DC and HO cost are not store lines: they are in the company totals (repo.site_months), not in the store-group analysis
         out[(r["site_code"], r["month"])][r["group_label"]] += r["net"]
         sec[r["group_label"]] = r["section"]
     return out, sec
@@ -91,9 +93,8 @@ def aligned_ly(conn, run: dict, basis: str) -> dict | None:
     sites: dict[str, dict] = defaultdict(repo.blank)
     groups: dict[tuple[str, str], Decimal] = defaultdict(lambda: ZERO)
     ledgers: dict[tuple[str, str, str], Decimal] = defaultdict(lambda: ZERO)
-    keymap = {"REVENUE": "revenue", "COGS_BOOKS": "cogs_books", "STORE_OPEX": "opex", "OTHER_INCOME": "other_income", "FINANCE_COST": "finance_cost", "UNMAPPED": "unmapped"}
-    for r in conn.execute(f"SELECT site_code, section, group_label, glcode, ledger_name, sum(credit - debit) AS net FROM pnl.v_gl_aligned WHERE run_id = %s {cond} GROUP BY 1, 2, 3, 4, 5", (run["run_id"],)).fetchall():
-        sites[r["site_code"]][keymap[r["section"]]] += r["net"]
+    for r in conn.execute(f"SELECT site_code, section, location_type, group_label, glcode, ledger_name, sum(credit - debit) AS net FROM pnl.v_gl_aligned WHERE run_id = %s {cond} GROUP BY 1, 2, 3, 4, 5, 6", (run["run_id"],)).fetchall():
+        sites[r["site_code"]][repo.bucket(r["section"], r["location_type"])] += r["net"]
         if r["group_label"] is not None:
             groups[(r["site_code"], r["group_label"])] += r["net"]
             ledgers[(r["site_code"], r["group_label"], r["glcode"] + "|" + r["ledger_name"])] += r["net"]

@@ -31,7 +31,7 @@ describe("Navigation: one operating system", () => {
     for (const group of ["Command", "Performance", "Liquidity", "Exposure", "Upcoming"]) expect(nav).toHaveTextContent(group);
     for (const id of ["nav-command-center", "nav-profitability", "nav-cash", "nav-creditors"]) expect(within(nav).getByTestId(id)).toBeInTheDocument();
     const disabled = [...nav.querySelectorAll('[aria-disabled="true"]')].map((e) => e.textContent);
-    expect(disabled).toEqual(expect.arrayContaining([expect.stringContaining("Budget & Forecast"), expect.stringContaining("Vendor Advances"), expect.stringContaining("Reconciliation"), expect.stringContaining("Balance Sheet")]));
+    expect(disabled).toEqual(expect.arrayContaining([expect.stringContaining("AOP & Forecast"), expect.stringContaining("Vendor Advances"), expect.stringContaining("Reconciliation"), expect.stringContaining("Balance Sheet")]));
     expect(disabled).toHaveLength(4);
   });
 

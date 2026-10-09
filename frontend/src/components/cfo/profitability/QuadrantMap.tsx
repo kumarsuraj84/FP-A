@@ -34,7 +34,7 @@ function niceDomain(vals: number[], pad: number): [number, number] {
   return [Math.floor(lo - pad), Math.ceil(hi + pad)];
 }
 
-/** Hero quadrant: X = revenue growth, Y = contribution margin, dot = store, size = revenue. */
+/** Hero quadrant: X = Y-o-Y revenue growth, Y = 4-Wall EBITDA margin, dot = store, size = revenue. */
 export function QuadrantMap({ stores, quadrants, split, active, onSelectQuadrant, onSelectStore, height = 430 }: Props) {
   const [ref, size] = useElementSize<HTMLDivElement>(900);
   const [hover, setHover] = useState<string | null>(null);
@@ -68,7 +68,7 @@ export function QuadrantMap({ stores, quadrants, split, active, onSelectQuadrant
 
   return (
     <div ref={ref} className="relative w-full" style={{ height: H }} data-testid="quadrant-map">
-      <svg width={W} height={H} role="group" aria-label="Profitability portfolio: revenue growth against contribution margin, one dot per store, dot size is revenue" className="block select-none">
+      <svg width={W} height={H} role="group" aria-label="Profitability portfolio: Y-o-Y revenue growth against 4-Wall EBITDA margin, one dot per store, dot size is revenue" className="block select-none">
         {areas.map((a) => (
           <g key={a.id}>
             <rect
@@ -115,7 +115,7 @@ export function QuadrantMap({ stores, quadrants, split, active, onSelectQuadrant
           Revenue growth, year on year →
         </text>
         <text transform={`translate(14 ${M.t + plotH / 2}) rotate(-90)`} textAnchor="middle" fontSize={11.5} fontWeight={600} fill="oklch(0.4 0.03 265)">
-          Contribution margin →
+          4-Wall EBITDA margin →
         </text>
 
         <line x1={xs} x2={xs} y1={M.t} y2={H - M.b} stroke="oklch(0.55 0.04 265)" strokeDasharray="4 4" pointerEvents="none" />
@@ -139,7 +139,7 @@ export function QuadrantMap({ stores, quadrants, split, active, onSelectQuadrant
                 role="button"
                 tabIndex={0}
                 data-testid={`dot-${s.id}`}
-                aria-label={`${s.name}: revenue ${fmtCr(s.revenue)}, growth ${fmtPct(s.revenueGrowthPct)}, contribution margin ${fmtPct(s.contributionMarginPct)}. Open store workspace.`}
+                aria-label={`${s.name}: revenue ${fmtCr(s.revenue)}, growth ${fmtPct(s.revenueGrowthPct)}, 4-Wall EBITDA margin ${fmtPct(s.contributionMarginPct)}. Open store workspace.`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSelectStore(s);
@@ -182,9 +182,9 @@ export function QuadrantMap({ stores, quadrants, split, active, onSelectQuadrant
             <span className="text-right font-semibold">{fmtCr(hovered.revenue)}</span>
             <span className="text-muted-foreground">Growth</span>
             <span className="text-right font-semibold">{fmtPct(hovered.revenueGrowthPct, { signed: true })}</span>
-            <span className="text-muted-foreground">Contribution</span>
+            <span className="text-muted-foreground">4-Wall EBITDA</span>
             <span className="text-right font-semibold">{fmtPct(hovered.contributionMarginPct)}</span>
-            <span className="text-muted-foreground">Gap vs plan</span>
+            <span className="text-muted-foreground">Gap vs AOP</span>
             <span className={`text-right font-semibold ${hovered.contributionVsComparison < 0 ? "tone-bad" : "tone-good"}`}>{fmtCr(hovered.contributionVsComparison, { signed: true })}</span>
           </div>
           <div className="mt-1 text-[11px] font-medium text-primary">Click to open store →</div>

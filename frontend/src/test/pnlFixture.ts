@@ -12,7 +12,7 @@ const money = (revenue: number, cogs: number, opex: number, cogsBooks = 0) => {
 const CR = 1e7;
 export const TOTALS = money(1000 * CR, 600 * CR, -250 * CR, 10 * CR);
 export const HEADER = { run_id: PNL_RUN, as_of_date: "2026-10-07", cogs_last_bill_date: "2026-10-06", recon_state: "verified", publication_state: "unpublished", data_state: "verified_candidate", data_state_label: "Verified candidate (not published)", contract_version: "pl-actuals-1.0", source_updated_at: "2026-10-07T09:52:41+05:30", budget: null, budget_note: "Budget is not available for FY26-27 (the FY25-26 plan ended in March 2026). It is shown blank." };
-const FLAGS = { provisional_months: ["2026-10"], cogs_through: "2026-10-06", books_through: "2026-10-07", cogs_lags_books: true, partial_last_month: true, cogs_has_no_posting_status: "COGS comes from the COGS table, which has no posted / unposted split: it is the same in both bases.", contribution_definition: "Gross margin + store operating expenses. Before other income, finance cost and any head-office allocation." };
+const FLAGS = { provisional_months: ["2026-10"], cogs_through: "2026-10-06", books_through: "2026-10-07", cogs_lags_books: true, partial_last_month: true, cogs_has_no_posting_status: "Material Cost comes from the COGS table, which has no posted / unposted split: it is the same in both bases.", contribution_definition: "Store EBITDA = Material Margin less Store Expenses (STORES location only). Before DC cost, HO cost, interest income and finance cost." };
 const SCOPE = (q: URLSearchParams) => ({ from_month: q.get("from_month") ?? "2026-04", to_month: q.get("to_month") ?? "2026-10", basis: q.get("basis") ?? "all", basis_label: q.get("basis") === "posted" ? "Posted entries only" : "All entries, including unposted (provisional)", filters: Object.fromEntries(["region", "cluster", "state", "vintage", "status"].flatMap((k) => (q.get(k) ? [[k, q.get(k)]] : []))), partial_last_month: true });
 
 export const STORES = [
@@ -50,9 +50,9 @@ export function installPnlApi(opts: Opts = {}) {
           ...HEADER, scope: SCOPE(q), stores_in_scope: filtered ? 2 : 3, totals: TOTALS,
           comparison: { period: { from_month: "2026-04", to_month: "2026-09" }, current: TOTALS, last_year: { ...money(800 * CR, 500 * CR, -230 * CR), period: { from_month: "2025-04", to_month: "2025-09" } }, growth: { revenue_pct: "25.0000", gross_margin_pct: "20.0000", contribution_pct: "30.0000" }, note: "Compared over complete months only." },
           lines: [
-            { section: "REVENUE", section_label: "Net sales (ex-GST)", group_label: "01-Net Sales", amount: TOTALS.revenue, ledgers: 1 },
-            { section: "STORE_OPEX", section_label: "Store operating expenses", group_label: "02-Employee Cost", amount: String(-150 * CR), ledgers: 4 },
-            { section: "STORE_OPEX", section_label: "Store operating expenses", group_label: "01-Rent", amount: String(-100 * CR), ledgers: 2 },
+            { section: "REVENUE", section_label: "Revenue from operations", group_label: "01-Net Sales", group_name: "Revenue from operations", amount: TOTALS.revenue, ledgers: 1 },
+            { section: "STORE_OPEX", section_label: "Store Expenses", group_label: "02-Employee Cost", group_name: "Employee Cost", amount: String(-150 * CR), ledgers: 4 },
+            { section: "STORE_OPEX", section_label: "Store Expenses", group_label: "01-Rent", group_name: "Rent", amount: String(-100 * CR), ledgers: 2 },
           ],
           below_contribution: { other_income: "0", finance_cost: "0", after_below_the_line: TOTALS.contribution },
           excluded_unmapped: { ledgers: 2, run_ledgers: 3, label: "Unmapped / Finance classification required", net: String(-500 * CR), gross_abs: String(1500 * CR), note: "x" }, flags: FLAGS,
@@ -90,7 +90,7 @@ export function installPnlApi(opts: Opts = {}) {
         if (!s) return json({ detail: "unknown site" }, 404);
         return json({ ...HEADER, scope: SCOPE(q), site: { site_code: s.site_code, store_name: s.store_name, region: s.region, cluster: s.cluster, state: s.state, vintage: s.vintage, status: s.status, opening_date: "2020-01-01", last_bill_date: "2026-10-06", is_store: true },
           totals: money(Number(s.revenue), Number(s.cogs), Number(s.opex)), comparison: null, months: [{ month: "2026-09", ...money(Number(s.revenue), Number(s.cogs), Number(s.opex)) }],
-          lines: [{ section: "REVENUE", section_label: "Net sales (ex-GST)", group_label: "01-Net Sales", amount: s.revenue, ledgers: 1 }, { section: "STORE_OPEX", section_label: "Store operating expenses", group_label: "02-Employee Cost", amount: s.opex, ledgers: 1 }],
+          lines: [{ section: "REVENUE", section_label: "Revenue from operations", group_label: "01-Net Sales", group_name: "Revenue from operations", amount: s.revenue, ledgers: 1 }, { section: "STORE_OPEX", section_label: "Store Expenses", group_label: "02-Employee Cost", group_name: "Employee Cost", amount: s.opex, ledgers: 1 }],
           reconciles: true, flags: FLAGS });
       }
       const gl = rest.match(/^stores\/([^/]+)\/groups\/([^/]+)\/ledgers$/);
@@ -105,10 +105,10 @@ export function installPnlApi(opts: Opts = {}) {
           const base: Record<string, number> = { revenue: 100, cogs: -60, cogs_books: 1, gross_margin: 41, "g:02-Employee Cost": -20, "g:01-Rent": -12, store_opex: -32, contribution: 9, other_income: 1, finance_cost: 0 };
           return String(Math.round(base[id] * k * CR));
         };
-        const defs: [string, string, string, number, string | null][] = [["revenue", "Net sales (ex-GST)", "line", 0, null], ["cogs", "COGS (COGS table)", "line", 0, null], ["cogs_books", "Other COGS items (books)", "line", 0, null], ["gross_margin", "Gross margin", "subtotal", 0, null],
-          ["g:02-Employee Cost", "Employee Cost", "group", 1, "02-Employee Cost"], ["g:01-Rent", "Rent", "group", 1, "01-Rent"], ["store_opex", "Store operating expenses", "subtotal", 0, null],
-          ["contribution", mode === "company" ? "Contribution, all sites (before other income and finance cost)" : "Store contribution (before other income, finance cost and head office)", "subtotal", 0, null], ["other_income", "Other income", "memo", 0, null], ["finance_cost", "Finance cost", "memo", 0, null]];
-        return json({ ...HEADER, scope: SCOPE(q), mode, stores: 3, ly_ytd_available: true, ly_ytd_note: "Last year's YTD is day aligned: complete months, plus days 1 to N of the same month.", unmapped_note: "Ledgers without a finance group are Unmapped / Finance classification required: they are in no row or total.",
+        const defs: [string, string, string, number, string | null][] = [["revenue", "Revenue from operations", "line", 0, null], ["cogs", "Material Cost (COGS table)", "line", 0, null], ["cogs_books", "Other material cost items (books)", "line", 0, null], ["gross_margin", mode === "company" ? "Material Margin" : "Gross Margin", "subtotal", 0, null],
+          ["g:02-Employee Cost", "Employee Cost", "group", 1, "02-Employee Cost"], ["g:01-Rent", "Rent", "group", 1, "01-Rent"], ["store_opex", "Store Expenses", "subtotal", 0, null],
+          ["contribution", mode === "company" ? "Store EBITDA (before DC cost, HO cost, interest income and finance cost)" : "4-Wall EBITDA (Gross Margin less store expenses)", "subtotal", 0, null], ["other_income", "Other operating income and interest income (memo)", "memo", 0, null], ["finance_cost", "Finance cost", "memo", 0, null]];
+        return json({ ...HEADER, scope: SCOPE(q), mode, stores: 3, ly_ytd_available: true, ly_ytd_note: "LY's YTD is day aligned: complete months, plus days 1 to N of the same month.", unmapped_note: "Ledgers without a finance group are Unmapped / Finance classification required: they are in no row or total.",
           columns: cols.map(([id, label, kind, partial]) => ({ id, label, kind, partial, from_month: "2026-04", to_month: "2026-10" })),
           rows: defs.map(([id, label, kind, level, group]) => { const cells = Object.fromEntries(cols.map(([c]) => [c, val(id, c)])); const ly = String(Math.round(Number(cells.ytd) * 0.8)); return { id, label, kind, level, group, cells, ly_ytd: ly, variance: String(Number(cells.ytd) - Number(ly)), variance_pct: "25.0000" }; }) });
       }

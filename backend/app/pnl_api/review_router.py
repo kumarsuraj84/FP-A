@@ -59,7 +59,7 @@ def comparison(request: Request, run_id: str, q: dict = Depends(common), mode: s
         pick, company = picker(rv, mode)
         return ok({**header(run), "scope": rv.sc.echo(), "mode": "company" if company else "stores", "as_of": run["as_of_date"], "partial_month": bool(rv.partial),
                    "aligned_days": run.get("aligned_days"), "windows": win.compare_windows(rv, pick),
-                   "note": "Day aligned: the current month is compared with the same days of last year, never with a whole month. Percent measures compare in basis points."})
+                   "note": "Day aligned: the current month is compared with the same days of LY, never with a whole month. Percent measures compare in basis points."})
 
 
 @router.get("/runs/{run_id}/expenses")

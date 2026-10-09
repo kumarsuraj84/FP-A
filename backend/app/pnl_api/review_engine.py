@@ -309,24 +309,24 @@ def revenue_exceptions(rv: Review, pick, limit: int = 200) -> dict:
             p_now, p_ly = float(rev_L[s] / eff_L), float(ly["revenue"] / eff_LY)
             if p_now <= p_ly * 0.85:
                 flags.append("SALES_PSF_DROP")
-                why.append(f"₹{p_now:,.0f} per sq ft against ₹{p_ly:,.0f} in the same month last year ({(p_now / p_ly - 1) * 100:+.0f}%)")
+                why.append(f"₹{p_now:,.0f} per sq ft against ₹{p_ly:,.0f} in the same month LY ({(p_now / p_ly - 1) * 100:+.0f}%)")
                 impact = max(impact, (p_ly - p_now) * float(eff_L))
         g = growth.get(s)
         if ly and g is not None and cur["gross_margin_pct"] is not None and ly["gross_margin_pct"] is not None:
             gm_bps = float((cur["gross_margin_pct"] - ly["gross_margin_pct"]) * 100)
             if g >= 15 and gm_bps <= -150:
                 flags.append("GROWTH_MARGIN_FALL")
-                why.append(f"sales {g:+.0f}% but gross margin {gm_bps:+.0f} bps against last year")
+                why.append(f"sales {g:+.0f}% but Gross Margin {gm_bps:+.0f} bps against LY")
                 impact = max(impact, abs(gm_bps) / 10000 * float(rev_L[s]))
             if g >= 10 and cur["contribution"] <= ly["contribution"]:
                 flags.append("GROWTH_NO_PROFIT")
-                why.append(f"sales {g:+.0f}% but contribution {_lakh(cur['contribution'])} against {_lakh(ly['contribution'])} last year")
+                why.append(f"sales {g:+.0f}% but 4-Wall EBITDA {_lakh(cur['contribution'])} against {_lakh(ly['contribution'])} LY")
                 impact = max(impact, float(ly["contribution"] - cur["contribution"]))
             if cur["opex_pct"] is not None and ly["opex_pct"] is not None and g > 0:
                 ob = float((cur["opex_pct"] - ly["opex_pct"]) * 100)
                 if ob >= 200:
                     flags.append("COST_DETERIORATION")
-                    why.append(f"sales {g:+.0f}% while store opex rose {ob:+.0f} bps of sales")
+                    why.append(f"sales {g:+.0f}% while Store Expenses rose {ob:+.0f} bps of sales")
                     impact = max(impact, ob / 10000 * float(rev_L[s]))
         peers, basis = _peers_L(rv, s, rev_L)
         op = site.get("opening_date")

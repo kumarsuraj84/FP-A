@@ -7,37 +7,38 @@ import type { PnlQuery } from "@/types/pnlLive";
 import type { ExpenseException, HeatRow, RevenueException, Severity } from "@/types/pnlReview";
 import { Skeleton } from "../common";
 import { LiveBoundary } from "../creditors/parts";
+import { vintageLabel } from "@/lib/nomenclature";
 import { Panel } from "../panels";
 import { bps, cr2, FLAG_LABEL, heat, lakh, METRIC_LABEL, monthShort, pct, psf, SEVERITY_STYLE, tone } from "./pnlFormat";
 
 // ───────────── the store EBITDA heat map ─────────────
 
 const HEAT_SORT_LABEL: Record<string, string> = {
-  worst_contribution_pct: "Worst contribution %",
-  largest_decline_bps: "Largest contribution decline (bps)",
-  highest_opex_pct: "Highest opex %",
-  worst_opex_deterioration: "Biggest opex deterioration (bps)",
-  largest_loss: "Largest ₹ loss (lowest contribution)",
+  worst_contribution_pct: "Worst 4-Wall EBITDA %",
+  largest_decline_bps: "Largest 4-Wall EBITDA decline (bps)",
+  highest_opex_pct: "Highest store expenses %",
+  worst_opex_deterioration: "Biggest store expenses deterioration (bps)",
+  largest_loss: "Largest ₹ loss (lowest 4-Wall EBITDA)",
   biggest_opportunity: "Biggest opportunity vs peers",
-  best_contribution_pct: "Best contribution %",
+  best_contribution_pct: "Best 4-Wall EBITDA %",
   name: "Store name",
 };
 const FLOORS = [0, 1, 2, 5];
 
 interface HeatCol { key: keyof HeatRow; label: string; fmt: (r: HeatRow) => string; shade?: string; align?: "left" | "right" }
 const HEAT_COLS: HeatCol[] = [
-  { key: "revenue", label: "Net sales ₹ Cr", fmt: (r) => cr2(r.revenue) },
+  { key: "revenue", label: "Revenue ₹ Cr", fmt: (r) => cr2(r.revenue) },
   { key: "growth_pct", label: "Growth %", fmt: (r) => pct(r.growth_pct, true), shade: "growth_pct" },
   { key: "gross_margin_pct", label: "GM %", fmt: (r) => pct(r.gross_margin_pct), shade: "gross_margin_pct" },
-  { key: "opex_pct", label: "Opex %", fmt: (r) => pct(r.opex_pct), shade: "opex_pct" },
-  { key: "contribution_pct", label: "Contrib. %", fmt: (r) => pct(r.contribution_pct), shade: "contribution_pct" },
-  { key: "contribution", label: "Contrib. ₹ Cr", fmt: (r) => cr2(r.contribution), shade: "contribution" },
+  { key: "opex_pct", label: "Store exp. %", fmt: (r) => pct(r.opex_pct), shade: "opex_pct" },
+  { key: "contribution_pct", label: "4-Wall %", fmt: (r) => pct(r.contribution_pct), shade: "contribution_pct" },
+  { key: "contribution", label: "4-Wall EBITDA ₹ Cr", fmt: (r) => cr2(r.contribution), shade: "contribution" },
   { key: "sales_psf", label: "Sales PSF", fmt: (r) => psf(r.sales_psf), shade: "sales_psf" },
   { key: "payroll_psf", label: "Payroll PSF", fmt: (r) => psf(r.payroll_psf), shade: "payroll_psf" },
   { key: "rent_psf", label: "Rent PSF", fmt: (r) => psf(r.rent_psf), shade: "rent_psf" },
   { key: "power_psf", label: "Power PSF", fmt: (r) => psf(r.power_psf), shade: "power_psf" },
-  { key: "ly_contribution_pct", label: "LY contrib. %", fmt: (r) => pct(r.ly_contribution_pct) },
-  { key: "contribution_bps", label: "Δ contrib. bps", fmt: (r) => bps(r.contribution_bps), shade: "contribution_bps" },
+  { key: "ly_contribution_pct", label: "LY 4-Wall %", fmt: (r) => pct(r.ly_contribution_pct) },
+  { key: "contribution_bps", label: "Δ 4-Wall bps", fmt: (r) => bps(r.contribution_bps), shade: "contribution_bps" },
   { key: "opportunity", label: "Opportunity ₹ Cr", fmt: (r) => (r.opportunity === null ? DASH : cr2(r.opportunity)) },
 ];
 
@@ -50,7 +51,7 @@ export function HeatMapTab({ q, onPick, picked }: { q: PnlQuery; onPick: (site: 
       <Panel
         testId="heatmap-panel"
         eyebrow="Real · verified"
-        title="Store contribution heat map"
+        title="Store 4-Wall EBITDA heat map"
         right={
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex items-center gap-1 text-[11.5px]"><span className="eyebrow">Sort</span>
@@ -58,8 +59,8 @@ export function HeatMapTab({ q, onPick, picked }: { q: PnlQuery; onPick: (site: 
                 {Object.entries(HEAT_SORT_LABEL).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
             </label>
-            <label className="flex items-center gap-1 text-[11.5px]"><span className="eyebrow">Min net sales</span>
-              <select aria-label="Minimum net sales" data-testid="heat-floor" value={floor} onChange={(e) => setFloor(Number(e.target.value))} className="h-7 rounded border bg-card px-1.5 text-[12px]">
+            <label className="flex items-center gap-1 text-[11.5px]"><span className="eyebrow">Min revenue</span>
+              <select aria-label="Minimum revenue" data-testid="heat-floor" value={floor} onChange={(e) => setFloor(Number(e.target.value))} className="h-7 rounded border bg-card px-1.5 text-[12px]">
                 {FLOORS.map((f) => <option key={f} value={f}>{f === 0 ? "none" : `₹${f} Cr`}</option>)}
               </select>
             </label>
@@ -82,7 +83,7 @@ export function HeatMapTab({ q, onPick, picked }: { q: PnlQuery; onPick: (site: 
                   {d.stores.map((r) => (
                     <tr key={r.site_code} data-testid={`heat-row-${r.site_code}`} data-exact={r.contribution} onClick={() => onPick(r.site_code)} className={cn("cursor-pointer border-b last:border-0 hover:brightness-95", picked === r.site_code && "outline outline-2 -outline-offset-2 outline-[oklch(0.45_0.12_255)]")}>
                       <td className="sticky left-0 bg-card px-3 py-1 text-muted-foreground">{r.rank}</td>
-                      <td className="sticky left-8 bg-card px-3 py-1"><span className="font-medium">{r.store_name ?? `Site ${r.site_code}`}</span><span className="ml-1 text-[10.5px] text-muted-foreground">#{r.site_code}</span>{r.vintage === "NEW STORE" && <span className="ml-1 rounded bg-secondary px-1 text-[10px] font-semibold">new</span>}</td>
+                      <td className="sticky left-8 bg-card px-3 py-1"><span className="font-medium">{r.store_name ?? `Site ${r.site_code}`}</span><span className="ml-1 text-[10.5px] text-muted-foreground">#{r.site_code}</span>{r.vintage === "NEW STORE" && <span className="ml-1 rounded bg-secondary px-1 text-[10px] font-semibold" title="Non-LFL">Non-LFL</span>}</td>
                       <td className="px-3 py-1 text-muted-foreground">{[r.region, r.cluster].filter((x) => x && x !== "-").join(" · ") || DASH}</td>
                       {HEAT_COLS.map((c) => {
                         const s = c.shade ? d.scales[c.shade] : undefined;
@@ -94,7 +95,7 @@ export function HeatMapTab({ q, onPick, picked }: { q: PnlQuery; onPick: (site: 
                 </tbody>
               </table>
               <div className="border-t px-4 py-2 text-[11.5px] text-muted-foreground" data-testid="heat-note">
-                {d.returned} of {d.stores_total} stores · complete months {d.months.length ? `${monthShort(d.months[0])} to ${monthShort(d.months[d.months.length - 1])}` : ""} · {d.note} Opportunity is what the store would earn at its peers' median contribution margin (a pointer, not a forecast).
+                {d.returned} of {d.stores_total} stores · complete months {d.months.length ? `${monthShort(d.months[0])} to ${monthShort(d.months[d.months.length - 1])}` : ""} · {d.note} Opportunity is what the store would earn at its peers' median 4-Wall EBITDA margin (a pointer, not a forecast).
                 A store with no area has no PSF; none is estimated.
               </div>
             </div>
@@ -108,7 +109,7 @@ export function HeatMapTab({ q, onPick, picked }: { q: PnlQuery; onPick: (site: 
 // ───────────── peer comparison ─────────────
 
 const POSITION_STYLE: Record<string, string> = { "top quartile": "bg-[oklch(0.9_0.08_155)] text-[oklch(0.3_0.1_155)]", middle: "bg-secondary text-secondary-foreground", "bottom quartile": "bg-[oklch(0.92_0.07_25)] text-[oklch(0.4_0.15_25)]" };
-const DIM_LABEL: Record<string, string> = { default: "Region + vintage (default)", state: "Same state", region: "Same region", cluster: "Same cluster", vintage: "Same / new store", size_band: "Size band", network: "Whole network" };
+const DIM_LABEL: Record<string, string> = { default: "Region + vintage (default)", state: "Same state", region: "Same region", cluster: "Same cluster", vintage: "Same Store / Non-LFL", size_band: "Size band", network: "Whole network" };
 
 export function PeersTab({ q, site, setSite }: { q: PnlQuery; site: string | null; setSite: (s: string | null) => void }) {
   const list = usePnlHeatmap(q, "name");
@@ -143,8 +144,8 @@ export function PeersTab({ q, site, setSite }: { q: PnlQuery; site: string | nul
             return (
               <div className="overflow-x-auto">
                 <div className="border-b px-4 py-2 text-[12px]" data-testid="peer-basis">
-                  Compared with <span className="font-semibold">{g.peers} peers</span> ({g.basis}{g.basis !== g.requested ? `, widened from ${g.requested} because too few stores qualified` : ""}). Peers need ₹1 Cr of net sales in the period.
-                  {" "}Store: {[d.keys.region, d.keys.state, d.keys.cluster, d.keys.vintage, d.keys.size_band].filter((x) => x && x !== "-").join(" · ")}
+                  Compared with <span className="font-semibold">{g.peers} peers</span> ({g.basis}{g.basis !== g.requested ? `, widened from ${g.requested} because too few stores qualified` : ""}). Peers need ₹1 Cr of revenue in the period.
+                  {" "}Store: {[d.keys.region, d.keys.state, d.keys.cluster, d.keys.vintage && vintageLabel(d.keys.vintage), d.keys.size_band].filter((x) => x && x !== "-").join(" · ")}
                 </div>
                 <table className="w-full text-[12.5px]" data-testid="peer-table">
                   <thead>
@@ -176,7 +177,7 @@ export function PeersTab({ q, site, setSite }: { q: PnlQuery; site: string | nul
                     })}
                   </tbody>
                 </table>
-                <div className="border-t px-4 py-2 text-[11.5px] text-muted-foreground">For costs (opex %, payroll, rent and power per sq ft) the top quartile is the LOW end. {d.rules.peers}.</div>
+                <div className="border-t px-4 py-2 text-[11.5px] text-muted-foreground">For costs (store expenses %, payroll, rent and power per sq ft) the top quartile is the LOW end. {d.rules.peers}.</div>
               </div>
             );
           }}
@@ -294,7 +295,7 @@ export function RevenueExceptionsTab({ q, onOpen, picked }: { q: PnlQuery; onOpe
                 <table className="w-full text-[12.5px]" data-testid="revenue-exceptions-table">
                   <thead>
                     <tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground">
-                      <th className="px-4 py-2 font-semibold">Severity</th><th className="px-3 py-2 font-semibold">Store</th><th className="px-3 py-2 text-right font-semibold">Net sales</th><th className="px-3 py-2 text-right font-semibold">3M avg</th>
+                      <th className="px-4 py-2 font-semibold">Severity</th><th className="px-3 py-2 font-semibold">Store</th><th className="px-3 py-2 text-right font-semibold">Revenue</th><th className="px-3 py-2 text-right font-semibold">3M avg</th>
                       <th className="px-3 py-2 text-right font-semibold">Growth</th><th className="px-3 py-2 text-right font-semibold">GM %</th><th className="px-3 py-2 text-right font-semibold">Sales PSF</th><th className="px-3 py-2 font-semibold">Why flagged</th>
                     </tr>
                   </thead>
@@ -353,7 +354,7 @@ export function QualityTab({ q, reconciliation }: { q: PnlQuery; reconciliation:
                 <ul className="mt-1 space-y-0.5 text-[11.5px]">{x.effective_area_reasons.slice(0, 7).map((r) => <li key={r.reason}><span className="num-mono">{r.n.toLocaleString("en-IN")}</span> {r.reason.replace(/\+/g, " + ").replace(/_/g, " ").toLowerCase()}</li>)}</ul>
               </div>
               <div className="p-4 text-[12.5px]" data-testid="quality-cogs">
-                <div className="eyebrow">COGS as % of net sales, by month</div>
+                <div className="eyebrow">Material Cost as % of revenue, by month</div>
                 <ul className="mt-1 space-y-0.5">
                   {cogs.map((m) => (
                     <li key={m.month} className="flex items-center gap-2" data-outlier={m.outlier ? "1" : "0"}>

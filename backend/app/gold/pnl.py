@@ -17,22 +17,79 @@ SECTION_OF_GROUP = {
 }
 
 _VALUES = ", ".join("('" + g.replace("'", "''") + "', '" + s + "')" for g, s in SECTION_OF_GROUP.items())
-RUN_ID = "'PNL-' || to_char((SELECT max(month) FROM gold_fpa.pnl_store_month), 'YYYYMM')"
-AS_OF = "(SELECT max(entdt) FROM gold_fpa.voucher_lines WHERE entdt <= current_date)"
 
-_GL_COLS = "run_id, site_code, month, glcode, ledger_name, group_label, section, entry_type_short, release_status, debit, credit, lines"
+# MIS display name of each finance group (the raw group code stays in tooltips and in group_label); docs/NOMENCLATURE.md is the glossary.
+GROUP_DISPLAY = {
+    "01-Net Sales": "Revenue from operations", "02-Other Income": "Other operating income", "24-Interest Income": "Interest income",
+    "02-COGS(Product)": "Material Cost (product)", "02-COGS(Others)": "Material Cost (purchase discounts and other)", "02-COGS(Correction)": "Material Cost (correction)",
+    "01-Rent": "Rent", "02-Employee Cost": "Employee Cost", "03-Power and Fuel Expenses": "Power and Fuel", "05-Director remunaration": "Director remuneration",
+    "07-Advertisement And Sales Promotion": "Advertisement", "08-Freight Outward": "Freight Forwarding", "09-Insurance": "Insurance",
+    "10-Travelling & Conveyance Expenses": "Travel and Conveyance", "11-Communication": "Communication", "12-Repairs and Maintenance-Others": "Repairs and Maintenance",
+    "13-Packing Materials And Expenses": "Packing", "14-Legal and Professional Expenses": "Legal and Professional", "16-Miscellaneous Expenses": "Miscellaneous",
+    "17-Bank Charges": "Bank Charges", "20-Printing & Stationery": "Printing and Stationery", "21-Finance Cost": "Finance cost",
+}
+# the MIS P&L line a group rolls up to
+MIS_LINE_OF_GROUP = {g: "Other expenses" for g in ("09-Insurance", "10-Travelling & Conveyance Expenses", "11-Communication", "12-Repairs and Maintenance-Others", "13-Packing Materials And Expenses",
+                                                   "14-Legal and Professional Expenses", "16-Miscellaneous Expenses", "17-Bank Charges", "20-Printing & Stationery", "05-Director remunaration")}
+MIS_LINE_OF_GROUP.update({"01-Net Sales": "Revenue from operations", "02-Other Income": "Other operating income", "01-Rent": "Rent", "02-Employee Cost": "Employee Cost",
+                          "03-Power and Fuel Expenses": "Power and Fuel", "07-Advertisement And Sales Promotion": "Advertisement", "08-Freight Outward": "Freight Forwarding",
+                          "02-COGS(Product)": "Material Cost", "02-COGS(Others)": "Material Cost", "02-COGS(Correction)": "Material Cost"})
 
+
+def _sq(s: str) -> str:
+    return "'" + s.replace("'", "''") + "'"
+
+
+def _mgmt_ledger_values() -> tuple[str, int]:
+    """ledger -> management group, from config/mgmt/mgmt_ledger_map.csv (read once at startup; a missing file = no override). The inventory-flow ledgers the engine excludes are included
+    (group EXCLUDED), so they are reported as inventory flow instead of 'needs a finance group'. -> (SQL VALUES rows, row count)"""
+    try:
+        from ..mgmt import config as mcfg
+        rows = [(n, str(r.get("mgmt_group") or "")) for n, r in mcfg.ledger_map().items()] if (mcfg.CONFIG_DIR / "mgmt_ledger_map.csv").exists() else []
+    except Exception:                       # no mgmt package / unreadable file: no override
+        rows = []
+    rows = [(n, g) for n, g in rows if n and g and "%" not in n and (g == "EXCLUDED" or g in SECTION_OF_GROUP)]
+    return ", ".join(f"({_sq(n)}, {_sq(g)})" for n, g in rows) or "('', '')", len(rows)
+
+
+def _mgmt_site_values() -> str:
+    """site_code -> STORES / DC / HO overrides from config/mgmt/mgmt_site_loc.csv."""
+    try:
+        from ..mgmt import config as mcfg
+        rows = [(c, str(r.get("location_type") or "")) for c, r in mcfg.site_loc().items()]
+    except Exception:
+        rows = []
+    rows = [(c, t) for c, t in rows if t in ("STORES", "DC", "HO")]
+    return ", ".join(f"({int(c)}, {_sq(t)})" for c, t in rows) or "(-1, 'STORES')"
+
+
+_LEDGER_MAP_VALUES, MGMT_LEDGER_OVERRIDES = _mgmt_ledger_values()
+_SITE_LOC_VALUES = _mgmt_site_values()
+# location type of a site by its kind (same rule as app/mgmt/config.py LOC_OF_KIND); a row in mgmt_site_loc.csv overrides it
+_LOC_OF_KIND_SQL = ("CASE p0.site_kind WHEN 'STORE' THEN 'STORES' WHEN 'VIRTUAL' THEN 'STORES' WHEN 'EXTERNAL' THEN 'STORES' WHEN 'HEAD_OFFICE' THEN 'HO' "
+                    "WHEN 'WAREHOUSE' THEN 'DC' WHEN 'WAREHOUSE_OTHER' THEN 'DC' WHEN 'WAREHOUSE_LEGACY' THEN 'DC' END")
+RUN_ID = "'PNL-' || to_char((SELECT max(month) FROM (SELECT * FROM gold_fpa.pnl_store_month WHERE entity = 'RETAIL')), 'YYYYMM')"
+AS_OF = "(SELECT max(entdt) FROM (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL') WHERE entdt <= current_date)"
+
+_GL_COLS = "run_id, site_code, month, glcode, ledger_name, group_label, section, entry_type_short, release_status, debit, credit, lines, location_type, mapping_state"
+
+# Management grouping on the BOOKS basis: the ledger group comes from config/mgmt/mgmt_ledger_map.csv when the ledger is listed there (else the gold finance group),
+# and every row carries the management location type (STORES, DC or HO) of its site. mapping_state: GOLD_MAP (gold group kept), MGMT_MAP (gold had no group, the management map supplies it), MGMT_OVERRIDE (management map replaces the gold group), INVENTORY_FLOW (excluded by rule), UNMAPPED.
 _V_GL_SITE_MONTH = f"""SELECT {RUN_ID} AS run_id, p.site_code::text AS site_code, p.month, p.glcode::text AS glcode, p.glname AS ledger_name,
-    CASE WHEN gs.section IS NULL THEN NULL ELSE p.fin_group END AS group_label, coalesce(gs.section, 'UNMAPPED') AS section,
+    CASE WHEN gs.section IS NULL THEN NULL ELSE p.eg END AS group_label, coalesce(gs.section, 'UNMAPPED') AS section,
     p.enttype AS entry_type_short, CASE WHEN p.release_status = 'P' THEN 'Posted' ELSE 'Unposted' END AS release_status,
-    sum(p.debit) AS debit, sum(p.credit) AS credit, sum(p.lines_n)::int AS lines
-    FROM gold_fpa.pnl_store_month p
-    LEFT JOIN (VALUES {_VALUES}) AS gs(grp, section) ON gs.grp = p.fin_group AND p.is_mapped
-    GROUP BY p.site_code, p.month, p.glcode, p.glname, gs.section, p.fin_group, p.enttype, p.release_status"""
+    sum(p.debit) AS debit, sum(p.credit) AS credit, sum(p.lines_n)::int AS lines, p.loc AS location_type,
+    CASE WHEN p.eg = 'EXCLUDED' THEN 'INVENTORY_FLOW' WHEN gs.section IS NULL THEN 'UNMAPPED' WHEN NOT p.is_mapped THEN 'MGMT_MAP' WHEN p.eg <> p.fin_group THEN 'MGMT_OVERRIDE' ELSE 'GOLD_MAP' END AS mapping_state
+    FROM (SELECT p0.*, coalesce(lm.grp, CASE WHEN p0.is_mapped THEN p0.fin_group END) AS eg, coalesce(sl.loc, {_LOC_OF_KIND_SQL}) AS loc
+          FROM (SELECT * FROM gold_fpa.pnl_store_month WHERE entity = 'RETAIL') p0
+          LEFT JOIN (VALUES {_LEDGER_MAP_VALUES}) AS lm(ledger, grp) ON lm.ledger = p0.glname
+          LEFT JOIN (VALUES {_SITE_LOC_VALUES}) AS sl(site_code, loc) ON sl.site_code = p0.site_code) p
+    LEFT JOIN (VALUES {_VALUES}) AS gs(grp, section) ON gs.grp = p.eg
+    GROUP BY p.site_code, p.month, p.glcode, p.glname, gs.section, p.eg, p.is_mapped, p.fin_group, p.loc, p.enttype, p.release_status"""
 
 _V_COGS = f"""SELECT {RUN_ID} AS run_id, c.site_code::text AS site_code, c.month,
     (c.net_sales_ex_gst + coalesce(c.tax_amt, 0))::numeric AS sl_v, coalesce(c.tax_amt, 0)::numeric AS tax_amt, c.cogs_v::numeric AS cogs_v, c.sl_q::numeric AS sl_q, c.rows_n::int AS rows_n, c.bill_days::int AS bill_days,
-    c.first_bill, c.last_bill,
+    c.first_bill, c.last_bill, c.site_kind,
     NULL::numeric AS sl_v_early, NULL::numeric AS tax_early, NULL::numeric AS cogs_early, NULL::numeric AS sl_q_early
     FROM gold_fpa.cogs_store_month c"""
 
@@ -44,7 +101,7 @@ _V_SITE = f"""SELECT {RUN_ID} AS run_id, d.site_code::text AS site_code, d.store
 _V_TIEOUT = f"""SELECT {RUN_ID} AS run_id, coalesce(b.site_code, t.site_code)::text AS site_code, coalesce(b.month, t.month) AS month,
     coalesce(b.v, 0) AS books_sales, coalesce(t.v, 0) AS cogs_table_sales_ex_gst, coalesce(b.v, 0) - coalesce(t.v, 0) AS difference,
     abs(coalesce(b.v, 0) - coalesce(t.v, 0)) <= 1000 AS tied
-    FROM (SELECT site_code, month, sum(credit - debit) AS v FROM gold_fpa.pnl_store_month WHERE glname = 'Sales - POS' GROUP BY 1, 2) b
+    FROM (SELECT site_code, month, sum(credit - debit) AS v FROM (SELECT * FROM gold_fpa.pnl_store_month WHERE entity = 'RETAIL') WHERE glname = 'Sales - POS' GROUP BY 1, 2) b
     FULL OUTER JOIN (SELECT site_code, month, sum(net_sales_ex_gst) AS v FROM gold_fpa.cogs_store_month GROUP BY 1, 2) t ON t.site_code = b.site_code AND t.month = b.month"""
 
 # Effective area = area x active days / calendar days, the same rules as pl_stage.effective_area, derived in SQL from dim_site. Stores only (site_kind STORE).
@@ -77,7 +134,7 @@ def _ctl(ctrl: str, dim: str, left: str, right: str, frm: str) -> str:
 
 
 _PNL_CT = ("FROM gold_fpa.control_totals c JOIN (SELECT month, ledger_type, sum(lines_n) AS n, sum(debit) AS d, sum(credit) AS cr, sum(profit_effect) AS a "
-           "FROM gold_fpa.pnl_store_month GROUP BY 1, 2) p ON p.month = c.period AND p.ledger_type = c.group_key WHERE c.table_name = 'pnl_store_month'")
+           "FROM (SELECT * FROM gold_fpa.pnl_store_month WHERE entity = 'RETAIL') GROUP BY 1, 2) p ON p.month = c.period AND p.ledger_type = c.group_key WHERE c.table_name = 'pnl_store_month'")
 _COGS_CT = ("FROM gold_fpa.control_totals c JOIN (SELECT month, count(*) AS n, sum(net_sales_ex_gst) AS sales, sum(cogs_v) AS cogs FROM gold_fpa.cogs_store_month GROUP BY 1) p "
             "ON p.month = c.period WHERE c.table_name = 'cogs_store_month'")
 _CT = "to_char(c.period, 'YYYY-MM') || ' ' || c.group_key"
@@ -94,14 +151,14 @@ _V_CONTROL = "\nUNION ALL\n".join([
 
 _V_SERVING_RUN = f"""SELECT {RUN_ID} AS run_id, {AS_OF} AS as_of_date, 'gold_fpa' AS cogs_run_id, (SELECT max(last_bill) FROM gold_fpa.cogs_store_month) AS cogs_last_bill_date,
     'verified' AS recon_state, 'live' AS publication_state, 'gold_fpa-1' AS contract_version,
-    (SELECT max(_loaded_at) FROM gold_fpa.pnl_store_month) AS extract_finished_at, (SELECT max(_loaded_at) FROM gold_fpa.pnl_store_month) AS loaded_at,
-    (SELECT count(*) FROM gold_fpa.pnl_store_month)::int AS expected_gl_rows, (SELECT count(*) FROM gold_fpa.cogs_store_month)::int AS expected_cogs_rows,
+    (SELECT max(_loaded_at) FROM (SELECT * FROM gold_fpa.pnl_store_month WHERE entity = 'RETAIL')) AS extract_finished_at, (SELECT max(_loaded_at) FROM (SELECT * FROM gold_fpa.pnl_store_month WHERE entity = 'RETAIL')) AS loaded_at,
+    (SELECT count(*) FROM (SELECT * FROM gold_fpa.pnl_store_month WHERE entity = 'RETAIL'))::int AS expected_gl_rows, (SELECT count(*) FROM gold_fpa.cogs_store_month)::int AS expected_cogs_rows,
     (SELECT count(*) FROM gold_fpa.dim_site)::int AS expected_sites, 0.01::numeric(30,4) AS tolerance_rupees,
     NULL::int AS aligned_days, NULL::date AS ly_aligned_month"""
 
 # day-aligned last-year window: gold_fpa has no daily COGS, so the run declares no aligned window (ly_aligned_month NULL) and this view is empty.
 _V_GL_ALIGNED = """SELECT NULL::text AS run_id, NULL::text AS site_code, NULL::date AS month, NULL::text AS glcode, NULL::text AS ledger_name, NULL::text AS group_label, NULL::text AS section,
-    NULL::text AS entry_type_short, NULL::text AS release_status, NULL::numeric AS debit, NULL::numeric AS credit, NULL::int AS lines WHERE false"""
+    NULL::text AS entry_type_short, NULL::text AS release_status, NULL::numeric AS debit, NULL::numeric AS credit, NULL::int AS lines, NULL::text AS location_type, NULL::text AS mapping_state WHERE false"""
 
 _V_GROUP_SECTION = f"SELECT {RUN_ID} AS run_id, grp AS group_label, section FROM (VALUES {_VALUES}) AS gs(grp, section)"
 

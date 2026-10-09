@@ -3,6 +3,7 @@ parenthesised subselect with the same column names. The run is synthetic: one 'r
 (extraction rebuilds the table daily); it is verified here by recomputing extraction's control_totals."""
 from __future__ import annotations
 
+from . import related_register as _rr
 from .db import vendor_salt
 
 RUN_ID = "GOLD-' || to_char(as_of_date, 'YYYYMMDD') || '"
@@ -12,7 +13,19 @@ def _salt() -> str:
     return vendor_salt().replace("'", "")
 
 
-def items(finance: bool) -> str:
+def _scope_filter(scope: str) -> str:
+    """main = everything except the related-party register; related = only the register; all = no filter. Register missing/empty -> main excludes nothing."""
+    if scope == "all":
+        return ""
+    lst = _rr.in_list()
+    if scope == "related":
+        return f" WHERE sub_ledger_code IN ({lst})" if lst else " WHERE false"
+    if scope != "main":
+        raise ValueError(f"unknown scope {scope!r}")
+    return f" WHERE coalesce(sub_ledger_code, -1) NOT IN ({lst})" if lst else ""
+
+
+def items(finance: bool, scope: str = "main") -> str:
     named = ", slid, vendor_name, credit_days, vendor_extinct, document_code, document_no, NULL::text AS document_initial, NULL::text AS ref_no, ref_date, created_by_site" if finance else ""
     return f"""(SELECT 'GOLD-' || to_char(as_of_date, 'YYYYMMDD') AS extraction_run_id,
         postcode::text AS source_row_key, 'I' || postcode::text AS item_ref,
@@ -24,7 +37,11 @@ def items(finance: bool) -> str:
         due_status, CASE WHEN age_bucket = 'DATE_INVALID' THEN 'DATE_INVALID' ELSE 'OK' END AS date_quality_status,
         CASE WHEN age_bucket = 'DATE_INVALID' THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END AS classification_status,
         party_class, party_class AS party_class_type{named}
-      FROM gold_fpa.creditors_open_items) AS items"""
+      FROM gold_fpa.creditors_open_items{_scope_filter(scope)}) AS items"""
+
+
+def related_items(finance: bool = True) -> str:
+    return items(finance, "related")
 
 
 # one verified run per as_of_date (the only one in the table)

@@ -10,6 +10,7 @@ const f = (n: number) => n.toFixed(2);
 export const PNL = { run: "PNL-T1", asOf: "2026-10-09" };
 export const CRED = { run: "GOLD-T1", asOf: "2026-10-07" };
 export const CASH = { run: "CASH-T1", asOf: "2026-10-08" };
+export const MGMT = { run: "MGMT-T1", asOf: "2026-10-09" };
 
 const hdr = { recon_state: "verified", publication_state: "live", data_state: "live", data_state_label: "Live", contract_version: "gold_fpa-1", source_updated_at: "2026-10-09 16:26:46+05:30" };
 
@@ -20,11 +21,25 @@ const money = (revenue: number, cogs: number, books: number, opex: number) => {
     revenue: f(revenue * CR), cogs: f(cogs * CR), cogs_books: f(books * CR), gross_margin: f(gm * CR), gross_margin_pct: ((gm * 100) / revenue).toFixed(4),
     opex: f(opex * CR), opex_pct: ((-opex * 100) / revenue).toFixed(4), contribution: f(contribution * CR), contribution_pct: ((contribution * 100) / revenue).toFixed(4),
     other_income: f(5 * CR), finance_cost: f(-1 * CR),
+    other_operating_income: f(5 * CR), interest_income: "0", dc_cost: f(-12 * CR), ho_cost: f(-30 * CR), total_corporate_cost: f(-42 * CR), corporate_ebitda: f((contribution - 42) * CR),
+    corporate_ebitda_pct: (((contribution - 42) * 100) / revenue).toFixed(4),
   };
 };
+
+/** The Management P&L (MIS chain), consolidated: book + management adjustment = total. Same revenue as the P&L fixture; the 1% shrinkage provision and others are the adjustments. */
+const tri = (book: number, adjustment: number) => ({ book, adjustment, total: book + adjustment });
+export const MGMT_LINES = {
+  revenue: tri(1000, 0), other_operating_income: tri(5, 0), total_income: tri(1005, 0), material_cost: tri(-590, -10), material_margin: tri(415, -10), total_store_expenses: tri(-250, -4),
+  store_ebitda: tri(165, -14), dc_cost: tri(-12, 0), ho_cost: tri(-30, 2), total_corporate: tri(-42, 2), corporate_ebitda: tri(123, -12),
+  pct_material_margin: tri(41.29, -0.99), pct_store_ebitda: tri(16.42, -1.4), pct_corporate_ebitda: tri(12.24, -1.2),
+};
+const mgmtPnl = (q: URLSearchParams) => ({
+  run_id: MGMT.run, entity: q.get("entity") ?? "consolidated", as_of_date: MGMT.asOf, months: ["2026-04", "2026-10"], store_count: 3, warnings: ["Intercompany eliminations not loaded"],
+  lines: Object.entries(MGMT_LINES).map(([key, total]) => ({ key, label: key, kind: key.startsWith("pct_") ? "pct" : "value", values: {}, total })),
+});
 export const TOTALS = money(1000, 600, 10, -250); // gm 410 (41.0%), contribution 160 (16.0%)
 
-export const pnlHeader = { run_id: PNL.run, as_of_date: PNL.asOf, cogs_last_bill_date: "2026-10-08", ...hdr, budget: null, budget_note: "Budget is not available for FY26-27 (the FY25-26 plan ended in March 2026). It is shown blank." };
+export const pnlHeader = { run_id: PNL.run, as_of_date: PNL.asOf, cogs_last_bill_date: "2026-10-08", ...hdr, budget: null, budget_note: "AOP (budget) is not available for FY26-27 (the FY25-26 plan ended in March 2026). It is shown blank." };
 
 const pnlSummary = (q: URLSearchParams) => ({
   ...pnlHeader,
@@ -39,13 +54,13 @@ const pnlSummary = (q: URLSearchParams) => ({
     note: "Compared over complete months only.",
   },
   lines: [
-    { section: "REVENUE", section_label: "Net sales (ex-GST)", group_label: "01-Net Sales", amount: TOTALS.revenue, ledgers: 1 },
-    { section: "STORE_OPEX", section_label: "Store operating expenses", group_label: "02-Employee Cost", amount: f(-150 * CR), ledgers: 4 },
-    { section: "STORE_OPEX", section_label: "Store operating expenses", group_label: "01-Rent", amount: f(-100 * CR), ledgers: 1 },
+    { section: "REVENUE", section_label: "Revenue from operations", group_label: "01-Net Sales", group_name: "Revenue from operations", amount: TOTALS.revenue, ledgers: 1 },
+    { section: "STORE_OPEX", section_label: "Store Expenses", group_label: "02-Employee Cost", group_name: "Employee Cost", amount: f(-150 * CR), ledgers: 4 },
+    { section: "STORE_OPEX", section_label: "Store Expenses", group_label: "01-Rent", group_name: "Rent", amount: f(-100 * CR), ledgers: 1 },
   ],
   below_contribution: { other_income: f(5 * CR), finance_cost: f(-1 * CR), after_below_the_line: f(164 * CR) },
   excluded_unmapped: { ledgers: 2, run_ledgers: 3, label: "Unmapped / Finance classification required", net: f(-500 * CR), gross_abs: f(1500 * CR), note: "x" },
-  flags: { provisional_months: ["2026-10"], cogs_through: "2026-10-08", books_through: "2026-10-09", cogs_lags_books: true, partial_last_month: true, cogs_has_no_posting_status: "COGS has no posting status.", contribution_definition: "Gross margin + store operating expenses. Before other income, finance cost and any head-office allocation." },
+  flags: { provisional_months: ["2026-10"], cogs_through: "2026-10-08", books_through: "2026-10-09", cogs_lags_books: true, partial_last_month: true, cogs_has_no_posting_status: "COGS has no posting status.", contribution_definition: "Store EBITDA = Material Margin less Store Expenses (STORES location only). Before DC cost, HO cost, interest income and finance cost." },
 });
 
 export const STORE_ROWS = [
@@ -90,7 +105,7 @@ export const TILL_STORES = [
 
 interface Opts {
   /** HTTP status to fail a whole source with: pnl | cash | cred */
-  fail?: Partial<Record<"pnl" | "cash" | "cred", number>>;
+  fail?: Partial<Record<"pnl" | "cash" | "cred" | "mgmt", number>>;
 }
 
 export function installLiveSources(opts: Opts = {}) {
@@ -110,6 +125,12 @@ export function installLiveSources(opts: Opts = {}) {
         if (path === `runs/${PNL.run}/summary`) return json(pnlSummary(q));
         if (path === `runs/${PNL.run}/stores`) return json({ ...pnlHeader, stores_total: 3, returned: 3, limit: 10, offset: 0, stores: STORE_ROWS.map((s) => ({ ...s, cogs: "0", cogs_books: "0", gross_margin: "0", gross_margin_pct: null, opex: "0", opex_pct: null, contribution_pct: null, other_income: "0", finance_cost: "0" })) });
         if (path === `runs/${PNL.run}/reconciliation`) return json({ ...pnlHeader, excluded_unmapped: { label: "Unmapped", run_ledgers: 3, explanation: "Ledgers the finance mapping does not know.", count: 2, net: f(-500 * CR), gross_abs: f(1500 * CR), ledgers: [{ glcode: "900", ledger_name: "Stock Transfer", net: f(-400 * CR), debit: f(400 * CR), credit: "0", sites: 3 }, { glcode: "901", ledger_name: "Purchase IGST", net: f(-100 * CR), debit: f(100 * CR), credit: "0", sites: 2 }] } });
+        return json({}, 404);
+      }
+      if (p.startsWith("/mgmt-api/")) {
+        if (opts.fail?.mgmt) return json({ detail: "boom" }, opts.fail.mgmt);
+        const path = p.slice("/mgmt-api/".length);
+        if (path === "pnl") return json(mgmtPnl(q));
         return json({}, 404);
       }
       if (p.startsWith("/cash-api/")) {

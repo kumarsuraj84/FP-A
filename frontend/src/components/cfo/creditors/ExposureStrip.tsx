@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import type { AgeFilter } from "@/types/creditors";
 import type { LiveSummary } from "@/types/creditorsLive";
 import { Skeleton } from "../common";
+import { RelatedExcludedNote } from "../related/ExcludedNote";
 import { useRoomSelection } from "./parts";
 
 const LABELS = ["Credit Outstanding", "Creditor Debit Balance", "Past Due", "Due Date Unavailable", ">90 Days Document Age", ">180 Days Document Age"];
@@ -107,6 +108,7 @@ export function ExposureStrip() {
         As of {fmtDate(s.as_of_date)} · {s.item_rows.toLocaleString("en-IN")} open items across {s.vendors.toLocaleString("en-IN")} vendors · Signed net (Credit − Debit):{" "}
         <span data-exact={s.signed_net} className="font-semibold text-foreground">{fmtCr(toCr(s.signed_net), { signed: net > 0 })}</span> (a reference figure; debit balances are not netted into Credit Outstanding)
       </div>
+      <RelatedExcludedNote excluded={s.related_party_excluded} />
     </section>
   );
 }

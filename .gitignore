@@ -28,3 +28,9 @@ data/inbox/
 api.log
 fe.log
 npm_install.log
+
+# management P&L config: real finance numbers, never committed (only README and *.example.* are)
+config/mgmt/*.csv
+config/mgmt/*.json
+!config/mgmt/*.example.csv
+!config/mgmt/*.example.json

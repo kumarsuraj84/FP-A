@@ -1,0 +1,3 @@
+sub_ledger_code,party_name,group_entity,relationship,basis,status,note
+13804,CKSPL Haryana Cross Charge,Citykart Stores (CKSPL),cross charge,Name contains 'CKSPL ... Cross Charge' (intercompany expense recharge),proposed,Example row: confirm with Finance
+4414,CITYKART RETAIL PVT LTD (Haryana),Citykart Retail Pvt Ltd,group company,Legal entity name matches the group,proposed,Example row

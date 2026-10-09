@@ -85,22 +85,24 @@ def status(request: Request, run_id: str):
         return ok({**header(run), "controls": repo.controls(conn, run_id), "bridge": repo.link_summary(conn, run_id)})
 
 
-def _entry(request: Request, run_id: str, ref: str, finance: bool):
+def _entry(request: Request, run_id: str, ref: str, finance: bool, entity: str = "RETAIL"):
+    if entity not in ("RETAIL", "VENTURES"):
+        raise HTTPException(422, "entity must be RETAIL or VENTURES")
     with open_run(request, run_id, finance) as (conn, run):
-        e = repo.entry(conn, run_id, ref, finance)
+        e = repo.entry(conn, run_id, ref, finance, entity)
         if e is None:
             raise HTTPException(404, "unknown entry")
         return ok({**header(run), "entry": e})
 
 
 @router.get("/runs/{run_id}/entry/{entry_ref}")
-def masked_entry(request: Request, run_id: str, entry_ref: str):
-    return _entry(request, run_id, entry_ref, False)
+def masked_entry(request: Request, run_id: str, entry_ref: str, entity: str = "RETAIL"):
+    return _entry(request, run_id, entry_ref, False, entity)
 
 
 @router.get("/runs/{run_id}/finance/entry/{entry_ref}")
-def finance_entry(request: Request, run_id: str, entry_ref: str):
-    return _entry(request, run_id, entry_ref, True)
+def finance_entry(request: Request, run_id: str, entry_ref: str, entity: str = "RETAIL"):
+    return _entry(request, run_id, entry_ref, True, entity)
 
 
 # ───────────── bank ─────────────

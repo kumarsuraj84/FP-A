@@ -35,9 +35,9 @@ export type LiveSeverity = Severity | "unrated";
 
 /**
  * Where a real figure comes from. Every live figure carries its OWN run id and as-of date: the three real sources
- * (P&L, Creditors, Cash) are separate runs and are never presented as one synchronized position.
+ * (P&L, Management P&L, Creditors, Cash) are separate runs and are never presented as one synchronized position.
  */
-export type SourceId = "pnl" | "creditors" | "cash";
+export type SourceId = "pnl" | "mgmt" | "creditors" | "cash";
 export interface SourceStamp {
   id: SourceId;
   label: string;

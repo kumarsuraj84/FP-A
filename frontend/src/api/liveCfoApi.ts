@@ -30,23 +30,28 @@ import type {
   WorkingCapitalSummary,
 } from "@/types/cfo";
 import type { PnlStoreRow, PnlSummary } from "@/types/pnlLive";
+import type { MgmtLine, MgmtPnl, MgmtTriple } from "@/types/mgmtLive";
 import type { CashSummary, TillStore } from "@/types/cashLive";
 import type { LedgerRow, LiveSummary } from "@/types/creditorsLive";
 import { DASH, fmtCr, fmtDate, stampText } from "@/lib/format";
+import { BOOKS_BASIS_NOTE, T, groupName } from "@/lib/nomenclature";
 import { liveCash } from "./cashLive";
 import { liveCreditors } from "./creditorsLive";
+import { liveMgmt } from "./mgmtLive";
 import { livePnl } from "./pnlLive";
 import { ApiError, mockApi } from "./mockApi";
 
 /**
  * The LIVE implementation of CfoApi for the Command Center.
  *
- * It is composed ONLY from the three real, read-only APIs (P&L actuals, Creditors, Cash). Nothing here is estimated:
+ * It is composed ONLY from the real, read-only APIs (Management P&L for the MIS chain, P&L actuals for last year and drills, Creditors, Cash). Nothing here is estimated:
  *  - every figure carries the SourceStamp (run id + the run's OWN as-of date) of the source it was read from;
- *  - the three runs are separate and may carry different as-of dates, so no figure is ever presented as part of one
+ *  - the runs are separate and may carry different as-of dates, so no figure is ever presented as part of one
  *    synchronized CFO position;
  *  - what no source can supply (bank-reconciled cash, receivables, inventory, vendor advances, forecast, budget) is an explicit
  *    "unavailable" with the source's own reason, never zero and never an invented number;
+ *  - the P&L tiles and the hero bridge follow the finance MIS chain (Revenue from operations, Material Cost, Material Margin, Store Expenses, Store EBITDA, DC cost and HO cost,
+ *    Corporate EBITDA) from the Management P&L API (books plus management adjustments; adjusted figures say so). Without it they fall back to the P&L actuals, books basis;
  *  - risks and actions are derived only from real facts, and each cites the evidence it rests on.
  *
  * Room-level methods that only feed the demo workspaces (Stage 2-4 room data, ledger / voucher / profile of those rooms) are
@@ -55,6 +60,8 @@ import { ApiError, mockApi } from "./mockApi";
 
 export interface LiveClients {
   pnl: Pick<typeof livePnl, "current" | "summary" | "stores" | "reconciliation">;
+  /** the Management P&L (MIS chain). Optional: a caller that omits it gets the books-basis chain from the P&L actuals */
+  mgmt?: Pick<typeof liveMgmt, "pnl">;
   cash: Pick<typeof liveCash, "current" | "summary" | "stores">;
   creditors: Pick<typeof liveCreditors, "current" | "summary" | "ledgers">;
 }
@@ -80,7 +87,7 @@ const monthLabel = (m: string) => `${MONTHS[Number(m.slice(5, 7)) - 1] ?? m.slic
 const monthsText = (a: string, b: string) => (a === b ? monthLabel(a) : `${monthLabel(a)} to ${monthLabel(b)}`);
 
 const STATE_TEXT: Record<string, string> = { verified_candidate: "Verified candidate · not live", live: "Live", superseded: "Superseded", withdrawn: "Withdrawn" };
-const SOURCE_LABEL: Record<SourceId, string> = { pnl: "P&L", creditors: "Creditors", cash: "Cash" };
+const SOURCE_LABEL: Record<SourceId, string> = { pnl: "P&L", mgmt: "Management P&L", creditors: "Creditors", cash: "Cash" };
 
 /** The period control only reaches the P&L (flows). Creditors and Cash are point-in-time balances. */
 const PERIOD_MONTHS: Record<QueryCtx["period"], [string | undefined, string | undefined]> = {
@@ -89,7 +96,7 @@ const PERIOD_MONTHS: Record<QueryCtx["period"], [string | undefined, string | un
   ytdfy27: [undefined, undefined],
 };
 
-export const NO_BUDGET = "Budget is not available for FY26-27 (the FY25-26 plan ended in March 2026). Nothing is estimated.";
+export const NO_BUDGET = "AOP (budget) is not available for FY26-27 (the FY25-26 plan ended in March 2026). Nothing is estimated.";
 export const NO_FORECAST = "No forecast source exists. A projection is not shown, and none is estimated.";
 export const NO_RECON = "No bank statement or reconciliation is available from the current sources.";
 export const NO_CASH_MOVEMENT = "No opening-cash or cash-flow source exists. Store till cash is a balance, not a movement, and no bank statement or reconciliation is available.";
@@ -115,7 +122,7 @@ const oldest = (stamps: SourceStamp[]): string => {
 };
 
 export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
-  const c: LiveClients = opts.clients ?? { pnl: livePnl, cash: liveCash, creditors: liveCreditors };
+  const c: LiveClients = opts.clients ?? { pnl: livePnl, mgmt: liveMgmt, cash: liveCash, creditors: liveCreditors };
   const rooms = opts.rooms ?? mockApi;
   const ttl = opts.ttlMs ?? 30_000;
 
@@ -151,6 +158,24 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       (r) => r.ok,
     );
 
+  /** the Management P&L (consolidated, book + management adjustments) for the same months as the P&L actuals; absent when no client is wired */
+  const readMgmt = (period: QueryCtx["period"]) =>
+    c.mgmt
+      ? memo<Read<MgmtPnl>>(
+          `mgmt:${period}`,
+          async () => {
+            try {
+              const [from, to] = PERIOD_MONTHS[period];
+              const p = await c.mgmt!.pnl({ from_month: from, to_month: to, include_proposed: true, entity: "consolidated" });
+              return { ok: true, stamp: stamp("mgmt", p.run_id, p.as_of_date, "live", "Live"), data: p };
+            } catch (e) {
+              return { ok: false, stamp: failed("mgmt", msg(e)), error: msg(e) };
+            }
+          },
+          (r) => r.ok,
+        )
+      : Promise.resolve(null);
+
   const readCash = () =>
     memo<Read<CashSummary>>(
       "cash",
@@ -182,8 +207,8 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
     );
 
   const all = async (ctx: QueryCtx) => {
-    const [pnl, cash, cred] = await Promise.all([readPnl(ctx.period), readCash(), readCred()]);
-    return { pnl, cash, cred, stamps: [pnl.stamp, cred.stamp, cash.stamp] };
+    const [pnl, cash, cred, mgmt] = await Promise.all([readPnl(ctx.period), readCash(), readCred(), readMgmt(ctx.period)]);
+    return { pnl, cash, cred, mgmt, stamps: [pnl.stamp, ...(mgmt ? [mgmt.stamp] : []), cred.stamp, cash.stamp] };
   };
 
   const ok = <T,>(data: T, asOf: string, reason?: string): Envelope<T> => ({ status: "ok", data, asOf, reason });
@@ -194,19 +219,25 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
 
   function lastYear(ctx: QueryCtx, s: PnlSummary) {
     const cmp = s.comparison;
-    if (ctx.comparison === "budget") return { ly: null, label: "Budget not available", reason: s.budget_note || NO_BUDGET };
+    if (ctx.comparison === "budget") return { ly: null, label: "AOP not available", reason: s.budget_note || NO_BUDGET };
     if (ctx.comparison === "forecast") return { ly: null, label: "Forecast not available", reason: NO_FORECAST };
-    if (!cmp?.last_year) return { ly: null, label: "No last-year data", reason: "No comparable last-year months exist for this selection." };
-    return { ly: cmp, label: `vs last year · ${monthsText(cmp.period.from_month, cmp.period.to_month)}, complete months`, reason: undefined };
+    if (!cmp?.last_year) return { ly: null, label: "No LY data", reason: "No comparable LY months exist for this selection." };
+    return { ly: cmp, label: `vs ${T.ly} · ${monthsText(cmp.period.from_month, cmp.period.to_month)}, complete months`, reason: undefined };
   }
+
+  /* Management P&L accessors: values are INR Cr numbers; a line's "total" is book + management adjustment */
+  const mline = (m: MgmtPnl, key: string): MgmtTriple | null => m.lines.find((l: MgmtLine) => l.key === key)?.total ?? null;
+  const mv = (m: MgmtPnl, key: string): number | null => mline(m, key)?.total ?? null;
+  const adjOf = (m: MgmtPnl, key: string): number => mline(m, key)?.adjustment ?? 0;
+  const isAdj = (x: number) => Math.abs(x) >= 0.005;
 
   const toneOf = (v: number | null, goodWhenUp = true): Tone => (v === null || Math.abs(v) < 0.005 ? "neutral" : v > 0 === goodWhenUp ? "good" : "bad");
 
   /* ───────────── pulse ───────────── */
 
   async function getPulse(ctx: QueryCtx): Promise<Envelope<PulseMetric[]>> {
-    const { pnl, cash, cred, stamps } = await all(ctx);
-    if (!pnl.ok && !cash.ok && !cred.ok) throw allDown([pnl, cash, cred]);
+    const { pnl, cash, cred, mgmt, stamps } = await all(ctx);
+    if (!pnl.ok && !cash.ok && !cred.ok && !(mgmt && mgmt.ok)) throw allDown([pnl, cash, cred]);
     const out: PulseMetric[] = [];
 
     /* Cash */
@@ -222,42 +253,53 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       });
     } else out.push(missing("cash", "Store till cash", "cash", "cash", cash.stamp));
 
-    /* P&L: net sales, gross margin, contribution */
-    if (pnl.ok) {
-      const s = pnl.data;
-      const t = s.totals;
-      const { ly, label, reason } = lastYear(ctx, s);
-      const why = reason ?? "";
-      const span = `${monthsText(s.scope.from_month, s.scope.to_month)}${s.scope.partial_last_month ? " (last month partial)" : ""}`;
+    /* P&L, in the MIS chain: Revenue from operations, Material Margin, Store EBITDA. The Management P&L (books + management adjustments) when it is wired and read;
+       otherwise the P&L actuals, books basis. Last year exists only on the books basis, so the movements are books to books and say so. */
+    const mg = mgmt && mgmt.ok ? mgmt.data : null;
+    if (pnl.ok || mg) {
+      const s = pnl.ok ? pnl.data : null;
+      const t = s?.totals;
+      const lyr = s ? lastYear(ctx, s) : { ly: null, label: "No LY data", reason: "The P&L actuals could not be read, so there is no LY comparison." };
+      const { ly, label } = lyr;
+      const why = lyr.reason ?? "";
+      const src = mg && mgmt ? mgmt.stamp : pnl.stamp;
+      const mgNote = mgmt && !mgmt.ok ? ` · Management P&L not read: books basis` : "";
+      const span = s ? `${monthsText(s.scope.from_month, s.scope.to_month)}${s.scope.partial_last_month ? " (last month partial)" : ""}` : monthsText(mg!.months[0], mg!.months[mg!.months.length - 1]);
+      const lyLabel = ly && mg ? `${label} · books basis` : label;
       const revMove = ly?.current && ly.last_year ? rupToCr(String(n(ly.current.revenue) - n(ly.last_year.revenue))) : null;
       const profMove = ly?.current && ly.last_year ? rupToCr(String(n(ly.current.contribution) - n(ly.last_year.contribution))) : null;
       const gmMove = ly?.current && ly.last_year && ly.current.gross_margin_pct && ly.last_year.gross_margin_pct ? Math.round((n(ly.current.gross_margin_pct) - n(ly.last_year.gross_margin_pct)) * 100) : null;
-      const rev = rupToCr(t.revenue);
+      const rev = mg ? mv(mg, "revenue") : rupToCr(t!.revenue);
       out.push({
-        id: "revenue", label: "Net sales", value: { value: rev }, unit: "cr", comparisonLabel: label,
+        id: "revenue", label: T.revenue, value: { value: rev }, unit: "cr", comparisonLabel: label,
         movement: revMove === null ? na(why) : { value: revMove }, movementUnit: "cr",
-        status: span, tone: toneOf(revMove), family: "volume", heroTab: "profit",
-        origin: { source: "pulse", scope: "pulse", id: "revenue", label: "Net sales", family: "volume", amount: rev, variance: revMove },
-        source: pnl.stamp,
+        status: `${span}${mgNote}`, tone: toneOf(revMove), family: "volume", heroTab: "profit",
+        origin: { source: "pulse", scope: "pulse", id: "revenue", label: T.revenue, family: "volume", amount: rev, variance: revMove },
+        source: src,
       });
-      const gmPct = t.gross_margin_pct === null ? null : n(t.gross_margin_pct);
+      const gmPct = mg ? mv(mg, "pct_material_margin") : t!.gross_margin_pct === null ? null : n(t!.gross_margin_pct);
+      const gmAmt = mg ? mv(mg, "material_margin") : rupToCr(t!.gross_margin);
+      const gmAdj = mg ? isAdj(adjOf(mg, "material_margin")) : false;
       out.push({
-        id: "gm", label: "Gross margin", value: gmPct === null ? na("Gross margin % is not available for this selection.") : { value: gmPct }, unit: "pct", comparisonLabel: label,
-        movement: gmMove === null ? na(why || "No last-year margin to compare with.") : { value: gmMove }, movementUnit: "bps",
-        status: `${fmtCr(rupToCr(t.gross_margin))} gross margin`, tone: gmMove === null ? "neutral" : gmMove < -100 ? "bad" : gmMove < 0 ? "warn" : "good", family: "margin", heroTab: "profit",
-        origin: { source: "pulse", scope: "pulse", id: "gm", label: "Gross margin", family: "margin", amount: rupToCr(t.gross_margin), variance: null },
-        source: pnl.stamp,
+        id: "gm", label: T.materialMargin, value: gmPct === null ? na(`${T.materialMargin} % is not available for this selection.`) : { value: gmPct }, unit: "pct", comparisonLabel: lyLabel,
+        movement: gmMove === null ? na(why || `No ${T.ly} margin to compare with.`) : { value: gmMove }, movementUnit: "bps",
+        status: `${fmtCr(gmAmt)} ${T.materialMargin}${gmAdj ? " · includes management adjustments" : mg ? "" : " · books basis"}${mgNote}`, tone: gmMove === null ? "neutral" : gmMove < -100 ? "bad" : gmMove < 0 ? "warn" : "good", family: "margin", heroTab: "profit",
+        origin: { source: "pulse", scope: "pulse", id: "gm", label: T.materialMargin, family: "margin", amount: gmAmt, variance: null },
+        source: src,
       });
-      const cont = rupToCr(t.contribution);
+      const cont = mg ? mv(mg, "store_ebitda") : rupToCr(t!.contribution);
+      const contPct = mg ? mv(mg, "pct_store_ebitda") : t!.contribution_pct === null ? null : n(t!.contribution_pct);
+      const contAdj = mg ? isAdj(adjOf(mg, "store_ebitda")) : false;
       out.push({
-        id: "profit", label: "Store contribution", value: { value: cont }, unit: "cr", comparisonLabel: label,
+        id: "profit", label: T.storeEbitda, value: { value: cont }, unit: "cr", comparisonLabel: lyLabel,
         movement: profMove === null ? na(why) : { value: profMove }, movementUnit: "cr",
-        status: `${t.contribution_pct === null ? DASH : pct1(n(t.contribution_pct))} of net sales · before head office`, tone: toneOf(profMove), family: "margin", heroTab: "profit",
-        origin: { source: "pulse", scope: "pulse", id: "profit", label: "Store contribution", family: "margin", amount: cont, variance: profMove },
-        source: pnl.stamp,
+        status: `${contPct === null ? DASH : pct1(contPct)} of ${mg ? "total income" : "revenue"} · before DC and HO cost${contAdj ? " · includes management adjustments" : mg ? "" : " · books basis"}${mgNote}`, tone: toneOf(profMove), family: "margin", heroTab: "profit",
+        origin: { source: "pulse", scope: "pulse", id: "profit", label: T.storeEbitda, family: "margin", amount: cont, variance: profMove },
+        source: src,
       });
     } else {
-      out.push(missing("revenue", "Net sales", "volume", "profit", pnl.stamp), missing("gm", "Gross margin", "margin", "profit", pnl.stamp, "pct", "bps"), missing("profit", "Store contribution", "margin", "profit", pnl.stamp));
+      const bad = mgmt && !mgmt.ok ? mgmt.stamp : pnl.stamp;
+      out.push(missing("revenue", T.revenue, "volume", "profit", bad), missing("gm", T.materialMargin, "margin", "profit", bad, "pct", "bps"), missing("profit", T.storeEbitda, "margin", "profit", bad));
     }
 
     /* Creditors */
@@ -338,26 +380,70 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
         cred.stamp.asOf ?? oldest([cred.stamp]),
       );
     }
-    const pnl = await readPnl(ctx.period);
+    const [pnl, mgmt] = await Promise.all([readPnl(ctx.period), readMgmt(ctx.period)]);
+    const mg = mgmt && mgmt.ok ? mgmt.data : null;
+    if (mg && mgmt) {
+      /* the MIS chain from the Management P&L: every bar is the management total (book + adjustment) for the selected months */
+      const g = (k: string) => r2(mv(mg, k) ?? 0);
+      const items: BridgeItem[] = [
+        { id: "net_sales", label: T.revenue, kind: "total", value: g("revenue"), tone: "neutral", family: "volume" },
+        { id: "other_operating_income", label: T.otherOperatingIncome, kind: "delta", value: g("other_operating_income"), tone: toneOf(g("other_operating_income")), family: "margin" },
+        { id: "cogs", label: T.materialCost, kind: "delta", value: g("material_cost"), tone: "bad", family: "margin" },
+        { id: "gross_margin", label: T.materialMargin, kind: "total", value: g("material_margin"), tone: "neutral", family: "margin" },
+        { id: "store_opex", label: T.storeExpenses, kind: "delta", value: g("total_store_expenses"), tone: "bad", family: "cost" },
+        { id: "contribution", label: T.storeEbitda, kind: "total", value: g("store_ebitda"), tone: "neutral", family: "margin" },
+        { id: "dc_cost", label: T.dcCost, kind: "delta", value: g("dc_cost"), tone: toneOf(g("dc_cost")), family: "cost" },
+        { id: "ho_cost", label: T.hoCost, kind: "delta", value: g("ho_cost"), tone: toneOf(g("ho_cost")), family: "cost" },
+        { id: "corporate_ebitda", label: T.corporateEbitda, kind: "total", value: g("corporate_ebitda"), tone: "neutral", family: "margin" },
+      ];
+      const adj = adjOf(mg, "corporate_ebitda");
+      const first = mg.months[0] ?? "";
+      const last = mg.months[mg.months.length - 1] ?? "";
+      const pctCe = mv(mg, "pct_corporate_ebitda");
+      return ok(
+        {
+          id: "profit",
+          title: "How does revenue from operations become Corporate EBITDA?",
+          subtitle: `${first ? monthsText(first, last) : ""} · ${stampText(mgmt.stamp)}`,
+          unitNote: `₹ Cr · Management P&L, consolidated (Citykart Stores and Citykart Ventures): books plus management adjustments${isAdj(adj) ? `, ${fmtCr(adj, { signed: true })} on Corporate EBITDA (provisional items are marked on the Management P&L page)` : ""}. A composition, not a variance bridge. ${T.aop}: not available.${mg.warnings.length ? ` ${mg.warnings.length} Management P&L warning${mg.warnings.length === 1 ? "" : "s"}: see the Management P&L page.` : ""}`,
+          items,
+          readout: { label: `${T.corporateEbitda} margin`, value: pctCe === null ? DASH : pct1(pctCe), note: `of ${T.totalIncome.toLowerCase()}${isAdj(adj) ? " · includes management adjustments" : ""}` },
+          sources: [mgmt.stamp],
+        },
+        mgmt.stamp.asOf ?? oldest([mgmt.stamp]),
+      );
+    }
     if (!pnl.ok) throw new ApiError(`The P&L source could not be read: ${pnl.error}`, 502);
+    /* fallback: the same chain on the books basis from the P&L actuals */
     const s = pnl.data;
     const t = s.totals;
+    const hasCorp = t.corporate_ebitda !== undefined;
     const items: BridgeItem[] = [
-      { id: "net_sales", label: "Net sales", kind: "total", value: r2(rupToCr(t.revenue) ?? 0), tone: "neutral", family: "volume" },
-      { id: "cogs", label: "COGS", kind: "delta", value: -r2(rupToCr(t.cogs) ?? 0), tone: "bad", family: "margin" },
-      { id: "cogs_books", label: "Other COGS (books)", kind: "delta", value: r2(rupToCr(t.cogs_books) ?? 0), tone: toneOf(n(t.cogs_books)), family: "margin" },
-      { id: "gross_margin", label: "Gross margin", kind: "total", value: r2(rupToCr(t.gross_margin) ?? 0), tone: "neutral", family: "margin" },
-      { id: "store_opex", label: "Store opex", kind: "delta", value: r2(rupToCr(t.opex) ?? 0), tone: "bad", family: "cost" },
-      { id: "contribution", label: "Contribution", kind: "total", value: r2(rupToCr(t.contribution) ?? 0), tone: "neutral", family: "margin" },
+      { id: "net_sales", label: T.revenue, kind: "total", value: r2(rupToCr(t.revenue) ?? 0), tone: "neutral", family: "volume" },
+      { id: "cogs", label: T.materialCost, kind: "delta", value: -r2(rupToCr(t.cogs) ?? 0), tone: "bad", family: "margin" },
+      { id: "cogs_books", label: "Other material cost items", kind: "delta", value: r2(rupToCr(t.cogs_books) ?? 0), tone: toneOf(n(t.cogs_books)), family: "margin" },
+      ...(n(t.other_operating_income) !== 0 ? [{ id: "other_operating_income", label: T.otherOperatingIncome, kind: "delta" as const, value: r2(rupToCr(t.other_operating_income) ?? 0), tone: toneOf(n(t.other_operating_income)), family: "margin" as const }] : []),
+      { id: "gross_margin", label: T.materialMargin, kind: "total", value: r2(rupToCr(t.gross_margin) ?? 0), tone: "neutral", family: "margin" },
+      { id: "store_opex", label: T.storeExpenses, kind: "delta", value: r2(rupToCr(t.opex) ?? 0), tone: "bad", family: "cost" },
+      { id: "contribution", label: T.storeEbitda, kind: "total", value: r2(rupToCr(t.contribution) ?? 0), tone: "neutral", family: "margin" },
+      ...(hasCorp
+        ? [
+            { id: "dc_cost", label: T.dcCost, kind: "delta" as const, value: r2(rupToCr(t.dc_cost) ?? 0), tone: toneOf(n(t.dc_cost)), family: "cost" as const },
+            { id: "ho_cost", label: T.hoCost, kind: "delta" as const, value: r2(rupToCr(t.ho_cost) ?? 0), tone: toneOf(n(t.ho_cost)), family: "cost" as const },
+            { id: "corporate_ebitda", label: T.corporateEbitda, kind: "total" as const, value: r2(rupToCr(t.corporate_ebitda) ?? 0), tone: "neutral" as const, family: "margin" as const },
+          ]
+        : []),
     ];
     return ok(
       {
         id: "profit",
-        title: "How does net sales become store contribution?",
-        subtitle: `${monthsText(s.scope.from_month, s.scope.to_month)}${s.scope.partial_last_month ? " (last month partial)" : ""} · ${stampText(pnl.stamp)}`,
-        unitNote: `₹ Cr · real P&L, ${s.scope.basis_label.toLowerCase()}. A composition, not a variance bridge: ${s.flags.contribution_definition} Budget: not available.`,
+        title: hasCorp ? "How does revenue from operations become Corporate EBITDA?" : "How does revenue from operations become Store EBITDA?",
+        subtitle: `${monthsText(s.scope.from_month, s.scope.to_month)}${s.scope.partial_last_month ? " (last month partial)" : ""} · ${stampText(pnl.stamp)}${mgmt && !mgmt.ok ? " · Management P&L not read" : ""}`,
+        unitNote: `₹ Cr · real P&L, ${s.scope.basis_label.toLowerCase()}. ${BOOKS_BASIS_NOTE} A composition, not a variance bridge: ${s.flags.contribution_definition} ${T.aop}: not available.`,
         items,
-        readout: { label: "Contribution margin", value: t.contribution_pct === null ? DASH : pct1(n(t.contribution_pct)), note: "of net sales, before other income, finance cost and head office" },
+        readout: hasCorp
+          ? { label: `${T.corporateEbitda} margin`, value: t.corporate_ebitda_pct == null ? DASH : pct1(n(t.corporate_ebitda_pct)), note: "of revenue, books basis" }
+          : { label: `${T.storeEbitda} margin`, value: t.contribution_pct === null ? DASH : pct1(n(t.contribution_pct)), note: "of revenue, before DC cost and HO cost" },
         sources: [pnl.stamp],
       },
       pnl.stamp.asOf ?? oldest([pnl.stamp]),
@@ -438,7 +524,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       });
     } else pillars.push(missingRisk("liquidity", "Liquidity", "cash", cash.stamp));
 
-    /* gross margin */
+    /* Material Margin (books, last year) */
     if (pnl.ok) {
       const s = pnl.data;
       const { ly } = lastYear({ ...ctx, comparison: "ly" }, s);
@@ -446,12 +532,12 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       const prev = ly?.last_year?.gross_margin_pct;
       const bps = cur && prev ? Math.round((n(cur) - n(prev)) * 100) : null;
       pillars.push({
-        id: "gm", label: "Gross margin", exposure: na("No budget or margin-at-risk estimate exists, so no financial impact is stated."),
-        movement: bps === null ? na("No comparable last-year margin") : { value: bps, reason: "vs last year, complete months" }, severity: bps === null ? "unrated" : sevOfGm(bps),
-        diagnosticLabel: "Gross margin", diagnosticValue: s.totals.gross_margin_pct === null ? DASH : pct1(n(s.totals.gross_margin_pct)),
-        family: "margin", origin: o("gm", "Gross margin", "margin", rupToCr(s.totals.gross_margin)), source: pnl.stamp,
+        id: "gm", label: T.materialMargin, exposure: na("No AOP or margin-at-risk estimate exists, so no financial impact is stated."),
+        movement: bps === null ? na("No comparable LY margin") : { value: bps, reason: "vs LY, complete months, books basis" }, severity: bps === null ? "unrated" : sevOfGm(bps),
+        diagnosticLabel: T.materialMargin, diagnosticValue: s.totals.gross_margin_pct === null ? DASH : pct1(n(s.totals.gross_margin_pct)),
+        family: "margin", origin: o("gm", T.materialMargin, "margin", rupToCr(s.totals.gross_margin)), source: pnl.stamp,
       });
-    } else pillars.push(missingRisk("gm", "Gross margin", "margin", pnl.stamp));
+    } else pillars.push(missingRisk("gm", T.materialMargin, "margin", pnl.stamp));
 
     /* payables */
     if (cred.ok) {
@@ -476,7 +562,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
     if (pnl.ok) {
       const u = pnl.data.excluded_unmapped;
       pillars.push({
-        id: "recon", label: "Reconciliation", exposure: na("The unmapped ledgers are mainly purchases and stock transfers that reach the P&L through COGS, so no single exposure amount is stated."),
+        id: "recon", label: "Reconciliation", exposure: na("The unmapped ledgers are mostly intercompany charges that neither the finance nor the management mapping classifies, so no single exposure amount is stated."),
         movement: na("Not available"), severity: u.ledgers > 0 ? "medium" : "low", diagnosticLabel: "P&L ledgers needing mapping", diagnosticValue: `${u.ledgers} of ${u.run_ledgers}`,
         family: "recon", origin: o("recon", "Reconciliation", "recon", null), source: pnl.stamp,
       });
@@ -529,7 +615,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       const u = pnl.data.excluded_unmapped;
       if (u.ledgers > 0) {
         out.push({
-          id: "unmapped_ledgers", problem: `${u.ledgers} P&L ledgers need Finance mapping`, amount: na("No amount is stated: the unmapped ledgers are mainly purchases and stock transfers that reach the P&L through COGS."),
+          id: "unmapped_ledgers", problem: `${u.ledgers} P&L ledgers need Finance mapping`, amount: na("No amount is stated: the unmapped ledgers are mostly intercompany charges that no mapping classifies."),
           driver: `${u.ledgers} of ${u.run_ledgers} ledgers in the run are outside every P&L total until Finance assigns a group; none is assigned automatically`,
           concentration: "Largest ledgers are listed in the drill", age: `Run ${pnl.stamp.runId}`, cta: "Review ledgers", severity: "medium", family: "recon",
           origin: origin("unmapped_ledgers", "Unmapped P&L ledgers", "recon", null), evidence: ev(pnl.stamp, "excluded_unmapped"),
@@ -541,10 +627,10 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       const bps = cur && prev ? Math.round((n(cur) - n(prev)) * 100) : null;
       if (bps !== null && bps < 0 && ly?.current) {
         out.push({
-          id: "gm_decline", problem: `Gross margin is ${Math.abs(bps)} bps below last year`, amount: { value: rupToCr(pnl.data.totals.gross_margin) },
-          driver: `${pct1(n(cur))} against ${pct1(n(prev))} over ${monthsText(ly.period.from_month, ly.period.to_month)} (complete months); amount shown is gross margin to date`,
-          concentration: "Store-level margins are on the Profitability page", age: `Run ${pnl.stamp.runId}`, cta: "Open drill", severity: sevOfGm(bps), family: "margin",
-          origin: origin("gm_decline", "Gross margin vs last year", "margin", rupToCr(pnl.data.totals.gross_margin)), evidence: ev(pnl.stamp, "comparison.current / last_year gross_margin_pct"),
+          id: "gm_decline", problem: `${T.materialMargin} is ${Math.abs(bps)} bps below ${T.ly}`, amount: { value: rupToCr(pnl.data.totals.gross_margin) },
+          driver: `${pct1(n(cur))} against ${pct1(n(prev))} over ${monthsText(ly.period.from_month, ly.period.to_month)} (complete months, books basis); amount shown is ${T.materialMargin} to date`,
+          concentration: "Store-level Gross Margin is on the Profitability page", age: `Run ${pnl.stamp.runId}`, cta: "Open drill", severity: sevOfGm(bps), family: "margin",
+          origin: origin("gm_decline", `${T.materialMargin} vs ${T.ly}`, "margin", rupToCr(pnl.data.totals.gross_margin)), evidence: ev(pnl.stamp, "comparison.current / last_year gross_margin_pct"),
         });
       }
     }
@@ -592,13 +678,14 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
 
   /* ───────────── drill: real splits from the live sources ───────────── */
 
-  type Key = "sales" | "gm" | "contribution" | "cogs" | "opex" | "unmapped" | "till" | "creditors" | "negtill";
+  type Key = "sales" | "gm" | "contribution" | "cogs" | "opex" | "corp" | "unmapped" | "till" | "creditors" | "negtill";
   const KEY_OF: Record<string, Key> = {
     "pulse:revenue": "sales", "hero:profit:net_sales": "sales",
     "pulse:gm": "gm", "hero:profit:gross_margin": "gm", "risk:gm": "gm", "action:gm_decline": "gm",
     "pulse:profit": "contribution", "hero:profit:contribution": "contribution",
-    "hero:profit:cogs": "cogs", "hero:profit:cogs_books": "cogs",
+    "hero:profit:cogs": "cogs", "hero:profit:cogs_books": "cogs", "hero:profit:other_operating_income": "gm",
     "hero:profit:store_opex": "opex",
+    "hero:profit:dc_cost": "corp", "hero:profit:ho_cost": "corp", "hero:profit:corporate_ebitda": "corp",
     "risk:recon": "unmapped", "action:unmapped_ledgers": "unmapped",
     "pulse:cash": "till", "liquidity:current": "till", "risk:liquidity": "till", "action:negative_till": "negtill",
     "pulse:creditors": "creditors", "risk:payables": "creditors", "action:past_due": "creditors", "action:due_missing": "creditors", "wc:creditors": "creditors",
@@ -652,6 +739,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       case "contribution":
       case "cogs":
       case "opex":
+      case "corp":
         return pnlDrill(ctx, key, origin, last);
       case "unmapped":
         return unmappedDrill(ctx, origin, last);
@@ -666,13 +754,20 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
   async function pnlDrill(ctx: QueryCtx, key: Key, origin: DrillOrigin, last?: DrillNode): Promise<Envelope<DrillView>> {
     const pnl = await readPnl(ctx.period);
     if (!pnl.ok) throw new ApiError(`The P&L source could not be read: ${pnl.error}`, 502);
+    const mgmt = await readMgmt(ctx.period);
+    const mg = mgmt && mgmt.ok ? mgmt.data : null;
     const s = pnl.data;
     const t = s.totals;
     const sales = rupToCr(t.revenue) ?? 0;
-    const sources = [pnl.stamp];
+    const sources = mg && mgmt ? [mgmt.stamp, pnl.stamp] : [pnl.stamp];
     const span = monthsText(s.scope.from_month, s.scope.to_month);
     const base = { sources, links: PROFIT_LINK, comparisonLabel: "" };
     const asOf = pnl.stamp.asOf ?? oldest([pnl.stamp]);
+    /* the drill detail is the books basis; the Management P&L adds the adjustment layer, shown as facts so the bar and its drill agree */
+    const MG_LINE: Partial<Record<Key, string>> = { sales: "revenue", gm: "material_margin", contribution: "store_ebitda", cogs: "material_cost", opex: "total_store_expenses", corp: "corporate_ebitda" };
+    const mTrip = mg && MG_LINE[key] ? mline(mg, MG_LINE[key] as string) : null;
+    const mFacts = mTrip && mTrip.total !== null ? [{ label: "Management P&L total", value: fmtCr(mTrip.total) }, { label: "Books", value: fmtCr(mTrip.book) }, { label: "Management adjustments", value: fmtCr(mTrip.adjustment, { signed: true }) }] : [];
+    const bookNote = ` ${BOOKS_BASIS_NOTE}`;
 
     if (last) {
       // second level: one expense group, one store, or one component
@@ -680,16 +775,16 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
         const line = s.lines.find((l) => l.section === "STORE_OPEX" && l.group_label === last.id.slice("Expense group:".length));
         if (!line) return unavailable("That expense group is no longer in the run.", asOf);
         const amt = Math.abs(rupToCr(line.amount) ?? 0);
-        return ok(blank({ ...base, title: line.group_label, levelLabel: "Expense group", amount: -amt, explanation: `${span}. This group is ${pct1((amt * 100) / sales)} of net sales. Ledger-level detail is on the Profitability page.`, terminal: true, entityKind: "account", facts: [{ label: "Amount", value: fmtCr(-amt) }, { label: "Ledgers", value: String(line.ledgers) }, { label: "Share of net sales", value: pct1((amt * 100) / sales) }, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
+        return ok(blank({ ...base, title: line.group_name ?? groupName(line.group_label), levelLabel: "Expense group", amount: -amt, explanation: `${span}. This group (${line.group_label}) is ${pct1((amt * 100) / sales)} of ${T.revenue}. Ledger-level detail is on the Profitability page.${bookNote}`, terminal: true, entityKind: "account", facts: [{ label: "Amount", value: fmtCr(-amt) }, { label: "Ledgers", value: String(line.ledgers) }, { label: `Share of ${T.revenue}`, value: pct1((amt * 100) / sales) }, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
       }
       if (last.dim === "Top store") {
         const page = await memo(`pnl:stores:${pnl.stamp.runId}:${ctx.period}`, () => c.pnl.stores(pnl.stamp.runId as string, { basis: "all", from_month: PERIOD_MONTHS[ctx.period][0], to_month: PERIOD_MONTHS[ctx.period][1] }, { sort: "revenue", order: "desc", limit: 10 }));
         const st = page.stores.find((x) => `Top store:${x.site_code}` === last.id);
         if (!st) return unavailable("That store is no longer in the top list.", asOf);
-        return ok(blank({ ...base, title: st.store_name ?? `Site ${st.site_code}`, levelLabel: "Store", amount: rupToCr(st.revenue), explanation: `${span}. Net sales ex-GST for this store; open Profitability for the full store P&L.`, terminal: true, entityKind: "store", facts: storeFacts(st) }), asOf);
+        return ok(blank({ ...base, title: st.store_name ?? `Site ${st.site_code}`, levelLabel: "Store", amount: rupToCr(st.revenue), explanation: `${span}. ${T.revenue} (ex-GST) for this store; open Profitability for the full store P&L.`, terminal: true, entityKind: "store", facts: storeFacts(st) }), asOf);
       }
       if (last.dim === "Component") {
-        return ok(blank({ ...base, title: last.label, levelLabel: "Component", amount: last.amount, explanation: `${span}. ${last.label} as read from the P&L run; the bridge on the page shows how it feeds contribution.`, terminal: true, facts: [{ label: "Amount", value: fmtCr(last.amount) }, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
+        return ok(blank({ ...base, title: last.label, levelLabel: "Component", amount: last.amount, explanation: `${span}. ${last.label} as read from the P&L run (books basis); the bridge on the page shows how it feeds Store EBITDA.`, terminal: true, facts: [{ label: "Amount", value: fmtCr(last.amount) }, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
       }
       return unavailable("No further real breakdown exists for this selection.", asOf);
     }
@@ -705,32 +800,39 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
         split.other = { count: more, amount: amt, delta: amt };
       }
       const topShare = rows.slice(0, 5).reduce((a, r) => a + r.amount, 0) / (sales || 1);
-      return ok(blank({ ...base, title: "Net sales", levelLabel: "Real data · P&L", amount: sales, explanation: `${span}${s.scope.partial_last_month ? " (last month partial)" : ""}. Net sales ex-GST across ${s.stores_in_scope} stores, ${s.scope.basis_label.toLowerCase()}. Stores are ranked by net sales; the rest is stated as other.`, concentration: { headline: `Top 5 stores hold ${pct1(topShare * 100)} of net sales`, topShares: rows.slice(0, 5).map((r) => r.share) }, splits: [{ dim: "Top store", rows: split.rows, other: split.other }], facts: [{ label: "Stores in scope", value: String(s.stores_in_scope) }, { label: "Basis", value: s.scope.basis_label }, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
+      return ok(blank({ ...base, title: T.revenue, levelLabel: "Real data · P&L", amount: sales, explanation: `${span}${s.scope.partial_last_month ? " (last month partial)" : ""}. ${T.revenue} (ex-GST) across ${s.stores_in_scope} stores, ${s.scope.basis_label.toLowerCase()}. Stores are ranked by ${T.revenue}; the rest is stated as other.`, concentration: { headline: `Top 5 stores hold ${pct1(topShare * 100)} of ${T.revenue}`, topShares: rows.slice(0, 5).map((r) => r.share) }, splits: [{ dim: "Top store", rows: split.rows, other: split.other }], facts: [{ label: "Stores in scope", value: String(s.stores_in_scope) }, { label: "Basis", value: s.scope.basis_label }, ...mFacts, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
     }
     if (key === "cogs") {
-      const rows = [comp("cogs", "COGS (COGS table)", rupToCr(t.cogs) ?? 0), comp("cogs_books", "Other COGS items (books)", rupToCr(t.cogs_books) ?? 0)];
-      return ok(blank({ ...base, title: "Cost of goods sold", levelLabel: "Real data · P&L", amount: rupToCr(t.cogs), explanation: `${span}. COGS comes from the COGS table, which runs to ${fmtDate(s.flags.cogs_through)} while the books run to ${fmtDate(s.flags.books_through)}. ${s.flags.cogs_has_no_posting_status}`, splits: [{ dim: "Component", rows }], facts: [{ label: "COGS lags books", value: s.flags.cogs_lags_books ? "Yes" : "No" }, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
+      const rows = [comp("cogs", `${T.materialCost} (COGS table)`, rupToCr(t.cogs) ?? 0), comp("cogs_books", "Other material cost items (books)", rupToCr(t.cogs_books) ?? 0)];
+      return ok(blank({ ...base, title: T.materialCost, levelLabel: "Real data · P&L", amount: rupToCr(t.cogs), explanation: `${span}. ${T.materialCost} comes from the COGS table, which runs to ${fmtDate(s.flags.cogs_through)} while the books run to ${fmtDate(s.flags.books_through)}. ${s.flags.cogs_has_no_posting_status}${mTrip ? " The Management P&L adds the 1% shrinkage provision and other adjustments." : ""}`, splits: [{ dim: "Component", rows }], facts: [{ label: `${T.materialCost} lags books`, value: s.flags.cogs_lags_books ? "Yes" : "No" }, ...mFacts, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
     }
     if (key === "opex") {
       const lines = s.lines.filter((l) => l.section === "STORE_OPEX");
       const total = Math.abs(rupToCr(t.opex) ?? 0);
-      const rows = lines.map((l) => row("Expense group", l.group_label, l.group_label, Math.abs(rupToCr(l.amount) ?? 0), total, { sublabel: `${l.ledgers} ledger${l.ledgers === 1 ? "" : "s"}` }));
+      const rows = lines.map((l) => row("Expense group", l.group_label, l.group_name ?? groupName(l.group_label), Math.abs(rupToCr(l.amount) ?? 0), total, { sublabel: `${l.ledgers} ledger${l.ledgers === 1 ? "" : "s"}` }));
       const split = topRows(rows, total, 10);
-      return ok(blank({ ...base, title: "Store operating expenses", levelLabel: "Real data · P&L", amount: rupToCr(t.opex), explanation: `${span}. Store operating expenses by group, ${t.opex_pct === null ? DASH : pct1(n(t.opex_pct))} of net sales. Group sizes are shown as positive costs.`, concentration: { headline: `Largest group: ${split.rows[0]?.node.label ?? DASH} at ${pct1((split.rows[0]?.share ?? 0) * 100)} of store opex`, topShares: split.rows.slice(0, 5).map((r) => r.share) }, splits: [{ dim: "Expense group", rows: split.rows, other: split.other }], facts: [{ label: "Groups", value: String(lines.length) }, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
+      return ok(blank({ ...base, title: T.storeExpenses, levelLabel: "Real data · P&L", amount: rupToCr(t.opex), explanation: `${span}. ${T.storeExpenses} (STORES location) by group, ${t.opex_pct === null ? DASH : pct1(n(t.opex_pct))} of ${T.revenue}. Group sizes are shown as positive costs.${bookNote}`, concentration: { headline: `Largest group: ${split.rows[0]?.node.label ?? DASH} at ${pct1((split.rows[0]?.share ?? 0) * 100)} of ${T.storeExpenses}`, topShares: split.rows.slice(0, 5).map((r) => r.share) }, splits: [{ dim: "Expense group", rows: split.rows, other: split.other }], facts: [{ label: "Groups", value: String(lines.length) }, ...mFacts, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
+    }
+    if (key === "corp") {
+      const dc = rupToCr(t.dc_cost) ?? 0;
+      const ho = rupToCr(t.ho_cost) ?? 0;
+      const rows = [comp("contribution", T.storeEbitda, rupToCr(t.contribution) ?? 0), comp("dc_cost", T.dcCost, dc), comp("ho_cost", T.hoCost, ho)];
+      const mgCorp = mg ? mline(mg, "corporate_ebitda") : null;
+      return ok(blank({ ...base, title: T.corporateEbitda, levelLabel: "Real data · P&L", amount: mgCorp?.total ?? rupToCr(t.corporate_ebitda), explanation: `${span}. ${T.corporateEbitda} is ${T.storeEbitda} less ${T.dcCost} and ${T.hoCost} (${T.corporateCost} ${fmtCr(dc + ho)}). The components below are the books basis; ${mgCorp ? "the Management P&L figure includes management adjustments and the Citykart Ventures cost." : BOOKS_BASIS_NOTE}`, splits: [{ dim: "Component", rows }], facts: [...mFacts, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
     }
     if (key === "gm") {
-      const rows = [comp("net_sales", "Net sales", sales), comp("cogs", "COGS", -(rupToCr(t.cogs) ?? 0)), comp("cogs_books", "Other COGS items (books)", rupToCr(t.cogs_books) ?? 0)];
+      const rows = [comp("net_sales", T.revenue, sales), comp("cogs", T.materialCost, -(rupToCr(t.cogs) ?? 0)), comp("cogs_books", "Other material cost items (books)", rupToCr(t.cogs_books) ?? 0), comp("ooi", T.otherOperatingIncome, rupToCr(t.other_operating_income) ?? 0)];
       const { ly, label } = lastYear({ ...ctx, comparison: "ly" }, s);
-      return ok(blank({ ...base, title: "Gross margin", levelLabel: "Real data · P&L", amount: rupToCr(t.gross_margin), explanation: `${span}. Gross margin is ${t.gross_margin_pct === null ? DASH : pct1(n(t.gross_margin_pct))} of net sales.${ly?.last_year ? ` Over complete months it was ${pct1(n(ly.current.gross_margin_pct))} against ${pct1(n(ly.last_year.gross_margin_pct))} last year.` : " No last-year comparison is available."} Budget is not available.`, splits: [{ dim: "Component", rows }], facts: [{ label: "Comparison", value: label }, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
+      return ok(blank({ ...base, title: T.materialMargin, levelLabel: "Real data · P&L", amount: rupToCr(t.gross_margin), explanation: `${span}. ${T.materialMargin} is ${t.gross_margin_pct === null ? DASH : pct1(n(t.gross_margin_pct))} of ${T.revenue} on the books basis.${ly?.last_year ? ` Over complete months it was ${pct1(n(ly.current.gross_margin_pct))} against ${pct1(n(ly.last_year.gross_margin_pct))} ${T.ly}.` : ` No ${T.ly} comparison is available.`} ${T.aop} is not available.${bookNote}`, splits: [{ dim: "Component", rows }], facts: [{ label: "Comparison", value: label }, ...mFacts, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
     }
     // contribution
-    const rows = [comp("gross_margin", "Gross margin", rupToCr(t.gross_margin) ?? 0), comp("store_opex", "Store operating expenses", rupToCr(t.opex) ?? 0)];
-    return ok(blank({ ...base, title: "Store contribution", levelLabel: "Real data · P&L", amount: rupToCr(t.contribution), explanation: `${span}. ${s.flags.contribution_definition} Other income ${fmtCr(rupToCr(t.other_income))} and finance cost ${fmtCr(rupToCr(t.finance_cost))} sit below it.`, splits: [{ dim: "Component", rows }], facts: [{ label: "Contribution margin", value: t.contribution_pct === null ? DASH : pct1(n(t.contribution_pct)) }, { label: "After other income and finance cost", value: fmtCr(rupToCr(s.below_contribution.after_below_the_line)) }, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
+    const rows = [comp("gross_margin", T.materialMargin, rupToCr(t.gross_margin) ?? 0), comp("store_opex", T.storeExpenses, rupToCr(t.opex) ?? 0)];
+    return ok(blank({ ...base, title: T.storeEbitda, levelLabel: "Real data · P&L", amount: rupToCr(t.contribution), explanation: `${span}. ${s.flags.contribution_definition} Interest income ${fmtCr(rupToCr(t.interest_income ?? t.other_income))} and finance cost ${fmtCr(rupToCr(t.finance_cost))} sit below Corporate EBITDA.${bookNote}`, splits: [{ dim: "Component", rows }], facts: [{ label: `${T.storeEbitda} margin`, value: t.contribution_pct === null ? DASH : pct1(n(t.contribution_pct)) }, { label: `After ${T.dcCost}, ${T.hoCost}, interest income and finance cost`, value: fmtCr(rupToCr(s.below_contribution.after_below_the_line)) }, ...mFacts, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
   }
 
   const storeFacts = (st: PnlStoreRow) => [
-    { label: "Net sales", value: fmtCr(rupToCr(st.revenue)) },
-    { label: "Contribution", value: fmtCr(rupToCr(st.contribution)) },
+    { label: T.revenue, value: fmtCr(rupToCr(st.revenue)) },
+    { label: T.fourWall, value: fmtCr(rupToCr(st.contribution)) },
     { label: "Region", value: st.region ?? DASH },
     { label: "State", value: st.state ?? DASH },
   ];
@@ -751,7 +853,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
     }
     const rows = u.ledgers.map((l) => row("Ledger", l.glcode, l.ledger_name, Math.abs(rupToCr(l.net) ?? 0), gross, { sublabel: `${n(l.net) < 0 ? "net debit" : "net credit"} · ${l.sites} sites` }));
     const split = topRows(rows, gross, 10);
-    return ok(blank({ ...base, title: "Unmapped P&L ledgers", levelLabel: "Real data · P&L", amount: null, explanation: `${u.count} of ${u.run_ledgers} ledgers in the run need Finance classification. ${u.explanation} Sizes below are absolute net movement per ledger; no single exposure is stated because purchases and stock transfers reach the P&L through COGS.`, splits: [{ dim: "Ledger", rows: split.rows, other: split.other }], facts: [{ label: "Ledgers needing mapping", value: String(u.count) }, { label: "Ledgers in run", value: String(u.run_ledgers) }, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
+    return ok(blank({ ...base, title: "Unmapped P&L ledgers", levelLabel: "Real data · P&L", amount: null, explanation: `${u.count} of ${u.run_ledgers} ledgers in the run need Finance classification. ${u.explanation} Sizes below are absolute net movement per ledger; no single exposure is stated.`, splits: [{ dim: "Ledger", rows: split.rows, other: split.other }], facts: [{ label: "Ledgers needing mapping", value: String(u.count) }, { label: "Ledgers in run", value: String(u.run_ledgers) }, { label: "Run", value: stampText(pnl.stamp) }] }), asOf);
   }
 
   async function tillDrill(key: Key, origin: DrillOrigin, last?: DrillNode): Promise<Envelope<DrillView>> {

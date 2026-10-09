@@ -47,16 +47,17 @@ def controls(conn, run_id: str) -> dict:
             "total": sum(r["total"] for r in rows), "passed": sum(r["passed"] for r in rows), "failed": sum(r["total"] - r["passed"] for r in rows)}
 
 
-def entry(conn, run_id: str, ref: str, finance: bool = False) -> dict | None:
-    h = conn.execute("SELECT entry_ref, site_code, entry_type_short, entry_type_long, entry_date, release_status, line_count, total_dr, total_cr, selections FROM entry.v_entry_header WHERE entry_run_id = %s AND entry_ref = %s", (run_id, ref)).fetchone()
+def entry(conn, run_id: str, ref: str, finance: bool = False, entity: str = "RETAIL") -> dict | None:
+    sfx = "_vn" if entity == "VENTURES" else ""     # HoldCo copies of the entry relations (gold/entry.py)
+    h = conn.execute(f"SELECT entry_ref, site_code, entry_type_short, entry_type_long, entry_date, release_status, line_count, total_dr, total_cr, selections FROM entry.v_entry_header{sfx} WHERE entry_run_id = %s AND entry_ref = %s", (run_id, ref)).fetchone()
     if h is None:
         return None
-    lines = conn.execute("SELECT line_no, ledger_code, ledger_name, ledger_nature, sub_ledger_ref, debit, credit, release_status, cube_name FROM entry.v_entry_line WHERE entry_run_id = %s AND entry_ref = %s ORDER BY line_no", (run_id, ref)).fetchall()
-    bills = conn.execute("SELECT source_row_key AS item_ref, link_status, coverage FROM entry.v_creditor_bill_link WHERE entry_run_id = %s AND entry_ref = %s ORDER BY source_row_key", (run_id, ref)).fetchall()
+    lines = conn.execute(f"SELECT line_no, ledger_code, ledger_name, ledger_nature, sub_ledger_ref, debit, credit, release_status, cube_name FROM entry.v_entry_line{sfx} WHERE entry_run_id = %s AND entry_ref = %s ORDER BY line_no", (run_id, ref)).fetchall()
+    bills = [] if sfx else conn.execute("SELECT source_row_key AS item_ref, link_status, coverage FROM entry.v_creditor_bill_link WHERE entry_run_id = %s AND entry_ref = %s ORDER BY source_row_key", (run_id, ref)).fetchall()
     out = {**h, "lines": lines, "balanced": h["total_dr"] == h["total_cr"], "linked_bills": bills, "attachment": NO_ATTACHMENT}
     if finance:
-        ident = conn.execute("SELECT site_code, entry_type_short, entry_no, created_by_site FROM entry.v_entry_identity WHERE entry_run_id = %s AND entry_ref = %s", (run_id, ref)).fetchone()
-        text = {r["line_no"]: r for r in conn.execute("SELECT * FROM entry.v_entry_line_text WHERE entry_run_id = %s AND entry_ref = %s", (run_id, ref)).fetchall()}
+        ident = conn.execute(f"SELECT site_code, entry_type_short, entry_no, created_by_site FROM entry.v_entry_identity{sfx} WHERE entry_run_id = %s AND entry_ref = %s", (run_id, ref)).fetchone()
+        text = {r["line_no"]: r for r in conn.execute(f"SELECT * FROM entry.v_entry_line_text{sfx} WHERE entry_run_id = %s AND entry_ref = %s", (run_id, ref)).fetchall()}
         out["identity"] = ident
         for ln in out["lines"]:
             t = text.get(ln["line_no"], {})

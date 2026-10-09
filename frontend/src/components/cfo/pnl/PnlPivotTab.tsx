@@ -7,6 +7,7 @@ import type { PnlQuery } from "@/types/pnlLive";
 import type { PivotColumn, PivotRow } from "@/types/pnlReview";
 import { Skeleton } from "../common";
 import { LiveBoundary } from "../creditors/parts";
+import { BOOKS_BASIS_NOTE, T } from "@/lib/nomenclature";
 import { Panel } from "../panels";
 import { bps, cr2, monthShort, pct, psf, tone } from "./pnlFormat";
 
@@ -18,7 +19,7 @@ function ModeToggle({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void 
     <div role="group" aria-label="Scope" className="flex overflow-hidden rounded border text-[12px]">
       {(["stores", "company"] as Mode[]).map((m) => (
         <button key={m} data-testid={`mode-${m}`} aria-pressed={mode === m} onClick={() => setMode(m)} className={cn("press px-2.5 py-1 font-medium", mode === m ? "bg-foreground text-background" : "hover:bg-muted")}>
-          {m === "stores" ? "Stores" : "Company (incl. head office)"}
+          {m === "stores" ? "Stores" : "Company (incl. DC and HO)"}
         </button>
       ))}
     </div>
@@ -69,7 +70,7 @@ export function PnlPivotTab({ q }: { q: PnlQuery }) {
       <Panel
         testId="pivot-panel"
         eyebrow="Real · verified"
-        title="P&L pivot: line × month, quarter, YTD, last year"
+        title="P&L pivot: line × month, quarter, YTD, LY"
         right={
           <div className="flex flex-wrap items-center gap-2">
             <ModeToggle mode={mode} setMode={setMode} />
@@ -107,7 +108,7 @@ export function PnlPivotTab({ q }: { q: PnlQuery }) {
                 <table className="w-full text-[12.5px]" data-testid="pivot-table" data-mode={d.mode}>
                   <thead>
                     <tr className="border-b text-[10.5px] uppercase tracking-wider text-muted-foreground">
-                      <th className="sticky left-0 z-10 min-w-[260px] bg-card px-4 py-2 text-left font-semibold">{unit === "cr" ? "₹ Cr" : "% of net sales"}</th>
+                      <th className="sticky left-0 z-10 min-w-[260px] bg-card px-4 py-2 text-left font-semibold">{unit === "cr" ? "₹ Cr" : "% of revenue"}</th>
                       {d.columns.map(colHead)}
                       <th className="whitespace-nowrap bg-[oklch(0.97_0.008_265)] px-2.5 py-2 text-right font-semibold">LY YTD<span className="block text-[9.5px] font-normal normal-case tracking-normal">day aligned</span></th>
                       <th className="whitespace-nowrap px-2.5 py-2 text-right font-semibold">Var ₹ Cr</th>
@@ -142,7 +143,7 @@ export function PnlPivotTab({ q }: { q: PnlQuery }) {
                   </tbody>
                 </table>
                 <div className="border-t px-4 py-2 text-[11.5px] text-muted-foreground" data-testid="pivot-note">
-                  {d.mode === "company" ? "Company view: every site, head office and depots included." : `${d.stores} stores.`} {d.ly_ytd_note} Costs are negative. {d.unmapped_note} Budget: not available.
+                  {d.mode === "company" ? "Company view: every site; DC cost and HO cost are separate lines below Store EBITDA." : `${d.stores} stores.`} {d.ly_ytd_note} Costs are negative. {d.unmapped_note} {BOOKS_BASIS_NOTE} AOP: not available.
                   Click an expense group for its ledgers.
                 </div>
               </div>
@@ -163,11 +164,11 @@ function Spark({ values }: { values: (number | null)[] }) {
   return <svg width={W} height={H} aria-hidden><polyline points={pts} fill="none" stroke="oklch(0.45 0.12 255)" strokeWidth={1.6} /></svg>;
 }
 
-/** Every expense: ₹, % of sales, last year's %, change in basis points, ₹ per sq ft per month (this year and last), trend. */
+/** Every expense: ₹, % of sales, LY's %, change in basis points, ₹ per sq ft per month (this year and last), trend. */
 export function ExpenseLinesPanel({ q }: { q: PnlQuery }) {
   const e = usePnlExpenses(q);
   return (
-    <Panel testId="expense-panel" eyebrow="Real · verified" title="Expense lines: ₹, % of sales, bps vs last year, PSF">
+    <Panel testId="expense-panel" eyebrow="Real · verified" title="Expense lines: ₹, % of sales, bps vs LY, PSF">
       <LiveBoundary query={e} skeleton={<Skeleton className="m-4 h-[260px]" />}>
         {(d) => (
           <div className="overflow-x-auto">
@@ -201,7 +202,7 @@ export function ExpenseLinesPanel({ q }: { q: PnlQuery }) {
             </table>
             <div className="border-t px-4 py-2 text-[11.5px] text-muted-foreground" data-testid="expense-note">
               Complete months {d.months.length ? `${monthShort(d.months[0])} to ${monthShort(d.months[d.months.length - 1])}` : ""}. {d.psf_note} PSF covers {d.stores_with_area} of {d.stores} stores (the rest have no area).
-              A positive Δ bps means the cost takes more of each rupee of sales than last year.
+              A positive Δ bps means the cost takes more of each rupee of sales than LY.
             </div>
           </div>
         )}
@@ -210,19 +211,29 @@ export function ExpenseLinesPanel({ q }: { q: PnlQuery }) {
   );
 }
 
-/** MTD / QTD / YTD, this year against last year, day aligned. */
+/** MTD / QTD / YTD, this year against LY, day aligned. */
 export function PnlComparisonTab({ q }: { q: PnlQuery }) {
   const [mode, setMode] = useState<Mode>("stores");
   const c = usePnlComparison(q, mode);
-  const metrics: { id: string; label: string; money?: "revenue" | "cogs" | "gross_margin" | "opex" | "contribution"; ratio?: "gross_margin_pct" | "opex_pct" | "contribution_pct" }[] = [
-    { id: "revenue", label: "Net sales (ex-GST)", money: "revenue" },
-    { id: "cogs", label: "COGS", money: "cogs" },
-    { id: "gross_margin", label: "Gross margin ₹", money: "gross_margin" },
-    { id: "gm_pct", label: "Gross margin %", ratio: "gross_margin_pct" },
-    { id: "opex", label: "Store opex ₹", money: "opex" },
-    { id: "opex_pct", label: "Store opex % of sales", ratio: "opex_pct" },
-    { id: "contribution", label: "Contribution ₹", money: "contribution" },
-    { id: "contribution_pct", label: "Contribution %", ratio: "contribution_pct" },
+  const company = mode === "company";
+  const gm = company ? T.materialMargin : T.grossMargin;
+  const con = company ? T.storeEbitda : T.fourWall;
+  const metrics: { id: string; label: string; money?: "revenue" | "cogs" | "gross_margin" | "opex" | "contribution" | "dc_cost" | "ho_cost" | "corporate_ebitda"; ratio?: "gross_margin_pct" | "opex_pct" | "contribution_pct" }[] = [
+    { id: "revenue", label: T.revenue, money: "revenue" },
+    { id: "cogs", label: T.materialCost, money: "cogs" },
+    { id: "gross_margin", label: `${gm} ₹`, money: "gross_margin" },
+    { id: "gm_pct", label: `${gm} %`, ratio: "gross_margin_pct" },
+    { id: "opex", label: `${T.storeExpenses} ₹`, money: "opex" },
+    { id: "opex_pct", label: `${T.storeExpenses} % of revenue`, ratio: "opex_pct" },
+    { id: "contribution", label: `${con} ₹`, money: "contribution" },
+    { id: "contribution_pct", label: `${con} %`, ratio: "contribution_pct" },
+    ...(company
+      ? [
+          { id: "dc_cost", label: `${T.dcCost} ₹`, money: "dc_cost" as const },
+          { id: "ho_cost", label: `${T.hoCost} ₹`, money: "ho_cost" as const },
+          { id: "corporate_ebitda", label: `${T.corporateEbitda} ₹`, money: "corporate_ebitda" as const },
+        ]
+      : []),
   ];
   const growthOf = (w: { ty: Record<string, string | null>; ly: Record<string, string | null> | null; growth: Record<string, string | null> | null }, m: (typeof metrics)[number]) => {
     if (!w.ly || !w.growth) return DASH;
@@ -235,7 +246,7 @@ export function PnlComparisonTab({ q }: { q: PnlQuery }) {
   };
   return (
     <div className="flex flex-col gap-3 p-3" data-testid="tab-comparison-body">
-      <Panel testId="comparison-panel" eyebrow="Real · verified" title="MTD / QTD / YTD: this year against last year, day aligned" right={<ModeToggle mode={mode} setMode={setMode} />}>
+      <Panel testId="comparison-panel" eyebrow="Real · verified" title="MTD / QTD / YTD: this year against LY, day aligned" right={<ModeToggle mode={mode} setMode={setMode} />}>
         <LiveBoundary query={c} skeleton={<Skeleton className="m-4 h-[300px]" />}>
           {(d) => (
             <div className="overflow-x-auto">
@@ -261,7 +272,7 @@ export function PnlComparisonTab({ q }: { q: PnlQuery }) {
                       {d.windows.map((w) => {
                         const ty = m.ratio ? w.ty[m.ratio] : w.ty[m.money!];
                         const ly = w.ly ? (m.ratio ? w.ly[m.ratio] : w.ly[m.money!]) : null;
-                        const fmt = (v: string | null) => (m.ratio ? pct(v, false, 2) : cr2(v));
+                        const fmt = (v: string | null | undefined) => (m.ratio ? pct(v, false, 2) : cr2(v));
                         return (
                           <Fragment key={w.id}>
                             <td data-testid={`cmp-${m.id}-${w.id}-ty`} data-exact={ty ?? ""} className={cn("num-mono border-l px-3 py-1.5 text-right", !m.ratio && tone(ty))}>{fmt(ty)}</td>
@@ -275,8 +286,8 @@ export function PnlComparisonTab({ q }: { q: PnlQuery }) {
                 </tbody>
               </table>
               <div className="border-t px-4 py-2 text-[11.5px] text-muted-foreground" data-testid="comparison-note">
-                {d.note} {d.partial_month ? `The books and the COGS table are read to day ${d.aligned_days} of the as-of month, and last year to the same day.` : "The as-of month is complete."} Amounts compare in %, ratios in basis points.
-                {d.windows.some((w) => !w.ly) && " Last year is not available for a window that reaches back before the loaded history."} Budget: not available.
+                {d.note} {d.partial_month ? `The books and the Material Cost table are read to day ${d.aligned_days} of the as-of month, and LY to the same day.` : "The as-of month is complete."} Amounts compare in %, ratios in basis points.
+                {d.windows.some((w) => !w.ly) && " LY is not available for a window that reaches back before the loaded history."} AOP: not available.
               </div>
             </div>
           )}

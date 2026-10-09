@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
 import type { PnlStoreRow } from "@/types/pnlLive";
 
 /**
- * Growth x contribution margin. x = sales growth against the same complete months last year, y = contribution % of net sales, bubble = net sales.
- * The reference lines are the VIEW'S OWN growth and contribution margin (the whole company, or the filtered stores), so a quadrant means "better or worse than the network":
+ * Growth x 4-Wall EBITDA margin. x = Y-o-Y Growth against the same complete months LY, y = 4-Wall EBITDA % of revenue, bubble = revenue.
+ * The reference lines are the VIEW'S OWN growth and 4-Wall EBITDA margin (the whole company, or the filtered stores), so a quadrant means "better or worse than the network":
  *   strong        growing faster than the network AND earning more than the network
  *   scale         growing faster but earning less (growth is being bought with margin)
  *   mature        earning more but growing slower
@@ -31,8 +31,8 @@ export interface Plotted {
 }
 
 /**
- * The reference lines: the like-for-like growth and the contribution margin of the very stores that are plotted (so a dot is compared with its peers, not with a network average
- * that includes stores too new to have a last year). Growth is last year's sales weighted: sum(LY x (1 + g)) / sum(LY) - 1, the same complete months for every store.
+ * The reference lines: the like-for-like growth and the 4-Wall EBITDA margin of the very stores that are plotted (so a dot is compared with its peers, not with a network average
+ * that includes stores too new to have a LY). Growth is LY's sales weighted: sum(LY x (1 + g)) / sum(LY) - 1, the same complete months for every store.
  */
 export function reference(stores: PnlStoreRow[]): { growth: number; margin: number } {
   let ly = 0, cur = 0, rev = 0, con = 0;
@@ -96,7 +96,7 @@ export function GrowthMarginQuadrant({ stores, refGrowth, refMargin, onPick, pic
           </button>
         ))}
       </div>
-      <svg role="img" aria-label="Stores by sales growth and contribution margin" width={W} height={height} className="block">
+      <svg role="img" aria-label="Stores by Y-o-Y Growth and 4-Wall EBITDA margin" width={W} height={height} className="block">
         <rect x={x(refGrowth)} y={M.t} width={M.l + iw - x(refGrowth)} height={y(refMargin) - M.t} fill="oklch(0.96 0.04 155)" opacity={0.6} />
         <rect x={M.l} y={y(refMargin)} width={x(refGrowth) - M.l} height={M.t + ih - y(refMargin)} fill="oklch(0.96 0.04 25)" opacity={0.55} />
         <line x1={x(refGrowth)} x2={x(refGrowth)} y1={M.t} y2={M.t + ih} stroke={INK} strokeDasharray="4 3" data-testid="ref-growth" data-value={refGrowth.toFixed(4)} />
@@ -105,8 +105,8 @@ export function GrowthMarginQuadrant({ stores, refGrowth, refMargin, onPick, pic
         {[mLo, 0, mHi].map((v) => (
           <g key={`my${v}`}><line x1={M.l} x2={M.l + iw} y1={y(v)} y2={y(v)} stroke={GRID} /><text x={M.l - 6} y={y(v) + 4} textAnchor="end" fontSize={10.5} fill={INK}>{`${v.toFixed(0)}%`}</text></g>
         ))}
-        <text x={M.l + iw / 2} y={height - 6} textAnchor="middle" fontSize={11} fill={INK}>Sales growth vs last year (complete months)</text>
-        <text transform={`translate(11 ${M.t + ih / 2}) rotate(-90)`} textAnchor="middle" fontSize={11} fill={INK}>Contribution % of sales</text>
+        <text x={M.l + iw / 2} y={height - 6} textAnchor="middle" fontSize={11} fill={INK}>Y-o-Y Growth vs LY (complete months)</text>
+        <text transform={`translate(11 ${M.t + ih / 2}) rotate(-90)`} textAnchor="middle" fontSize={11} fill={INK}>4-Wall EBITDA % of revenue</text>
         <text x={M.l + iw - 4} y={M.t + 12} textAnchor="end" fontSize={11} fontWeight={600} fill={QUADS[0].colour}>Strong</text>
         <text x={M.l + iw - 4} y={M.t + ih - 6} textAnchor="end" fontSize={11} fontWeight={600} fill={QUADS[1].colour}>Scale, thin margin</text>
         <text x={M.l + 4} y={M.t + 12} fontSize={11} fontWeight={600} fill={QUADS[2].colour}>Mature earners</text>
@@ -118,14 +118,14 @@ export function GrowthMarginQuadrant({ stores, refGrowth, refMargin, onPick, pic
             <circle key={p.s.site_code} data-testid={`dot-${p.s.site_code}`} data-quad={p.quad} data-edge={edge ? "1" : "0"} cx={x(p.g)} cy={y(p.m)} r={r(p.rev)} fill={QUADS.find((qd) => qd.id === p.quad)!.colour}
               fillOpacity={dim ? 0.12 : 0.62} stroke={picked === p.s.site_code ? "black" : edge ? "oklch(0.35 0.02 260)" : "white"} strokeWidth={picked === p.s.site_code ? 2 : edge ? 1.6 : 0.8} strokeDasharray={edge ? "2 2" : undefined} className="cursor-pointer" onClick={() => onPick(p.s.site_code)}
               onMouseEnter={() => setHover(p.s.site_code)} onMouseLeave={() => setHover(null)}>
-              <title>{`${p.s.store_name ?? `Site ${p.s.site_code}`}: growth ${fmtPct(p.g, { signed: true })}, contribution ${fmtPct(p.m)}, net sales ${fmtCr(p.rev)}${edge ? " (plotted on the edge: off the scale)" : ""}`}</title>
+              <title>{`${p.s.store_name ?? `Site ${p.s.site_code}`}: growth ${fmtPct(p.g, { signed: true })}, 4-Wall EBITDA ${fmtPct(p.m)}, revenue ${fmtCr(p.rev)}${edge ? " (plotted on the edge: off the scale)" : ""}`}</title>
             </circle>
           );
         })}
       </svg>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2 text-[11.5px] text-muted-foreground" data-testid="quadrant-note">
         <span>
-          Reference lines are the like-for-like growth ({fmtPct(refGrowth, { signed: true })}) and the contribution margin ({fmtPct(refMargin)}) of the plotted stores themselves. Bubble size is net sales. {offScale > 0 && <span data-testid="quadrant-offscale">{offScale} are drawn on the edge because they are off the scale (hover for their figures). </span>}{unplotted > 0 && <span data-testid="quadrant-unplotted">{unplotted} stores are not plotted: no comparable last-year months, or below the sales floor.</span>}
+          Reference lines are the like-for-like growth ({fmtPct(refGrowth, { signed: true })}) and the 4-Wall EBITDA margin ({fmtPct(refMargin)}) of the plotted stores themselves. Bubble size is revenue. {offScale > 0 && <span data-testid="quadrant-offscale">{offScale} are drawn on the edge because they are off the scale (hover for their figures). </span>}{unplotted > 0 && <span data-testid="quadrant-unplotted">{unplotted} stores are not plotted: no comparable last-year months, or below the sales floor.</span>}
         </span>
       </div>
     </div>

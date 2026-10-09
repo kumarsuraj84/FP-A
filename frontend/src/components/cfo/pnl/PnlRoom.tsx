@@ -4,6 +4,7 @@ import { CheckCircle2, ChevronRight, X } from "lucide-react";
 import { usePnlExpenseExceptions, usePnlHierarchy, usePnlLedgers, usePnlReconciliation, usePnlRevenueExceptions, usePnlRun, usePnlStore, usePnlStores, usePnlSummary, usePnlTrend } from "@/api/pnlLiveHooks";
 import { fmtDate } from "@/lib/format";
 import { DASH, fmtCr, fmtPct } from "@/lib/format";
+import { BOOKS_BASIS_NOTE, T, groupName, vintageLabel } from "@/lib/nomenclature";
 import { cn } from "@/lib/utils";
 import type { Basis, PnlLine, PnlMoney, PnlQuery, PnlStoreRow } from "@/types/pnlLive";
 import { Skeleton } from "../common";
@@ -18,13 +19,14 @@ import { AppLink } from "../entry/parts";
 import { ledgerListHref } from "@/lib/entryLinks";
 
 /**
- * Store P&L actuals, on REAL data (the verified pnl mart).
+ * Store P&L actuals, on REAL data (the verified pnl mart), in the finance MIS vocabulary (docs/NOMENCLATURE.md). Books basis, before management adjustments.
  *
- *   Net sales      books, ex-GST (the POS value includes GST; the books do not)
- *   COGS           the COGS table (it has no posted / unposted split)
- *   Store opex     books
- *   Contribution   gross margin + store opex: BEFORE other income, finance cost and any head-office allocation
- * Budget is not available and is shown blank. Ledgers the finance mapping does not know are excluded from every total and listed on the reconciliation panel.
+ *   Revenue from operations  books, ex-GST (the POS value includes GST; the books do not)
+ *   Material Cost            the COGS table (it has no posted / unposted split)
+ *   Store Expenses           books, STORES location only
+ *   Store EBITDA             Material Margin (Gross Margin per store) less Store Expenses: BEFORE DC cost, HO cost, interest income and finance cost
+ *   Corporate EBITDA         Store EBITDA less DC cost and HO cost
+ * AOP is not available and is shown blank. Ledgers neither mapping knows are excluded from every total and listed on the reconciliation panel.
  */
 
 const cr = (m: string | null | undefined) => (m === null || m === undefined ? DASH : fmtCr(Number(m) / 1e7));
@@ -34,7 +36,7 @@ const FILTERS = [
   { key: "region", label: "Region" },
   { key: "cluster", label: "Cluster" },
   { key: "state", label: "State" },
-  { key: "vintage", label: "Same / new store" },
+  { key: "vintage", label: "Store type (Same Store / Non-LFL)" },
 ] as const;
 type FilterKey = (typeof FILTERS)[number]["key"];
 
@@ -75,19 +77,23 @@ function Strip({ q, filtered }: { q: PnlQuery; filtered: boolean }) {
         const g = c?.growth;
         return (
           <section aria-label="Verified figures" data-testid="pnl-strip" className="border-b bg-card">
-            <div className="grid grid-cols-7 divide-x @max-[1500px]:grid-cols-4 @max-[1500px]:divide-y @max-[640px]:grid-cols-2">
-              <Cell testId="strip-sales" label="Net sales ex-GST" value={cr(t.revenue)} exact={t.revenue} sub={`${monthLabel(d.scope.from_month)} to ${monthLabel(d.scope.to_month)}${d.scope.partial_last_month ? " (last month partial)" : ""}`} />
-              <Cell testId="strip-gm" label="Gross margin" value={cr(t.gross_margin)} exact={t.gross_margin} sub={`${pct(t.gross_margin_pct)} of sales`} />
-              <Cell testId="strip-opex" label="Store opex" value={cr(t.opex)} exact={t.opex} sub={`${pct(t.opex_pct)} of sales`} tone="" />
-              <Cell testId="strip-contribution" label="Contribution" value={cr(t.contribution)} exact={t.contribution} sub={`${pct(t.contribution_pct)} of sales`} tone={tone(t.contribution)} />
-              <Cell testId="strip-growth" label="Sales growth vs last year" value={g ? pct(g.revenue_pct, true) : DASH} exact={g?.revenue_pct ?? undefined} sub={c ? `${monthLabel(c.period.from_month)} to ${monthLabel(c.period.to_month)} · complete months` : "no last-year data for these months"} tone={tone(g?.revenue_pct)} />
+            <div className="grid grid-cols-8 divide-x @max-[1700px]:grid-cols-4 @max-[1700px]:divide-y @max-[640px]:grid-cols-2">
+              <Cell testId="strip-sales" label={T.revenue} value={cr(t.revenue)} exact={t.revenue} sub={`${monthLabel(d.scope.from_month)} to ${monthLabel(d.scope.to_month)}${d.scope.partial_last_month ? " (last month partial)" : ""}`} />
+              <Cell testId="strip-gm" label={filtered ? T.grossMargin : T.materialMargin} value={cr(t.gross_margin)} exact={t.gross_margin} sub={`${pct(t.gross_margin_pct)} of revenue`} />
+              <Cell testId="strip-opex" label={T.storeExpenses} value={cr(t.opex)} exact={t.opex} sub={`${pct(t.opex_pct)} of revenue`} tone="" />
+              <Cell testId="strip-contribution" label={filtered ? T.fourWall : T.storeEbitda} value={cr(t.contribution)} exact={t.contribution} sub={`${pct(t.contribution_pct)} of revenue`} tone={tone(t.contribution)} />
+              {filtered
+                ? <Cell testId="strip-corporate" label="DC and HO cost" value="Company level" sub="not apportioned to a filtered view" tone="text-muted-foreground" />
+                : <Cell testId="strip-corporate" label={T.corporateEbitda} value={cr(t.corporate_ebitda)} exact={t.corporate_ebitda} sub={`after DC cost ${cr(t.dc_cost)} and HO cost ${cr(t.ho_cost)}`} tone={tone(t.corporate_ebitda)} />}
+              <Cell testId="strip-growth" label={`${T.yoy} vs ${T.ly}`} value={g ? pct(g.revenue_pct, true) : DASH} exact={g?.revenue_pct ?? undefined} sub={c ? `${monthLabel(c.period.from_month)} to ${monthLabel(c.period.to_month)} · complete months` : `no ${T.ly} data for these months`} tone={tone(g?.revenue_pct)} />
               <Cell testId="strip-stores" label={filtered ? "Stores in this view" : "Stores trading"} value={d.stores_in_scope.toLocaleString("en-IN")} sub={filtered ? "after the filters" : "sites with sales"} />
-              <Cell testId="strip-budget" label="Budget" value="Not available" sub="no FY26-27 plan in the sources" tone="text-muted-foreground" />
+              <Cell testId="strip-budget" label={T.aop} value="Not available" sub={`no FY26-27 ${T.aop} in the sources`} tone="text-muted-foreground" />
             </div>
             <div data-testid="strip-note" className="border-t bg-[oklch(0.985_0.006_265)] px-4 py-1.5 text-[11.5px] text-muted-foreground">
-              <span className="font-semibold text-foreground">Contribution is before other income, finance cost and head-office allocation.</span> Budget: not available (blank). {d.flags.cogs_lags_books && <>COGS runs to {fmtDate(d.flags.cogs_through)}, the books to {fmtDate(d.flags.books_through)}. </>}
+              <span className="font-semibold text-foreground">{BOOKS_BASIS_NOTE}</span> {T.storeEbitda} is {T.materialMargin} less {T.storeExpenses} (STORES location only), before {T.dcCost}, {T.hoCost}, interest income and finance cost; the 1% shrinkage provision is not in this view. {T.aop}: not available (blank). {d.flags.cogs_lags_books && <>{T.materialCost} runs to {fmtDate(d.flags.cogs_through)}, the books to {fmtDate(d.flags.books_through)}. </>}
               {d.flags.provisional_months.length > 0 && <>Provisional (unposted sales): {d.flags.provisional_months.map(monthLabel).join(", ")}. </>}
-              {d.excluded_unmapped.ledgers > 0 && <>{d.excluded_unmapped.ledgers} ledgers are {d.excluded_unmapped.label}: excluded from every total and listed under Reconciliation.</>}
+              {d.excluded_unmapped.ledgers > 0 && <>{d.excluded_unmapped.ledgers} ledgers are {d.excluded_unmapped.label}: excluded from every total and listed under Reconciliation. </>}
+              <AppLink href="/mgmt" testId="strip-mgmt-link" className="font-semibold text-primary hover:underline">Management P&amp;L</AppLink>
             </div>
           </section>
         );
@@ -130,7 +136,7 @@ function Controls({ asOf, q, setQ }: { asOf: string; q: PnlQuery; setQ: (f: (p: 
           <span className="eyebrow">{f.label}</span>
           <select aria-label={f.label} data-testid={`ctl-${f.key}`} className={sel} value={q[f.key as FilterKey] ?? ""} onChange={(e) => setQ((p) => ({ ...p, [f.key]: e.target.value || undefined }))}>
             <option value="">All</option>
-            {(hier.data?.options[f.key] ?? []).map((o) => <option key={o.value} value={o.value}>{`${o.value === "-" ? "Unassigned" : o.value} (${o.stores})`}</option>)}
+            {(hier.data?.options[f.key] ?? []).map((o) => <option key={o.value} value={o.value}>{`${f.key === "vintage" ? vintageLabel(o.value) : o.value === "-" ? "Unassigned" : o.value} (${o.stores})`}</option>)}
           </select>
         </label>
       ))}
@@ -151,7 +157,7 @@ function Controls({ asOf, q, setQ }: { asOf: string; q: PnlQuery; setQ: (f: (p: 
   );
 }
 
-const LINE_TONE: Record<PnlLine["section"], string> = { REVENUE: "", COGS_BOOKS: "", STORE_OPEX: "", OTHER_INCOME: "", FINANCE_COST: "" };
+const LINE_TONE: Record<PnlLine["section"], string> = { REVENUE: "", COGS_BOOKS: "", STORE_OPEX: "", DC_COST: "", HO_COST: "", OTHER_INCOME: "", FINANCE_COST: "" };
 
 function Lines({ lines, revenue, onGroup, selected }: { lines: PnlLine[]; revenue: string; onGroup?: (g: string) => void; selected?: string | null }) {
   const rev = Number(revenue) || 0;
@@ -175,9 +181,9 @@ function Lines({ lines, revenue, onGroup, selected }: { lines: PnlLine[]; revenu
                 <td colSpan={3} className="px-4 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">{l.section_label}</td>
               </tr>
             ),
-            <tr key={l.group_label} data-testid={`line-${l.group_label}`} data-exact={l.amount} className={cn("border-b last:border-0", onGroup && "cursor-pointer hover:bg-muted/50", selected === l.group_label && "bg-[oklch(0.95_0.025_265)]")} onClick={() => onGroup?.(l.group_label)}>
+            <tr key={`${l.section}-${l.group_label}`} data-testid={l.section === "DC_COST" || l.section === "HO_COST" ? `line-${l.section}-${l.group_label}` : `line-${l.group_label}`} data-exact={l.amount} title={l.mis_line ? `${l.group_label} · rolls up to ${l.mis_line}` : l.group_label} className={cn("border-b last:border-0", onGroup && "cursor-pointer hover:bg-muted/50", selected === l.group_label && "bg-[oklch(0.95_0.025_265)]")} onClick={() => onGroup?.(l.group_label)}>
               <td className={cn("px-4 py-1.5", LINE_TONE[l.section])}>
-                <span className="inline-flex items-center gap-1">{onGroup && <ChevronRight className="h-3 w-3 text-muted-foreground" />}{l.group_label.replace(/^\d+-/, "")}</span>
+                <span className="inline-flex items-center gap-1">{onGroup && <ChevronRight className="h-3 w-3 text-muted-foreground" />}{l.group_name ?? groupName(l.group_label)}</span>
               </td>
               <td className={cn("num-mono px-3 py-1.5 text-right", tone(l.amount))}>{cr(l.amount)}</td>
               <td className="num-mono px-3 py-1.5 text-right text-muted-foreground">{rev ? fmtPct((Number(l.amount) / rev) * 100, { digits: 2 }) : DASH}</td>
@@ -201,12 +207,12 @@ export function pnlBackHref(site: string, group: string | null, q: PnlQuery): st
 
 function LedgerDrill({ site, group, q, storeName }: { site: string; group: string; q: PnlQuery; storeName?: string | null }) {
   const l = usePnlLedgers(site, group, q);
-  const label = `Profitability · ${storeName ?? `site ${site}`} · ${group.replace(/^\d+-/, "")}`;
+  const label = `Profitability · ${storeName ?? `site ${site}`} · ${groupName(group)}`;
   const back = [{ l: label, h: pnlBackHref(site, group, q) }];
   return (
     <div data-testid="ledger-drill" className="border-t bg-[oklch(0.985_0.006_265)]">
       <div className="flex items-center justify-between px-4 py-1.5 text-[11.5px]">
-        <span className="font-semibold">{group.replace(/^\d+-/, "")}: the ledgers behind this line</span>
+        <span className="font-semibold" title={group}>{groupName(group)}: the ledgers behind this line</span>
         {l.data && <span data-testid="ledger-reconciles" className={cn("inline-flex items-center gap-1", l.data.reconciles ? "text-[oklch(0.4_0.12_155)]" : "tone-bad")}><CheckCircle2 className="h-3 w-3" /> {l.data.reconciles ? "adds up to the line" : "does not add up"}</span>}
       </div>
       <LiveBoundary query={l} skeleton={<Skeleton className="m-3 h-16" />}>
@@ -251,16 +257,16 @@ function StorePanel({ site, q, onClose, initialGroup }: { site: string; q: PnlQu
           <div className="grid grid-cols-[1.1fr_1fr] gap-0 divide-x @max-[900px]:grid-cols-1 @max-[900px]:divide-x-0">
             <div>
               <div className="flex flex-wrap gap-x-5 gap-y-1 border-b px-4 py-2 text-[12px] text-muted-foreground">
-                {[d.site.region && `Region ${d.site.region}`, d.site.cluster && `Cluster ${d.site.cluster}`, d.site.state, d.site.vintage, d.site.opening_date && `Opened ${fmtDate(d.site.opening_date)}`].filter(Boolean).map((x) => <span key={String(x)}>{x}</span>)}
+                {[d.site.region && `Region ${d.site.region}`, d.site.cluster && `Cluster ${d.site.cluster}`, d.site.state, d.site.vintage && vintageLabel(d.site.vintage), d.site.opening_date && `Opened ${fmtDate(d.site.opening_date)}`].filter(Boolean).map((x) => <span key={String(x)}>{x}</span>)}
                 <span data-testid="store-reconciles" className={cn("inline-flex items-center gap-1", d.reconciles ? "text-[oklch(0.4_0.12_155)]" : "tone-bad")}><CheckCircle2 className="h-3 w-3" />{d.reconciles ? "months and lines add up" : "does not add up"}</span>
               </div>
               <div className="grid grid-cols-4 divide-x border-b">
-                {[["Net sales", d.totals.revenue, null], ["Gross margin", d.totals.gross_margin, d.totals.gross_margin_pct], ["Store opex", d.totals.opex, d.totals.opex_pct], ["Contribution", d.totals.contribution, d.totals.contribution_pct]].map(([l, v, p]) => (
+                {[[T.revenue, d.totals.revenue, null], [T.grossMargin, d.totals.gross_margin, d.totals.gross_margin_pct], [T.storeExpenses, d.totals.opex, d.totals.opex_pct], [T.fourWall, d.totals.contribution, d.totals.contribution_pct]].map(([l, v, p]) => (
                   <div key={String(l)} className="px-3 py-2"><div className="eyebrow">{l}</div><div className={cn("num-mono text-[15px] font-semibold", tone(String(v)))} data-exact={String(v)}>{cr(String(v))}</div>{p !== null && <div className="num text-[11px] text-muted-foreground">{pct(p as string)}</div>}</div>
                 ))}
               </div>
               <table className="w-full text-[12px]" data-testid="store-months">
-                <thead><tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground"><th className="px-4 py-1.5 font-semibold">Month</th><th className="px-3 py-1.5 text-right font-semibold">Net sales</th><th className="px-3 py-1.5 text-right font-semibold">GM %</th><th className="px-3 py-1.5 text-right font-semibold">Contribution</th><th className="px-3 py-1.5 text-right font-semibold">%</th></tr></thead>
+                <thead><tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground"><th className="px-4 py-1.5 font-semibold">Month</th><th className="px-3 py-1.5 text-right font-semibold">Revenue</th><th className="px-3 py-1.5 text-right font-semibold">GM %</th><th className="px-3 py-1.5 text-right font-semibold">4-Wall EBITDA</th><th className="px-3 py-1.5 text-right font-semibold">%</th></tr></thead>
                 <tbody>
                   {d.months.map((m) => (
                     <tr key={m.month} className="border-b last:border-0"><td className="px-4 py-1">{monthLabel(m.month)}</td><td className="num-mono px-3 py-1 text-right">{cr(m.revenue)}</td><td className="num-mono px-3 py-1 text-right">{pct(m.gross_margin_pct)}</td><td className={cn("num-mono px-3 py-1 text-right", tone(m.contribution))}>{cr(m.contribution)}</td><td className="num-mono px-3 py-1 text-right text-muted-foreground">{pct(m.contribution_pct)}</td></tr>
@@ -281,14 +287,14 @@ function StorePanel({ site, q, onClose, initialGroup }: { site: string; q: PnlQu
 
 interface LeagueView { id: string; label: string; sort: string; order: "asc" | "desc"; floor: boolean; note: string }
 const VIEWS: LeagueView[] = [
-  { id: "top", label: "Top contribution", sort: "contribution", order: "desc", floor: false, note: "highest contribution ₹" },
-  { id: "bottom", label: "Bottom contribution", sort: "contribution", order: "asc", floor: false, note: "lowest contribution ₹" },
-  { id: "gm_high", label: "Highest GM %", sort: "gross_margin_pct", order: "desc", floor: true, note: "highest gross margin %" },
-  { id: "gm_low", label: "Lowest GM %", sort: "gross_margin_pct", order: "asc", floor: true, note: "lowest gross margin %" },
-  { id: "opex_high", label: "Highest opex %", sort: "opex_pct", order: "desc", floor: true, note: "highest store opex as a share of sales" },
-  { id: "grow_fast", label: "Fastest growth", sort: "growth", order: "desc", floor: true, note: "fastest sales growth vs last year" },
-  { id: "grow_down", label: "Biggest decline", sort: "growth", order: "asc", floor: true, note: "biggest sales decline vs last year" },
-  { id: "all", label: "All stores", sort: "contribution", order: "desc", floor: false, note: "every store, by contribution" },
+  { id: "top", label: "Top 4-Wall EBITDA", sort: "contribution", order: "desc", floor: false, note: "highest 4-Wall EBITDA ₹" },
+  { id: "bottom", label: "Bottom 4-Wall EBITDA", sort: "contribution", order: "asc", floor: false, note: "lowest 4-Wall EBITDA ₹" },
+  { id: "gm_high", label: "Highest GM %", sort: "gross_margin_pct", order: "desc", floor: true, note: "highest Gross Margin %" },
+  { id: "gm_low", label: "Lowest GM %", sort: "gross_margin_pct", order: "asc", floor: true, note: "lowest Gross Margin %" },
+  { id: "opex_high", label: "Highest store expenses %", sort: "opex_pct", order: "desc", floor: true, note: "highest Store Expenses as a share of revenue" },
+  { id: "grow_fast", label: "Fastest growth", sort: "growth", order: "desc", floor: true, note: "fastest Y-o-Y Growth in revenue" },
+  { id: "grow_down", label: "Biggest decline", sort: "growth", order: "asc", floor: true, note: "biggest Y-o-Y decline in revenue" },
+  { id: "all", label: "All stores", sort: "contribution", order: "desc", floor: false, note: "every store, by 4-Wall EBITDA" },
 ];
 const FLOORS = [0, 0.5, 1, 2, 5];
 
@@ -308,8 +314,8 @@ function League({ q, onPick, picked }: { q: PnlQuery; onPick: (s: string) => voi
         <div className="flex flex-wrap items-center gap-2">
           {v.floor && (
             <label className="flex items-center gap-1 text-[11.5px]" title="Percentage and growth rankings ignore very small stores">
-              <span className="eyebrow">Min net sales</span>
-              <select aria-label="Minimum net sales" data-testid="league-floor" value={floor} onChange={(e) => setFloor(Number(e.target.value))} className="h-7 rounded border bg-card px-1.5 text-[12px]">
+              <span className="eyebrow">Min revenue</span>
+              <select aria-label="Minimum revenue" data-testid="league-floor" value={floor} onChange={(e) => setFloor(Number(e.target.value))} className="h-7 rounded border bg-card px-1.5 text-[12px]">
                 {FLOORS.map((f) => <option key={f} value={f}>{f === 0 ? "none" : `₹${f} Cr`}</option>)}
               </select>
             </label>
@@ -332,11 +338,11 @@ function League({ q, onPick, picked }: { q: PnlQuery; onPick: (s: string) => voi
                   <th className="px-4 py-2 font-semibold">#</th>
                   <th className="px-3 py-2 font-semibold">Store</th>
                   <th className="px-3 py-2 font-semibold">Region · cluster</th>
-                  <th className="px-3 py-2 text-right font-semibold">Net sales</th>
+                  <th className="px-3 py-2 text-right font-semibold">Revenue</th>
                   <th className="px-3 py-2 text-right font-semibold">GM %</th>
-                  <th className="px-3 py-2 text-right font-semibold">Opex %</th>
-                  <th className="px-3 py-2 text-right font-semibold">Contribution</th>
-                  <th className="px-3 py-2 text-right font-semibold">Contrib. %</th>
+                  <th className="px-3 py-2 text-right font-semibold">Store exp. %</th>
+                  <th className="px-3 py-2 text-right font-semibold">4-Wall EBITDA</th>
+                  <th className="px-3 py-2 text-right font-semibold">4-Wall %</th>
                   <th className="px-3 py-2 text-right font-semibold">Growth</th>
                 </tr>
               </thead>
@@ -344,7 +350,7 @@ function League({ q, onPick, picked }: { q: PnlQuery; onPick: (s: string) => voi
                 {p.stores.map((s: PnlStoreRow) => (
                   <tr key={s.site_code} data-testid={`league-row-${s.site_code}`} data-exact={s.contribution} onClick={() => onPick(s.site_code)} className={cn("cursor-pointer border-b last:border-0 hover:bg-muted/50", picked === s.site_code && "bg-[oklch(0.95_0.025_265)]")}>
                     <td className="px-4 py-1.5 text-muted-foreground">{s.rank}</td>
-                    <td className="px-3 py-1.5"><span className="font-medium">{s.store_name ?? `Site ${s.site_code}`}</span><span className="ml-1.5 text-[10.5px] text-muted-foreground">#{s.site_code}</span>{s.vintage === "NEW STORE" && <span className="ml-1.5 rounded bg-secondary px-1 text-[10px] font-semibold">new</span>}</td>
+                    <td className="px-3 py-1.5"><span className="font-medium">{s.store_name ?? `Site ${s.site_code}`}</span><span className="ml-1.5 text-[10.5px] text-muted-foreground">#{s.site_code}</span>{s.vintage === "NEW STORE" && <span className="ml-1.5 rounded bg-secondary px-1 text-[10px] font-semibold" title={T.nonLfl}>Non-LFL</span>}</td>
                     <td className="px-3 py-1.5 text-muted-foreground">{[s.region, s.cluster].filter((x) => x && x !== "-").join(" · ") || DASH}</td>
                     <td className="num-mono px-3 py-1.5 text-right">{cr(s.revenue)}</td>
                     <td className="num-mono px-3 py-1.5 text-right">{pct(s.gross_margin_pct)}</td>
@@ -358,8 +364,8 @@ function League({ q, onPick, picked }: { q: PnlQuery; onPick: (s: string) => voi
               </tbody>
             </table>
             <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2 text-[11.5px] text-muted-foreground">
-              <span data-testid="league-count">{p.returned} of {p.stores_total} stores · {v.note}{v.floor && floor > 0 ? ` · stores under ₹${floor} Cr net sales left out` : ""} · growth over {monthLabel(p.growth_basis.from_month)} to {monthLabel(p.growth_basis.to_month)}, last year's same months · stores with no comparable last year come last</span>
-              <span data-testid="league-reconciles" className={cn("inline-flex items-center gap-1", p.reconciles ? "text-[oklch(0.4_0.12_155)]" : "tone-bad")}><CheckCircle2 className="h-3 w-3" />{v.floor && floor > 0 ? "ranking of the stores above the floor" : p.reconciles ? `all stores add up to ${cr(p.parent.contribution)} contribution` : "does not add up"}</span>
+              <span data-testid="league-count">{p.returned} of {p.stores_total} stores · {v.note}{v.floor && floor > 0 ? ` · stores under ₹${floor} Cr revenue left out` : ""} · growth over {monthLabel(p.growth_basis.from_month)} to {monthLabel(p.growth_basis.to_month)}, LY's same months · stores with no comparable LY come last</span>
+              <span data-testid="league-reconciles" className={cn("inline-flex items-center gap-1", p.reconciles ? "text-[oklch(0.4_0.12_155)]" : "tone-bad")}><CheckCircle2 className="h-3 w-3" />{v.floor && floor > 0 ? "ranking of the stores above the floor" : p.reconciles ? `all stores add up to ${cr(p.parent.contribution)} 4-Wall EBITDA` : "does not add up"}</span>
               {v.id === "all" && p.returned < p.stores_total && <button className="press rounded border px-2 py-1 font-medium hover:bg-muted" onClick={() => setLimit((l) => l + 50)} data-testid="league-more">Show more</button>}
             </div>
           </div>
@@ -372,7 +378,7 @@ function League({ q, onPick, picked }: { q: PnlQuery; onPick: (s: string) => voi
 function Quadrant({ q, onPick, picked }: { q: PnlQuery; onPick: (s: string) => void; picked: string | null }) {
   const stores = usePnlStores(q, "contribution", "desc", 500, 0.5e7);
   return (
-    <Panel testId="quadrant-panel" eyebrow="Real · verified" title="Growth × contribution margin: strong, scale, mature, turnaround">
+    <Panel testId="quadrant-panel" eyebrow="Real · verified" title="Y-o-Y Growth × 4-Wall EBITDA margin: strong, scale, mature, turnaround">
       <LiveBoundary query={stores} skeleton={<Skeleton className="m-4 h-[380px]" />}>
         {(p) => {
           const ref = reference(p.stores);
@@ -391,17 +397,17 @@ function Reconciliation({ q }: { q: PnlQuery }) {
         {(d) => (
           <div className="grid grid-cols-3 divide-x @max-[1000px]:grid-cols-1 @max-[1000px]:divide-x-0 @max-[1000px]:divide-y">
             <div data-testid="recon-tieout">
-              <div className="border-b px-4 py-2 text-[12px]"><span className="font-semibold">Books vs COGS table, sales ex-GST.</span> {d.sales_tieout.tied.toLocaleString("en-IN")} of {d.sales_tieout.site_months.toLocaleString("en-IN")} store-months agree within ₹{Number(d.tolerance_rupees).toLocaleString("en-IN")}.</div>
+              <div className="border-b px-4 py-2 text-[12px]"><span className="font-semibold">Books vs Material Cost table, revenue ex-GST.</span> {d.sales_tieout.tied.toLocaleString("en-IN")} of {d.sales_tieout.site_months.toLocaleString("en-IN")} store-months agree within ₹{Number(d.tolerance_rupees).toLocaleString("en-IN")}.</div>
               <table className="w-full text-[12px]"><thead><tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground"><th className="px-4 py-1.5 font-semibold">Month</th><th className="px-3 py-1.5 text-right font-semibold">Tied</th><th className="px-3 py-1.5 text-right font-semibold">Gap ₹ Cr</th></tr></thead>
                 <tbody>{d.sales_tieout.months.map((m) => <tr key={m.month} className="border-b last:border-0"><td className="px-4 py-1">{monthLabel(m.month)}</td><td className="num-mono px-3 py-1 text-right">{m.tied}/{m.site_months}</td><td className={cn("num-mono px-3 py-1 text-right", Number(m.difference) !== 0 && "text-muted-foreground")}>{gap(m.difference)}</td></tr>)}</tbody></table>
             </div>
             <div data-testid="recon-excluded">
-              <div className="border-b px-4 py-2 text-[12px]"><span className="font-semibold">{d.excluded_unmapped.label}: {d.excluded_unmapped.count} ledgers in this period</span> ({d.excluded_unmapped.run_ledgers} across the run; net {cr(d.excluded_unmapped.net)} in the period). The finance mapping has no group for them, so none is in any total. Mostly purchases and stock transfers, which reach the P&L through COGS.</div>
+              <div className="border-b px-4 py-2 text-[12px]"><span className="font-semibold">{d.excluded_unmapped.label}: {d.excluded_unmapped.count} ledgers in this period</span> ({d.excluded_unmapped.run_ledgers} across the run; net {cr(d.excluded_unmapped.net)} in the period). Neither the finance nor the management mapping has a group for them, so none is in any total (mostly intercompany charges). {d.excluded_unmapped.inventory_flow_ledgers ? `${d.excluded_unmapped.inventory_flow_ledgers} stock-transfer and purchase ledgers (net ${cr(d.excluded_unmapped.inventory_flow_net)}) are excluded by rule: they reach the P&L through Material Cost.` : ""}</div>
               <table className="w-full text-[12px]"><tbody>{d.excluded_unmapped.ledgers.slice(0, 12).map((l) => <tr key={l.glcode} className="border-b last:border-0"><td className="px-4 py-1">{l.ledger_name}</td><td className={cn("num-mono px-3 py-1 text-right", tone(l.net))}>{cr(l.net)}</td></tr>)}</tbody></table>
               <div className="px-4 py-1.5 text-[11px] text-muted-foreground">Finance needs to classify each one before it can enter the P&L. None is assigned automatically.</div>
             </div>
             <div data-testid="recon-missing">
-              <div className="border-b px-4 py-2 text-[12px]"><span className="font-semibold">{d.sites_without_books_sales.count} sites have sales in the COGS table but none in the books</span> ({cr(d.sites_without_books_sales.sales_ex_gst)} ex-GST). They are not stores in the league: their costs and COGS count for the company, not for a store.</div>
+              <div className="border-b px-4 py-2 text-[12px]"><span className="font-semibold">{d.sites_without_books_sales.count} sites have sales in the Material Cost table but none in the books</span> ({cr(d.sites_without_books_sales.sales_ex_gst)} ex-GST). They are not stores in the league and, being virtual or warehouse sites, are left out of Material Cost (the MIS rule).</div>
               <table className="w-full text-[12px]"><tbody>{d.sites_without_books_sales.sites.map((s) => <tr key={s.site_code} className="border-b last:border-0"><td className="px-4 py-1">{s.store_name ?? `Site ${s.site_code}`} <span className="text-[10.5px] text-muted-foreground">#{s.site_code}</span></td><td className="num-mono px-3 py-1 text-right">{cr(s.sales_ex_gst)}</td></tr>)}</tbody></table>
               <div className="border-t px-4 py-1.5 text-[11px] text-muted-foreground">{d.flags.cogs_has_no_posting_status}</div>
             </div>
@@ -420,7 +426,7 @@ function CogsWatch({ months }: { months: { month: string; revenue: string; cogs:
   if (!high.length) return null;
   return (
     <div data-testid="cogs-watch" className="border-t bg-[oklch(0.985_0.03_90)] px-4 py-2 text-[11.5px] text-[oklch(0.4_0.09_70)]">
-      <span className="font-semibold">COGS watch.</span> COGS was {high.map((r) => `${r.p.toFixed(0)}% of net sales in ${monthLabel(r.month)}`).join(", ")} against a typical {base.toFixed(0)}%. The cause is not known (cost adjustments, stock corrections or timing): confirm with Finance before reading margin trends.
+      <span className="font-semibold">Material Cost watch.</span> Material Cost was {high.map((r) => `${r.p.toFixed(0)}% of revenue in ${monthLabel(r.month)}`).join(", ")} against a typical {base.toFixed(0)}%. The cause is not known (cost adjustments, stock corrections or timing): confirm with Finance before reading margin trends.
     </div>
   );
 }
@@ -513,7 +519,7 @@ export function PnlRoom() {
       <WorkspaceHeader
         eyebrow="Performance"
         title="Profitability"
-        subtitle="Net sales ex-GST and store opex from the books; COGS from the COGS table. Contribution is before head-office allocation. Budget is not available."
+        subtitle="Revenue from operations and Store Expenses from the books; Material Cost from the COGS table. Books basis, before management adjustments; see Management P&L. AOP is not available."
         right={run.data ? <DataStateBadge state={run.data.data_state} run={run.data.run_id} asOf={run.data.as_of_date} /> : undefined}
       />
       {run.isError ? (
@@ -533,23 +539,23 @@ export function PnlRoom() {
           {tab === "overview" && (
             <>
               <div className="grid grid-cols-2 gap-3 p-3 @max-[1000px]:grid-cols-1">
-                <Panel testId="bridge-panel" eyebrow="Real · verified" title="From net sales to contribution" right={summary.data && <span className="num text-[11.5px] text-muted-foreground">{monthLabel(summary.data.scope.from_month)} to {monthLabel(summary.data.scope.to_month)} · {summary.data.scope.basis_label}</span>}>
-                  <LiveBoundary query={summary} skeleton={<Skeleton className="m-4 h-[300px]" />}>{(d) => <PnlWaterfall t={d.totals as PnlMoney} />}</LiveBoundary>
+                <Panel testId="bridge-panel" eyebrow="Real · verified" title="From revenue to Corporate EBITDA" right={summary.data && <span className="num text-[11.5px] text-muted-foreground">{monthLabel(summary.data.scope.from_month)} to {monthLabel(summary.data.scope.to_month)} · {summary.data.scope.basis_label}</span>}>
+                  <LiveBoundary query={summary} skeleton={<Skeleton className="m-4 h-[300px]" />}>{(d) => <PnlWaterfall t={d.totals as PnlMoney} store={filtered} />}</LiveBoundary>
                   {summary.data?.reconciliation && (
                     <div data-testid="bridge-reconciles" className={cn("border-t px-4 py-1.5 text-[11.5px]", summary.data.reconciliation.reconciles ? "text-[oklch(0.4_0.12_155)]" : "tone-bad")}>
                       <CheckCircle2 className="mr-1 inline h-3 w-3" />
-                      {summary.data.reconciliation.reconciles ? `Company = stores (${cr(summary.data.reconciliation.stores.contribution)}) + head office and depots (${cr(summary.data.reconciliation.non_store.contribution)})` : "Company does not equal stores + non-store"}
+                      {summary.data.reconciliation.reconciles ? `Company Store EBITDA = stores (${cr(summary.data.reconciliation.stores.contribution)}) + virtual and other non-store sites (${cr(summary.data.reconciliation.non_store.contribution)})` : "Company does not equal stores + non-store"}
                     </div>
                   )}
                 </Panel>
-                <Panel testId="trend-panel" eyebrow="Real · verified" title="Month by month, against last year">
+                <Panel testId="trend-panel" eyebrow="Real · verified" title="Month by month, against LY">
                   <LiveBoundary query={trend} skeleton={<Skeleton className="m-4 h-[300px]" />}>{(d) => <><PnlTrendChart months={d.months} /><CogsWatch months={d.months} /></>}</LiveBoundary>
                 </Panel>
               </div>
               <div className="px-3 pb-3"><NeedsAttention q={q} onStore={pickStore} onTab={setTab} /></div>
               <div className="px-3 pb-3"><Quadrant q={q} onPick={(s) => pickStore(s)} picked={site} /></div>
               <div className="px-3 pb-3">
-                <Panel testId="lines-panel" eyebrow="Real · verified" title="P&L lines (finance groups)">
+                <Panel testId="lines-panel" eyebrow="Real · verified" title="P&L lines (management groups)">
                   <div className="max-h-[470px] overflow-y-auto">
                     <LiveBoundary query={summary} skeleton={<Skeleton className="m-4 h-[260px]" />}>{(d) => <Lines lines={d.lines} revenue={d.totals.revenue} />}</LiveBoundary>
                   </div>
@@ -559,8 +565,8 @@ export function PnlRoom() {
               <div className="px-3 pb-6">
                 <Panel testId="unavailable-panel" eyebrow="Not available" title="What the sources cannot support yet">
                   <div className="divide-y">
-                    <NotAvailable testId="unavailable-budget" title="Budget" reason="No FY26-27 plan exists in the sources (the FY25-26 plan ended in March 2026). Budget and variance to budget are left blank; nothing is estimated." />
-                    <NotAvailable testId="unavailable-allocation" title="EBITDA and head-office allocation" reason="Finance has not frozen the EBITDA definition, so the page says Contribution (before other income, finance cost and head office). Company-level EBITDA after head-office and central cost needs that definition and an allocation rule." />
+                    <NotAvailable testId="unavailable-budget" title="AOP" reason="No FY26-27 AOP exists in the sources (the FY25-26 plan ended in March 2026). AOP and variance to AOP are left blank; nothing is estimated." />
+                    <NotAvailable testId="unavailable-allocation" title="Management adjustments and DC / HO apportionment" reason="This page is the books basis. The 1% shrinkage provision, gratuity, audit and CSR provisions, journals and the Citykart Ventures cost are on the Management P&L page, which also apportions DC and HO cost to stores at one blended rate." />
                     <NotAvailable testId="unavailable-hierarchy" title="Area and zone" reason="The site master carries region, cluster and state only. No area or zone is shown or invented." />
                   </div>
                 </Panel>

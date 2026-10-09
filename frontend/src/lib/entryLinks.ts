@@ -14,14 +14,20 @@ export interface TrailItem {
 
 export type EntrySrc = "creditors" | "pnl" | "cash";
 
+/** Gold entity of a voucher: absent = RETAIL (SubCo, Citykart Stores, the default of every older link); VENTURES = HoldCo (Citykart Ventures). Site and party codes collide between the two. */
+export type VoucherEntity = "VENTURES";
+const entityOf = (v: unknown): VoucherEntity | undefined => (v === "VENTURES" ? "VENTURES" : undefined);
+
 export interface EntryParams {
   ref?: string;
   /** creditors open item (`I<postcode>`), when the voucher was reached from a bill: asks the API for the link evidence */
   bill?: string;
+  entity?: VoucherEntity;
   trail: TrailItem[];
 }
 
 export interface ListParams {
+  entity?: VoucherEntity;
   site?: string;
   glcode?: string;
   from_month?: string;
@@ -85,12 +91,13 @@ const day = (v: unknown): string | undefined => {
 };
 
 export function parseEntrySearch(raw: Record<string, unknown>): EntryParams {
-  return { ref: id(raw.ref), bill: id(raw.bill), trail: parseTrail(raw.trail) };
+  return { ref: id(raw.ref), bill: id(raw.bill), entity: entityOf(raw.entity), trail: parseTrail(raw.trail) };
 }
 
 export function parseListSearch(raw: Record<string, unknown>): ListParams {
   const offset = Number(raw.offset);
   return {
+    entity: entityOf(raw.entity),
     site: id(raw.site),
     glcode: id(raw.glcode),
     from_month: month(raw.from_month),
@@ -137,11 +144,11 @@ export function hereWithoutTrail(href: string): string {
 }
 
 /** Open a voucher. `trail` already ends with the page the user is leaving. */
-export const entryHref = (ref: string, trail: TrailItem[] = [], bill?: string) => `/entry${qs({ ref, bill, trail })}`;
+export const entryHref = (ref: string, trail: TrailItem[] = [], bill?: string, entity?: VoucherEntity) => `/entry${qs({ ref, bill, entity, trail })}`;
 
 export type LedgerListQuery = Partial<Omit<ListParams, "trail" | "offset" | "basis">> & { basis?: "all" | "posted"; offset?: number };
 export const ledgerListHref = (q: LedgerListQuery, trail: TrailItem[] = []) =>
-  `/entry/list${qs({ site: q.site, glcode: q.glcode, from_month: q.from_month, to_month: q.to_month, from_date: q.from_date, to_date: q.to_date, basis: q.basis && q.basis !== "all" ? q.basis : undefined, offset: q.offset || undefined, title: q.title, trail })}`;
+  `/entry/list${qs({ entity: q.entity, site: q.site, glcode: q.glcode, from_month: q.from_month, to_month: q.to_month, from_date: q.from_date, to_date: q.to_date, basis: q.basis && q.basis !== "all" ? q.basis : undefined, offset: q.offset || undefined, title: q.title, trail })}`;
 
 export const tillHref = (site: string | number, trail: TrailItem[] = [], name?: string | null) => `/entry/till${qs({ site, name: name ?? undefined, trail })}`;
 

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Banknote, ChevronRight, CircleDot, Landmark, LayoutDashboard, LayoutGrid, Lock, PiggyBank, RefreshCw, Scale, Store, Truck, Wallet } from "lucide-react";
+import { Banknote, ChevronRight, CircleDot, FileSpreadsheet, Handshake, Landmark, LayoutDashboard, LayoutGrid, Lock, PiggyBank, Receipt, RefreshCw, Scale, Store, Truck, Wallet, Warehouse } from "lucide-react";
 import { useCfo } from "@/context/CfoContext";
 import { searchFromState } from "@/context/drillUrl";
 import { CREDITORS_ORIGIN } from "@/lib/creditorNodes";
@@ -12,6 +12,7 @@ import { useFreshness } from "@/api/hooks";
 import { useCashRun } from "@/api/cashLiveHooks";
 import { usePnlRun } from "@/api/pnlLiveHooks";
 import { useEntryRun } from "@/api/entryLiveHooks";
+import { useMgmtRun } from "@/api/mgmtLiveHooks";
 import { useLiveRun } from "@/api/creditorsLiveHooks";
 import { fmtDate, stampText } from "@/lib/format";
 import { COMPARISON_ORDER, COMPARISONS, PERIOD_ORDER, PERIODS, SCENARIOS, SCENARIO_ORDER } from "@/mocks/scenarios";
@@ -51,12 +52,12 @@ function Select<T extends string>({ label, value, options, onChange, testId, wid
 export function DemoBanner() {
   const { state, dispatch } = useCfo();
   const path = useRouterState({ select: (r) => r.location.pathname });
-  const realPage = path.startsWith("/creditors") ? "Creditors" : path.startsWith("/cash") ? "Liquidity" : path === "/profitability" ? "Profitability" : path.startsWith("/entry") ? "Voucher drill" : null;
+  const realPage = path.startsWith("/creditors") ? "Creditors" : path.startsWith("/cash") ? "Liquidity" : path === "/profitability" ? "Profitability" : path.startsWith("/mgmt") ? "Management P&L" : path.startsWith("/entry") ? "Voucher drill" : path.startsWith("/related-party") ? "Related Party Transactions" : null;
   if (isLiveCfo) {
     // The Command Center and its drill pages read the same three real sources. Each figure carries its own run and as-of date.
     const text = realPage
       ? `${realPage} shows REAL data from its own verified run. The Command Center reads the same real sources, each figure with its own run and as-of date: real, per-source as-of, not one synchronized CFO position.`
-      : "Real data, per-source as-of: P&L, Creditors and Cash are separate runs and each figure shows its own run and date. This is not one synchronized CFO position. Budget, forecast, bank, receivables, inventory and vendor advances are unavailable.";
+      : "Real data, per-source as-of: P&L, Management P&L, Creditors and Cash are separate runs and each figure shows its own run and date. This is not one synchronized CFO position. AOP, forecast, bank, receivables, inventory and vendor advances are unavailable.";
     return (
       <div data-testid="demo-banner" data-real="true" data-source-mode="live" className="flex h-6 items-center bg-[oklch(0.94_0.06_155)] px-4 text-[11px] font-medium text-[oklch(0.32_0.1_155)]">
         <span className="flex min-w-0 items-center gap-1.5" title={text}>
@@ -105,7 +106,7 @@ export function DemoBanner() {
 }
 
 /** Real-data pages state their OWN as-of date and state (from the API), not the demo shell's freshness or controls. */
-interface RealMeta { asOf: string | null; state: string; stateLabel: string; updated: string | null; scope: "cash" | "cred" | "pnl" | "entry"; status: "ok" | "error" | "pending" }
+interface RealMeta { asOf: string | null; state: string; stateLabel: string; updated: string | null; scope: "cash" | "cred" | "pnl" | "entry" | "mgmt"; status: "ok" | "error" | "pending" }
 const STATE_TEXT: Record<string, string> = { verified_candidate: "Verified candidate · not live", live: "Live", superseded: "Superseded", withdrawn: "Withdrawn" };
 
 function useRealMeta(): RealMeta | null {
@@ -114,8 +115,15 @@ function useRealMeta(): RealMeta | null {
   const cred = useLiveRun();
   const pnl = usePnlRun();
   const entry = useEntryRun();
-  const scope = path.startsWith("/cash") ? "cash" : path.startsWith("/creditors") ? "cred" : path === "/profitability" ? "pnl" : path.startsWith("/entry") ? "entry" : null;
+  const mgmt = useMgmtRun(path.startsWith("/mgmt")); // only fetched on its own pages
+  const scope = path.startsWith("/cash") ? "cash" : path.startsWith("/creditors") ? "cred" : path === "/profitability" ? "pnl" : path.startsWith("/entry") ? "entry" : path.startsWith("/mgmt") ? "mgmt" : null;
   if (!scope) return null;
+  if (scope === "mgmt") {
+    // the Management P&L run has no promotion state of its own: it is a management view (books plus adjustments), said as such
+    if (mgmt.isError) return { asOf: null, state: "error", stateLabel: "Real data unavailable", updated: null, scope, status: "error" };
+    if (!mgmt.data) return { asOf: null, state: "pending", stateLabel: "Checking…", updated: null, scope, status: "pending" };
+    return { asOf: mgmt.data.as_of_date, state: "management", stateLabel: "Management view · books + adjustments", updated: null, scope, status: "ok" };
+  }
   const run = scope === "cash" ? cash : scope === "pnl" ? pnl : scope === "entry" ? entry : cred;
   if (run.isError) return { asOf: null, state: "error", stateLabel: "Real data unavailable", updated: null, scope, status: "error" };
   if (!run.data) return { asOf: null, state: "pending", stateLabel: "Checking…", updated: null, scope, status: "pending" };
@@ -213,30 +221,42 @@ export function TopBar() {
 }
 
 const FUTURE = [
-  { label: "Budget & Forecast", icon: PiggyBank },
+  { label: "AOP & Forecast", icon: PiggyBank },
   { label: "Vendor Advances", icon: Wallet },
   { label: "Reconciliation", icon: Scale },
   { label: "Balance Sheet", icon: Landmark },
 ];
 
-type NavId = "command" | "profitability" | "cash" | "creditors";
+type NavId = "command" | "profitability" | "mgmt" | "storeExp" | "dcExp" | "cash" | "creditors" | "related";
 
-const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: "/" | "/profitability" | "/cash" | "/creditors"; testId: string; icon: typeof Truck }[] }[] = [
+const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: "/" | "/profitability" | "/mgmt" | "/mgmt/store-expenses" | "/mgmt/dc-expenses" | "/cash" | "/creditors" | "/related-party"; testId: string; icon: typeof Truck }[] }[] = [
   { group: "Command", items: [{ id: "command", label: "CFO Command Center", title: "CFO Command Center", to: "/", testId: "nav-command-center", icon: LayoutDashboard }] },
-  { group: "Performance", items: [{ id: "profitability", label: "Profitability", title: "Store Profitability (verified data)", to: "/profitability", testId: "nav-profitability", icon: Store }] },
+  { group: "Performance", items: [
+    { id: "profitability", label: "Profitability", title: "Store Profitability (verified data)", to: "/profitability", testId: "nav-profitability", icon: Store },
+    { id: "mgmt", label: "Management P&L", title: "Management P&L: the finance MIS view (books + adjustments)", to: "/mgmt", testId: "nav-mgmt", icon: FileSpreadsheet },
+    { id: "storeExp", label: "Store Expenses", title: "Store Expenses: rent, employee, power, advertisement, freight and other, down to the voucher", to: "/mgmt/store-expenses", testId: "nav-store-expenses", icon: Receipt },
+    { id: "dcExp", label: "DC Expenses", title: "DC Expenses: SubCo and HoldCo warehouse cost, down to the voucher", to: "/mgmt/dc-expenses", testId: "nav-dc-expenses", icon: Warehouse },
+  ] },
   { group: "Liquidity", items: [{ id: "cash", label: "Liquidity & Working Capital", title: "Liquidity & Working Capital Control", to: "/cash", testId: "nav-cash", icon: Banknote }] },
-  { group: "Exposure", items: [{ id: "creditors", label: "Creditors", title: "Creditors Control", to: "/creditors", testId: "nav-creditors", icon: Truck }] },
+  { group: "Exposure", items: [
+    { id: "creditors", label: "Creditors", title: "Creditors Control", to: "/creditors", testId: "nav-creditors", icon: Truck },
+    { id: "related", label: "Related Party", title: "Related Party Transactions: intercompany balances, kept out of Creditors, Cash and the Command Center", to: "/related-party", testId: "nav-related", icon: Handshake },
+  ] },
 ];
 
-const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN };
+const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, mgmt: null, storeExp: null, dcExp: null, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN, related: null };
 
 /** The destination the current investigation belongs to, so a ledger or voucher still highlights its own area. */
 function activeNav(scope: string | undefined, path: string, trail?: unknown): NavId {
+  if (path.startsWith("/mgmt/store-expenses")) return "storeExp";
+  if (path.startsWith("/mgmt/dc-expenses")) return "dcExp";
+  if (path.startsWith("/mgmt")) return "mgmt";
+  if (path.startsWith("/related-party")) return "related";
   if (path.startsWith("/entry")) {
     // the voucher drill highlights the area it was reached from: the first step of its trail
     const first = Array.isArray(trail) ? (trail[0] as { h?: unknown } | undefined)?.h : undefined;
     const h = typeof first === "string" ? first : "";
-    return h.startsWith("/creditors") ? "creditors" : h.startsWith("/profitability") ? "profitability" : h.startsWith("/cash") ? "cash" : "command";
+    return h.startsWith("/mgmt/store-expenses") ? "storeExp" : h.startsWith("/mgmt/dc-expenses") ? "dcExp" : h.startsWith("/creditors") ? "creditors" : h.startsWith("/profitability") ? "profitability" : h.startsWith("/cash") ? "cash" : "command";
   }
   if (scope === "creditors" || path.startsWith("/creditors")) return "creditors";
   if (scope === "profitability" || path.startsWith("/profitability")) return "profitability";
@@ -252,8 +272,12 @@ export function SideNav() {
   const go: Record<NavId, () => void> = {
     command: () => dispatch({ type: "home" }),
     profitability: () => enterRoom("profitability"),
+    mgmt: () => undefined, // not part of the drill workflow: nothing to reset
+    storeExp: () => undefined,
+    dcExp: () => undefined,
     cash: () => enterRoom("cashroom"),
     creditors: () => enterCreditors(),
+    related: () => undefined, // its own page, outside the drill workflow
   };
   return (
     <nav aria-label="Primary" className="hidden w-14 shrink-0 flex-col border-r bg-card py-3 md:flex min-[1700px]:w-[204px]">
@@ -300,6 +324,24 @@ export function Breadcrumbs() {
   const { crumbs, goToCrumb } = useCfo();
   const path = useRouterState({ select: (x) => x.location.pathname });
   if (path.startsWith("/entry")) return null; // the voucher drill carries its own trail (where the user came from), in the URL
+  if (path.startsWith("/mgmt")) {
+    return (
+      <nav aria-label="Breadcrumb" data-testid="breadcrumbs" className="flex h-8 items-center gap-1 overflow-x-auto whitespace-nowrap border-b bg-background px-4 text-[12px]">
+        <span className="text-muted-foreground">CityKart</span>
+        <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
+        <span aria-current="page" className="font-semibold text-foreground">Management P&amp;L</span>
+      </nav>
+    );
+  }
+  if (path.startsWith("/related-party")) {
+    return (
+      <nav aria-label="Breadcrumb" data-testid="breadcrumbs" className="flex h-8 items-center gap-1 overflow-x-auto whitespace-nowrap border-b bg-background px-4 text-[12px]">
+        <span className="text-muted-foreground">CityKart</span>
+        <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
+        <span aria-current="page" className="font-semibold text-foreground">Related Party Transactions</span>
+      </nav>
+    );
+  }
   if (path === "/profitability") {
     return (
       <nav aria-label="Breadcrumb" data-testid="breadcrumbs" className="flex h-8 items-center gap-1 overflow-x-auto whitespace-nowrap border-b bg-background px-4 text-[12px]">

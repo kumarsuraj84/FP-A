@@ -2,7 +2,8 @@
 
   /api/v1/pnl/health | current | runs
   /api/v1/pnl/runs/{run}                      status and control tallies
-  /api/v1/pnl/runs/{run}/summary              company or filtered P&L for a period: totals, last year, lines by group, flags, reconciliation (company = stores + non-store)
+  /api/v1/pnl/runs/{run}/summary              company or filtered P&L for a period (MIS chain: Revenue from operations, Material Cost, Material Margin, Store Expenses, Store EBITDA, DC cost, HO cost,
+                                              Corporate EBITDA; books basis before management adjustments): totals, last year, lines by group, flags, reconciliation (company = stores + non-store)
   /api/v1/pnl/runs/{run}/trend                month by month, with last year and growth
   /api/v1/pnl/runs/{run}/stores               league table (paged, sortable, filterable): revenue, COGS, gross margin, opex, contribution, last year
   /api/v1/pnl/runs/{run}/stores/{site}        one store: monthly series and P&L lines
@@ -99,7 +100,7 @@ def comparison(sc: "Scope", pick) -> dict | None:
     ly = repo.last_year(sc.lo, hi, sc.first_month)
     cur = repo.period_totals(sc.data, pick, sc.lo, hi)
     out = {"period": {"from_month": sc.lo.strftime("%Y-%m"), "to_month": hi.strftime("%Y-%m")}, "current": money_keys(cur), "last_year": None, "growth": None,
-           "note": "Compared over complete months only." if hi != sc.hi else "Same months, last year."}
+           "note": "Compared over complete months only." if hi != sc.hi else "Same months, LY."}
     if ly:
         l = repo.period_totals(sc.data, pick, *ly)
         out["last_year"] = {**money_keys(l), "period": {"from_month": ly[0].strftime("%Y-%m"), "to_month": ly[1].strftime("%Y-%m")}}
@@ -113,7 +114,8 @@ def scope(request: Request, conn, run, from_month, to_month, basis, region, clus
 
 
 def money_keys(t: dict) -> dict:
-    return {k: t[k] for k in ("revenue", "cogs", "cogs_books", "gross_margin", "gross_margin_pct", "opex", "opex_pct", "contribution", "contribution_pct", "other_income", "finance_cost")}
+    return {k: t[k] for k in ("revenue", "cogs", "cogs_books", "gross_margin", "gross_margin_pct", "opex", "opex_pct", "contribution", "contribution_pct", "other_income", "finance_cost",
+                              "other_operating_income", "interest_income", "dc_cost", "ho_cost", "total_corporate_cost", "corporate_ebitda", "corporate_ebitda_pct")}
 
 
 def flags(sc: Scope, extra_cogs_only: list[dict] | None = None) -> dict:
@@ -124,8 +126,10 @@ def flags(sc: Scope, extra_cogs_only: list[dict] | None = None) -> dict:
         "cogs_through": run["cogs_last_bill_date"], "books_through": run["as_of_date"],
         "cogs_lags_books": run["cogs_last_bill_date"] < run["as_of_date"],
         "partial_last_month": sc.echo()["partial_last_month"],
-        "cogs_has_no_posting_status": "COGS comes from the COGS table, which has no posted / unposted split: it is the same in both bases.",
-        "contribution_definition": "Gross margin + store operating expenses. Before other income, finance cost and any head-office allocation.",
+        "cogs_has_no_posting_status": "Material Cost comes from the COGS table, which has no posted / unposted split: it is the same in both bases.",
+        "contribution_definition": "Store EBITDA = Material Margin less Store Expenses (STORES location only). Before DC cost, HO cost, interest income and finance cost. For one store this is 4-Wall EBITDA.",
+        "basis_note": repo.BASIS_NOTE,
+        "chain": "Revenue from operations, Material Cost, Material Margin, Store Expenses, Store EBITDA, DC cost and HO cost, Corporate EBITDA. The 1% shrinkage provision and other management adjustments are not in this view.",
     }
     if extra_cogs_only is not None:
         out["sites_with_cogs_sales_but_no_books_sales"] = len(extra_cogs_only)
@@ -180,8 +184,11 @@ def summary(request: Request, run_id: str, q: dict = Depends(common)):
         unm = repo.unmapped_ledgers(conn, run_id, sc.basis, sc.lo, sc.hi, 0)
         cogs_only = repo.cogs_only_sites(conn, run_id)
         body = {**header(run), "scope": sc.echo(), "stores_in_scope": sum(1 for c in sc.stores if sc.store_in_scope(c)), "totals": money_keys(company), "comparison": comparison(sc, (lambda c: True) if not sc.filtered else sc.store_in_scope),
-                "lines": lines, "below_contribution": {"other_income": company["other_income"], "finance_cost": company["finance_cost"], "after_below_the_line": company["contribution"] + company["other_income"] + company["finance_cost"]},
-                "excluded_unmapped": {"ledgers": unm["count"], "run_ledgers": repo.unmapped_run_count(conn, run_id), "label": "Unmapped / Finance classification required", "net": unm["net"], "gross_abs": unm["gross_abs"], "note": "Ledgers the finance mapping does not know (mainly purchases and stock transfers, which reach the P&L through COGS). Never in a total; listed on the reconciliation view."},
+                "lines": lines, "below_contribution": {"other_income": company["other_income"], "finance_cost": company["finance_cost"], "interest_income": company["interest_income"],
+                                                          "corporate_ebitda": company["corporate_ebitda"], "after_below_the_line": company["corporate_ebitda"] + company["interest_income"] + company["finance_cost"]},
+                "excluded_unmapped": {"ledgers": unm["count"], "run_ledgers": repo.unmapped_run_count(conn, run_id), "label": "Unmapped / Finance classification required", "net": unm["net"], "gross_abs": unm["gross_abs"],
+                                      "inventory_flow_ledgers": unm["inventory_flow_ledgers"], "inventory_flow_net": unm["inventory_flow_net"],
+                                      "note": "Ledgers neither the finance nor the management mapping knows (mostly intercompany charges). Never in a total; listed on the reconciliation view. Stock transfers and purchases are excluded by rule and counted apart (inventory flow)."},
                 "flags": flags(sc, cogs_only)}
         if not sc.filtered:
             body["reconciliation"] = {"parent": {"revenue": company["revenue"], "contribution": company["contribution"]}, "children_sum": {"revenue": stores["revenue"] + non_store["revenue"], "contribution": stores["contribution"] + non_store["contribution"]},
@@ -242,7 +249,7 @@ def stores(request: Request, run_id: str, q: dict = Depends(common), sort: str =
                 if code in per_site and ly_period[0] <= mon <= ly_period[1]:
                     repo.add(per_ly.setdefault(code, repo.blank()), a)
         for code, a in per_site.items():
-            if not any(a[k] for k in ("revenue", "cogs", "cogs_books", "opex", "other_income", "finance_cost", "table_sales")):
+            if not any(a[k] for k in ("revenue", "cogs", "cogs_books", "opex", "dc_cost", "ho_cost", "other_income", "finance_cost", "table_sales")):
                 continue
             t = repo.finish(a)
             if min_revenue is not None and t["revenue"] < min_revenue:
@@ -263,7 +270,7 @@ def stores(request: Request, run_id: str, q: dict = Depends(common), sort: str =
         parent = repo.period_totals(sc.data, sc.store_in_scope, sc.lo, sc.hi)
         page = rows[offset: offset + limit]
         return ok({**header(run), "scope": sc.echo(), "stores_total": len(rows), "returned": len(page), "limit": limit, "offset": offset, "sort": sort, "order": order, "stores": page,
-                   "growth_basis": {"from_month": sc.lo.strftime("%Y-%m"), "to_month": chi.strftime("%Y-%m"), "note": "Growth is over complete months only; last year's same months."},
+                   "growth_basis": {"from_month": sc.lo.strftime("%Y-%m"), "to_month": chi.strftime("%Y-%m"), "note": "Growth is over complete months only; LY's same months."},
                    "parent": {"revenue": parent["revenue"], "contribution": parent["contribution"]}, "children_sum": {"revenue": total["revenue"], "contribution": total["contribution"]},
                    "reconciles": (parent["revenue"], parent["contribution"]) == (total["revenue"], total["contribution"]) or min_revenue is not None, "flags": flags(sc)})
 
@@ -300,7 +307,7 @@ def store(request: Request, run_id: str, site: str, q: dict = Depends(common)):
                    "months": series, "lines": lines, "parent": {"revenue": t["revenue"], "contribution": t["contribution"]},
                    "children_sum": {"revenue": sum((r["revenue"] for r in series), ZERO), "contribution": sum((r["contribution"] for r in series), ZERO)},
                    "reconciles": (t["revenue"], t["contribution"]) == (sum((r["revenue"] for r in series), ZERO), sum((r["contribution"] for r in series), ZERO)) and
-                   (t["revenue"] == sum((r["amount"] for r in lines if r["section"] == "REVENUE"), ZERO)) and (t["cogs_books"] + t["opex"] + t["other_income"] + t["finance_cost"] == line_total),
+                   (t["revenue"] == sum((r["amount"] for r in lines if r["section"] == "REVENUE"), ZERO)) and (t["cogs_books"] + t["opex"] + t["dc_cost"] + t["ho_cost"] + t["other_income"] + t["finance_cost"] == line_total),
                    "flags": flags(sc)})
 
 
@@ -352,7 +359,7 @@ def reconciliation(request: Request, run_id: str, q: dict = Depends(common)):
                    "sales_tieout": {"basis": "books (ledger 'Sales - POS', ex-GST) against the COGS table's SL_V less TAXAMT", "months": months,
                                     "site_months": sum(m["site_months"] for m in months), "tied": sum(m["tied"] for m in months), "not_tied": sum(m["site_months"] - m["tied"] for m in months),
                                     "largest_gaps": repo.untied(conn, run_id, sc.lo, sc.hi)},
-                   "excluded_unmapped": {"label": "Unmapped / Finance classification required", "run_ledgers": repo.unmapped_run_count(conn, run_id), "explanation": "Ledgers the finance mapping does not know. Excluded from every total and shown here; Finance needs to assign each to a group. None is assigned automatically.", **unm},
+                   "excluded_unmapped": {"label": "Unmapped / Finance classification required", "run_ledgers": repo.unmapped_run_count(conn, run_id), "explanation": "Ledgers neither the finance nor the management mapping knows. Excluded from every total and shown here; Finance needs to assign each to a group. None is assigned automatically. Stock transfers and purchases are excluded by rule (inventory flow) and counted apart.", **unm},
                    "sites_without_books_sales": {"count": len(cogs_only), "sales_ex_gst": sum((r["sales_ex_gst"] for r in cogs_only), ZERO), "sites": cogs_only[:25]},
                    "flags": flags(sc, cogs_only)})
 

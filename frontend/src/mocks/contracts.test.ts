@@ -66,7 +66,7 @@ describe("scenarios change the story", () => {
     const b = (await mockApi.getBridge(ctx("normal", { period: "sep26" }), "profit")).data!;
     const c = (await mockApi.getBridge(ctx("normal", { comparison: "ly" }), "profit")).data!;
     expect(b.items.at(-1)!.value).toBeLessThan(a.items.at(-1)!.value);
-    expect(c.items[0].label).toBe("Last Year Profit");
+    expect(c.items[0].label).toBe("LY Profit");
     expect(c.items[0].value).not.toBe(a.items[0].value);
   });
 });

@@ -108,8 +108,24 @@ def summary(conn, src: Source, run_id: str) -> dict:
     top = conn.execute(f"""
         SELECT vendor_ref, sum(abs(pending)) AS credit FROM {src.items} WHERE extraction_run_id = %s AND drcr = 'Cr' GROUP BY vendor_ref ORDER BY credit DESC, vendor_ref""", (run_id,)).fetchall()
     total = sum((t["credit"] for t in top), ZERO)
+    rel = related_excluded(conn, run_id)
+    if rel is not None:
+        r["related_party_excluded"] = rel
     r["credit_concentration"] = {f"top_{n}": (sum((t["credit"] for t in top[:n]), ZERO) / total).quantize(Decimal("0.0001")) if total else ZERO for n in (1, 5, 10, 20)}
     return r
+
+
+CR = Decimal(10_000_000)
+
+
+def related_excluded(conn, run_id: str) -> dict | None:
+    """What the main creditor figures leave out because it is intercompany (the related-party register). None when nothing is registered / not the gold source."""
+    if not _gold.enabled() or not _gc._rr.codes():
+        return None
+    x = conn.execute(f"""SELECT coalesce(sum(abs(pending)) FILTER (WHERE drcr = 'Cr'), 0) AS p, coalesce(sum(abs(pending)) FILTER (WHERE drcr = 'Dr'), 0) AS d,
+        count(DISTINCT sub_ledger_code) AS parties, count(*) AS items FROM {_gc.items(False, 'related')} WHERE extraction_run_id = %s""", (run_id,)).fetchone()
+    return {"payable_cr": (x["p"] / CR).quantize(Decimal("0.0001")), "debit_balance_cr": (x["d"] / CR).quantize(Decimal("0.0001")),
+            "payable_inr": x["p"], "debit_balance_inr": x["d"], "parties": x["parties"], "items": x["items"]}
 
 
 def document_age(conn, src: Source, run_id: str) -> list[dict]:

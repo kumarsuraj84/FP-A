@@ -18,11 +18,11 @@ function FyChart({ f }: { f: Forecast }) {
           <YAxis tick={{ fontSize: 10.5, fill: "oklch(0.5 0.02 260)" }} tickLine={false} axisLine={false} width={42} tickFormatter={(v) => `${v}`} />
           <Tooltip formatter={(v: number, n: string) => [fmtCr(v), n]} contentStyle={{ fontSize: 12, borderRadius: 6 }} />
           <Legend verticalAlign="top" align="right" iconType="plainline" wrapperStyle={{ fontSize: 11.5, top: -4 }} />
-          <Line name="Budget" type="monotone" dataKey="budget" stroke="oklch(0.65 0.02 260)" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <Line name="AOP" type="monotone" dataKey="budget" stroke="oklch(0.65 0.02 260)" strokeWidth={2} dot={false} isAnimationActive={false} />
           <Line name="Actual" type="monotone" dataKey="actual" stroke="oklch(0.28 0.08 255)" strokeWidth={3} dot={{ r: 2.5 }} connectNulls={false} isAnimationActive={false} />
           <Line name="Latest forecast" type="monotone" dataKey="forecast" stroke="oklch(0.55 0.12 190)" strokeWidth={2.6} strokeDasharray="6 4" dot={false} connectNulls={false} isAnimationActive={false} />
           {f.budgetFy.value !== null && (
-            <ReferenceDot x={last.month} y={last.budget} r={4} fill="oklch(0.65 0.02 260)" stroke="white" strokeWidth={2} label={{ value: `Budget ${fmtCr(f.budgetFy.value)}`, position: "top", fontSize: 11, fill: "oklch(0.45 0.02 260)" }} />
+            <ReferenceDot x={last.month} y={last.budget} r={4} fill="oklch(0.65 0.02 260)" stroke="white" strokeWidth={2} label={{ value: `AOP ${fmtCr(f.budgetFy.value)}`, position: "top", fontSize: 11, fill: "oklch(0.45 0.02 260)" }} />
           )}
           {f.landing.value !== null && (
             <ReferenceDot x={last.month} y={last.forecast ?? f.landing.value} r={5} fill="oklch(0.55 0.12 190)" stroke="white" strokeWidth={2} label={{ value: fmtCr(f.landing.value), position: "right", fontSize: 11.5, fontWeight: 700, fill: "oklch(0.3 0.08 255)" }} />
@@ -45,7 +45,7 @@ export function ForecastTrajectory() {
           {q.data?.data && (
             <div className="flex items-center gap-5 text-right">
               <div>
-                <div className="eyebrow">Budget FY</div>
+                <div className="eyebrow">AOP FY</div>
                 <div className="num-mono text-[15px] font-semibold"><Metric m={q.data.data.budgetFy} fmt={(n) => fmtCr(n)} /></div>
               </div>
               <div>

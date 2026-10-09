@@ -37,6 +37,17 @@ export interface LiveSummary extends RunHeader {
   credit_vendors: number;
   debit_vendors: number;
   credit_concentration: { top_1: Money; top_5: Money; top_10: Money; top_20: Money };
+  /** Intercompany balances left out of the figures above (present only when a related-party register is loaded) */
+  related_party_excluded?: RelatedPartyExcluded;
+}
+
+export interface RelatedPartyExcluded {
+  payable_cr: Money; // crore, decimal text
+  debit_balance_cr: Money;
+  payable_inr?: Money;
+  debit_balance_inr?: Money;
+  parties: number;
+  items: number;
 }
 
 export interface Split {

@@ -121,6 +121,7 @@ export interface LedgerEntryRow {
 }
 
 export interface LedgerEntriesScope {
+  entity?: "RETAIL" | "VENTURES";
   site: number | null;
   glcode: number | null;
   ledger_name: string | null;
