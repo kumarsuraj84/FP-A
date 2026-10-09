@@ -61,7 +61,7 @@ def fetch_book(conn, lo: str, hi: str) -> eng.Book:
         ent = HOLDCO_COL_SQL if det["pnl_has_entity"] else HOLDCO_SQL
         rows = conn.execute(
             f"SELECT to_char(p.month, 'YYYY-MM') AS month, p.site_kind, CASE WHEN p.site_code = ANY(%s::int[]) THEN p.site_code END AS site_code, {ent} AS entity, "
-            "p.glname, p.fin_group, p.is_mapped, sum(p.profit_effect) AS pe FROM gold_fpa.pnl_store_month p LEFT JOIN gold_fpa.dim_site d ON d.site_code = p.site_code "
+            "p.glname, p.fin_group, p.is_mapped, sum(p.profit_effect) AS pe FROM gold_fpa.pnl_store_month p LEFT JOIN gold_fpa.dim_site d ON d.site_code = p.site_code AND d.entity = p.entity "
             "WHERE p.month >= %s AND p.month <= %s GROUP BY 1, 2, 3, 4, 5, 6, 7", (list(sl), mdate(lo), mdate(hi))).fetchall()
         cg = conn.execute("SELECT to_char(month, 'YYYY-MM') AS month, sum(net_sales_ex_gst) AS ns, sum(cogs_v) AS cogs FROM gold_fpa.cogs_store_month "
                           "WHERE site_kind = 'STORE' AND month >= %s AND month <= %s GROUP BY 1", (mdate(lo), mdate(hi))).fetchall()
@@ -145,7 +145,7 @@ def warnings(conn, ctx: dict) -> list[str]:
         w.append(f"Provisional adjustments included: {len(prov)} rows (status proposed or stopgap), {eng.q4(sum((i['amount_cr'] for i in prov), D(0)))} Cr net.")
     elim = [r for r in register if r["kind"] == "elimination"]
     if not elim:
-        w.append("Intercompany expense and loan eliminations not loaded." + (" Gold tables to review: " + ", ".join(det["tables"]) + "." if det["tables"] else ""))
+        w.append("Intercompany loan, interest and service charges are read from the ledger (see Related Party); both sides are outside the Management P&L, so consolidated EBITDA is unaffected; SubCo and HoldCo standalone views omit them." + (" Gold tables to review: " + ", ".join(det["tables"]) + "." if det["tables"] else ""))
     elif det["tables"]:
         w.append("Gold tables with entity / intercompany / loan names detected: " + ", ".join(det["tables"]) + ".")
     if abs(book.non_store_revenue) >= D("0.0005"):
@@ -178,5 +178,5 @@ def stores(conn, ctx: dict) -> dict:
                           "WHERE site_kind = 'STORE' AND month >= %s AND month <= %s GROUP BY 1, 2", (mdate(lo), mdate(hi))).fetchall()
         return sr, cs
     sr, cs = cached(("stores", lo, hi), go)
-    names = cached("names", lambda: {r["site_code"]: r for r in conn.execute("SELECT site_code, short_name, store_name, store_type FROM gold_fpa.dim_site").fetchall()})
+    names = cached("names", lambda: {r["site_code"]: r for r in conn.execute("SELECT site_code, short_name, store_name, store_type FROM gold_fpa.dim_site WHERE entity = 'RETAIL'").fetchall()})
     return eng.build_stores(sr, cs, names, ctx["items"], ctx["months"], ctx["lines"], cfg.ledger_map(), ctx["entity"])

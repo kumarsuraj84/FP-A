@@ -108,7 +108,7 @@ describe("Management P&L: the MIS table", () => {
     const banner = await screen.findByTestId("mgmt-warnings", {}, T);
     expect(banner).toHaveTextContent("Citykart Ventures not in gold: stop-gap from workbook");
     expect(banner).toHaveTextContent("provisional adjustments included");
-    expect(banner).toHaveTextContent("Intercompany expense and loan eliminations not loaded");
+    expect(banner).toHaveTextContent("Intercompany loan, interest and service charges are read from the ledger");
     expect(screen.getAllByTestId("mgmt-warning")).toHaveLength(3); // repeated by the P&L response, shown once
   });
 

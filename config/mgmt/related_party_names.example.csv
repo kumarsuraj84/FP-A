@@ -1,0 +1,4 @@
+books_of_entity,party_pattern,counterparty_entity,status,note
+RETAIL,^example holdco pvt,HOLDCO,proposed,Illustrative pattern only: how the other group company appears as a party
+VENTURES,^example subco pvt,SUBCO,proposed,Illustrative pattern only
+RETAIL,^example subco pvt \(isd\),SAME_COMPANY,proposed,Illustrative: own registration of the same company

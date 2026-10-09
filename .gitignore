@@ -34,3 +34,6 @@ config/mgmt/*.csv
 config/mgmt/*.json
 !config/mgmt/*.example.csv
 !config/mgmt/*.example.json
+
+# audit outputs quote real company figures: not committed by default
+FPNA_TRANSFORMATION_AUDIT/

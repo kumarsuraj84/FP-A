@@ -68,7 +68,7 @@ def _relations() -> dict[str, str]:
                    coalesce(min(entno), min(scheme_docno), min(docno), entcode) AS entry_no, min(created_by_site_code)::text AS created_by_site_code,
                    min(created_by_site_code) AS created_by_site_int
             FROM (SELECT * FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL') GROUP BY entcode) h
-      LEFT JOIN gold_fpa.dim_site s ON s.site_code = h.created_by_site_int"""
+      LEFT JOIN (SELECT * FROM gold_fpa.dim_site WHERE entity = 'RETAIL') s ON s.site_code = h.created_by_site_int"""
 
     # one row per store per active day of the current FY, an opening day (FY start - 1) and a closing row on the as-of day
     till_day = f"""SELECT {RUN_ID} AS entry_run_id, {CASH_RUN} AS cash_run_id, site_code, day, debit, credit,

@@ -96,7 +96,7 @@ _V_COGS = f"""SELECT {RUN_ID} AS run_id, c.site_code::text AS site_code, c.month
 _V_SITE = f"""SELECT {RUN_ID} AS run_id, d.site_code::text AS site_code, d.store_name, d.opening_date, d.store_status,
     nullif(d.store_type, '-') AS store_current_status, d.cluster_type, d.region_type, d.state, d.store_type, d.last_bill_date,
     nullif(d.area, 0)::numeric(12,2) AS area, NULL::text AS st_type, NULL::text AS store_grade
-    FROM gold_fpa.dim_site d"""
+    FROM (SELECT * FROM gold_fpa.dim_site WHERE entity = 'RETAIL') d"""
 
 _V_TIEOUT = f"""SELECT {RUN_ID} AS run_id, coalesce(b.site_code, t.site_code)::text AS site_code, coalesce(b.month, t.month) AS month,
     coalesce(b.v, 0) AS books_sales, coalesce(t.v, 0) AS cogs_table_sales_ex_gst, coalesce(b.v, 0) - coalesce(t.v, 0) AS difference,
@@ -106,7 +106,7 @@ _V_TIEOUT = f"""SELECT {RUN_ID} AS run_id, coalesce(b.site_code, t.site_code)::t
 
 # Effective area = area x active days / calendar days, the same rules as pl_stage.effective_area, derived in SQL from dim_site. Stores only (site_kind STORE).
 _V_EFF_AREA = f"""WITH asof AS (SELECT {AS_OF} AS d),
- s AS (SELECT site_code, nullif(area, 0) AS area, opening_date, store_status, last_bill_date FROM gold_fpa.dim_site WHERE site_kind = 'STORE'),
+ s AS (SELECT site_code, nullif(area, 0) AS area, opening_date, store_status, last_bill_date FROM gold_fpa.dim_site WHERE site_kind = 'STORE' AND entity = 'RETAIL'),
  m AS (SELECT g::date AS month, (g + interval '1 month - 1 day')::date AS m_end, extract(day FROM (g + interval '1 month - 1 day'))::int AS cal
        FROM asof, generate_series(DATE '2025-04-01', date_trunc('month', asof.d), interval '1 month') g),
  j AS (SELECT s.site_code, s.area, s.opening_date, m.month, m.m_end, m.cal, asof.d AS as_of,
@@ -153,7 +153,7 @@ _V_SERVING_RUN = f"""SELECT {RUN_ID} AS run_id, {AS_OF} AS as_of_date, 'gold_fpa
     'verified' AS recon_state, 'live' AS publication_state, 'gold_fpa-1' AS contract_version,
     (SELECT max(_loaded_at) FROM (SELECT * FROM gold_fpa.pnl_store_month WHERE entity = 'RETAIL')) AS extract_finished_at, (SELECT max(_loaded_at) FROM (SELECT * FROM gold_fpa.pnl_store_month WHERE entity = 'RETAIL')) AS loaded_at,
     (SELECT count(*) FROM (SELECT * FROM gold_fpa.pnl_store_month WHERE entity = 'RETAIL'))::int AS expected_gl_rows, (SELECT count(*) FROM gold_fpa.cogs_store_month)::int AS expected_cogs_rows,
-    (SELECT count(*) FROM gold_fpa.dim_site)::int AS expected_sites, 0.01::numeric(30,4) AS tolerance_rupees,
+    (SELECT count(*) FROM (SELECT * FROM gold_fpa.dim_site WHERE entity = 'RETAIL'))::int AS expected_sites, 0.01::numeric(30,4) AS tolerance_rupees,
     NULL::int AS aligned_days, NULL::date AS ly_aligned_month"""
 
 # day-aligned last-year window: gold_fpa has no daily COGS, so the run declares no aligned window (ly_aligned_month NULL) and this view is empty.

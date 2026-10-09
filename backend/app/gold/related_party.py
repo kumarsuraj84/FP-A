@@ -1,6 +1,7 @@
 """Related Party Transactions (intercompany), read-only, FPA_SOURCE=gold only. Finance bearer token required (party names and document codes).
 
   GET /api/v1/related-party/summary                    creditors (register sub-ledgers), loans (if a loan table exists in gold_fpa), candidates, controls
+  GET /api/v1/related-party/intercompany              intercompany loan, interest and service charges derived from the ledger (gold/intercompany.py)
   GET /api/v1/related-party/items?sub_ledger_code=     open bills of one registered party (same shape as the creditors finance items, incl. document_code)
 
 Money is exact Decimal serialised as text, in RUPEES (INR); `*_cr` fields are crore (rupees / 10,000,000). payable = sum of credit items, debit_balance = sum of
@@ -16,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from ..creditors_api import repository as repo
 from ..creditors_api.router import database, finance_gate, ok
-from . import creditors as gc, db as gold, related_register as rr
+from . import creditors as gc, db as gold, intercompany as ic, related_gl as rgl, related_register as rr
 
 router = APIRouter(prefix="/api/v1/related-party")
 ZERO = Decimal(0)
@@ -98,6 +99,37 @@ def loans(conn) -> dict:
     return {"available": True, "reason": None, "tables": tables, "rows": out_rows}
 
 
+def loans_from_ledger(conn) -> dict:
+    """The /summary `loans` block. Same shape as before (available, reason, tables, rows) plus source='ledger' and the headline numbers derived from the ledger.
+    With no ledger list configured it falls back to the generic table search."""
+    if not ic.load():
+        return {**loans(conn), "source": "none"}
+    d = ic.compute(conn)
+    ln = d["loan"]
+    return {"available": True, "reason": None, "source": "ledger", "tables": [], "rows": [], "as_of_date": d["as_of_date"], "coverage_from": d["coverage_from"],
+            "net_movement": ln["net_movement"], "drawn": ln["drawn"], "repaid": ln["repaid"], "net_movement_cr": ln["net_movement_cr"], "drawn_cr": ln["drawn_cr"], "repaid_cr": ln["repaid_cr"],
+            "basis": ln["basis"], "balance_source": ln["source"], "full_history": ln["full_history"], "holdco_balance_cr": ln["holdco_balance_cr"], "subco_balance_cr": ln["subco_balance_cr"], "not_carried": ln["not_carried"], "reported_by_ledger": d["reported_by_ledger"], "sources": d["sources"],
+            "mirrors": ln["mirrors"], "variance_cr": ln["variance_cr"], "balance_note": ln["balance_note"], "interest": ln["interest"],
+            "service": {k: d["service"][k] for k in ("billed_holdco_cr", "charged_subco_cr", "unmatched_cr")}}
+
+
+@router.get("/intercompany")
+def intercompany(request: Request):
+    with _session(request) as conn:
+        return ok(ic.compute(conn))
+
+
+@router.get("/gl-entries")
+def gl_entries(request: Request, entity: str | None = Query(None, pattern="^(RETAIL|VENTURES)$"), from_month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+               to_month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"), basis: str = Query("all", pattern="^(party|ledger|all)$"),
+               limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0)):
+    """Every GL entry with a group company: party match (related_party_names.csv) OR ledger in intercompany_ledgers.csv. Entry-level rows, summary and mirror check."""
+    with _session(request) as conn:
+        d = rgl.compute(conn, entity=entity, from_month=from_month, to_month=to_month, basis=basis, limit=limit, offset=offset)
+        d["as_of_date"] = conn.execute("SELECT max(entdt) AS d FROM gold_fpa.voucher_lines").fetchone()["d"]
+        return ok(d)
+
+
 @router.get("/summary")
 def summary(request: Request):
     with _session(request) as conn:
@@ -117,7 +149,7 @@ def summary(request: Request):
                                                                                                  "confirmed": sum(r["status"] == "confirmed" for r in rr.load())},
             "creditors": {**_pack(rt), "by_party": _by_party(conn, rel, rid),
                           "by_age": repo.document_age(conn, src, rid), "by_due_status": repo.due_status(conn, src, rid)},
-            "loans": loans(conn), "candidates": candidates(conn, rid),
+            "related_party_gl": rgl.headline(conn), "loans": loans_from_ledger(conn), "candidates": candidates(conn, rid),
             "controls": {"main_plus_related_equals_all": ok_, "variance": variance, "variance_cr": _cr(variance), "debit_variance": variance_dr, "net_variance": variance_net,
                          "main_payable": mt["payable"], "related_payable": rt["payable"], "all_payable": at["payable"],
                          "main_payable_cr": _cr(mt["payable"]), "related_payable_cr": _cr(rt["payable"]), "all_payable_cr": _cr(at["payable"]),

@@ -29,6 +29,7 @@ export function WarningsBanner({ warnings }: { warnings: string[] }) {
   const kinds = [
     [/provisional/i, "provisional adjustments"],
     [/eliminations? not loaded/i, "intercompany not loaded"],
+    [/intercompany loan, interest and service charges/i, "intercompany read from ledger"],
     [/unmapped/i, "unmapped ledgers"],
     [/partial month/i, "partial month"],
     [/stop-gap/i, "stop-gap data"],

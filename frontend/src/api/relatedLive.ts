@@ -1,4 +1,4 @@
-import type { RelatedItems, RelatedSummary } from "@/types/relatedParty";
+import type { GlEntries, GlQuery, Intercompany, RelatedItems, RelatedSummary } from "@/types/relatedParty";
 
 /** Client for the read-only Related Party API (same-origin through the dev proxy, which adds the Finance token server-side). Always calls the API. */
 const BASE = (((import.meta.env.VITE_RELATED_API as string | undefined) ?? "/related-api").trim() || "/related-api").replace(/\/$/, "");
@@ -19,5 +19,7 @@ async function get<T>(path: string, params: Record<string, string | number | und
 
 export const relatedLive = {
   summary: () => get<RelatedSummary>("summary"),
+  intercompany: () => get<Intercompany>("intercompany"),
+  glEntries: (q: GlQuery) => get<GlEntries>("gl-entries", { entity: q.entity, from_month: q.from_month, to_month: q.to_month, basis: q.basis, offset: q.offset || undefined, limit: 50 }),
   items: (subLedgerCode: number) => get<RelatedItems>("items", { sub_ledger_code: subLedgerCode, limit: 500 }),
 };

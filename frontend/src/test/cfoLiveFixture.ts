@@ -34,7 +34,7 @@ export const MGMT_LINES = {
   pct_material_margin: tri(41.29, -0.99), pct_store_ebitda: tri(16.42, -1.4), pct_corporate_ebitda: tri(12.24, -1.2),
 };
 const mgmtPnl = (q: URLSearchParams) => ({
-  run_id: MGMT.run, entity: q.get("entity") ?? "consolidated", as_of_date: MGMT.asOf, months: ["2026-04", "2026-10"], store_count: 3, warnings: ["Intercompany eliminations not loaded"],
+  run_id: MGMT.run, entity: q.get("entity") ?? "consolidated", as_of_date: MGMT.asOf, months: ["2026-04", "2026-10"], store_count: 3, warnings: ["Intercompany loan, interest and service charges are read from the ledger (see Related Party); both sides are outside the Management P&L, so consolidated EBITDA is unaffected; SubCo and HoldCo standalone views omit them."],
   lines: Object.entries(MGMT_LINES).map(([key, total]) => ({ key, label: key, kind: key.startsWith("pct_") ? "pct" : "value", values: {}, total })),
 });
 export const TOTALS = money(1000, 600, 10, -250); // gm 410 (41.0%), contribution 160 (16.0%)

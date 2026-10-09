@@ -1,0 +1,3 @@
+entity,glcode,glname,lines,amount_rupees,drcr,last_entry,approx,note
+VENTURES,9000001,Example Group Loan (asset),10,1000000,Dr,2000-01-01,no,Illustrative row only
+RETAIL,9000002,Example Group Loans (liability),12,1100000,Cr,2000-01-01,no,Illustrative row only

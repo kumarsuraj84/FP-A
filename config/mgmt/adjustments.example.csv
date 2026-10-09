@@ -2,4 +2,4 @@ id,month,mis_line,location_type,amount_cr,kind,rule,owner,status,source,note,ent
 EXAMPLE-PROV-2000-01,2000-01,employee_cost,STORES,-0.1000,provision,fixed monthly provision,Finance,confirmed,example,Illustrative row,SUBCO,,
 EXAMPLE-SIS-2000-01,2000-01,other_operating_income,STORES,0.2000,income_adjustment,true_up:Business Auxiliary Service,Finance,confirmed,example,Management figure less booked amount,SUBCO,,
 EXAMPLE-VENT-2000-01,2000-01,employee_cost,HO,-0.3000,stopgap_entity,stop-gap until gold carries the entity,Finance,stopgap,example,HoldCo stop-gap,HOLDCO,,
-EXAMPLE-ELIM-2000-01,2000-01,ho_cost,HO,0.1000,elimination,intercompany recharge,Finance,proposed,example,Consolidated only,HOLDCO,Citykart Stores,SUBCO
+EXAMPLE-ELIM-2000-01,2000-01,ho_cost,HO,0.1000,elimination,intercompany recharge,Finance,proposed,example,Consolidated only,HOLDCO,Example SubCo,SUBCO

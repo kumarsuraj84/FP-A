@@ -174,7 +174,7 @@ def fetch_aggregates(conn, lo: str, hi: str, scope: str) -> dict:
         sl = cfg.site_loc()
         lmap = cfg.ledger_map()
         ent_sql = "p.entity" if det["pnl_has_entity"] else svc.HOLDCO_SQL
-        join = "" if det["pnl_has_entity"] else " LEFT JOIN gold_fpa.dim_site d ON d.site_code = p.site_code"
+        join = "" if det["pnl_has_entity"] else " LEFT JOIN gold_fpa.dim_site d ON d.site_code = p.site_code AND d.entity = 'RETAIL'"
         kinds = list(SCOPE_KINDS[scope]) + (["VIRTUAL"] if scope == "ho" else [])
         rows = conn.execute(
             f"SELECT to_char(p.month, 'YYYY-MM') AS month, {ent_sql} AS entity, p.site_code, p.site_kind, p.glcode, p.glname, p.fin_group, p.is_mapped, max(p.store_name) AS store_name, "
@@ -211,7 +211,7 @@ def fetch_aggregates(conn, lo: str, hi: str, scope: str) -> dict:
 
 def fetch_store_meta(conn) -> dict:
     def go():
-        return {r["site_code"]: r for r in conn.execute("SELECT site_code, short_name, store_name, store_type, state, city, area, opening_date, store_status FROM gold_fpa.dim_site").fetchall()}
+        return {r["site_code"]: r for r in conn.execute("SELECT site_code, short_name, store_name, store_type, state, city, area, opening_date, store_status FROM gold_fpa.dim_site WHERE entity = 'RETAIL'").fetchall()}
     return svc.cached("exp_meta", go)
 
 

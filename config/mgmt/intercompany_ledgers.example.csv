@@ -1,0 +1,8 @@
+role,pair_id,entity,glcode,glname,side,status,note
+loan,LOAN,VENTURES,9000001,Example Group Loan (asset),asset,proposed,Illustrative row only
+loan,LOAN,RETAIL,9000002,Example Group Loans (liability),liability,proposed,Illustrative row only
+interest_accrual,INTEREST,VENTURES,9000003,Example Interest Accrued (asset),asset,proposed,Illustrative row only
+interest_payable,INTEREST,RETAIL,9000004,Example Interest Payable,liability,proposed,Illustrative row only
+service_income,SERVICE,VENTURES,9000005,Example Service Income,income,proposed,Illustrative row only
+service_charge,SERVICE,RETAIL,9000006,Example Service Charge,expense,proposed,Illustrative row only
+other,OTHER,VENTURES,9000007,Example Related Party Balance,liability,proposed,Illustrative row only

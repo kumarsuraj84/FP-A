@@ -7,7 +7,7 @@ import type { MgmtEntity, MgmtAdjustment, MgmtAdjustments, MgmtBridgeStep, MgmtH
  */
 export const RUN = "mgmt_fixture_run";
 export const MONTHS = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08"];
-export const WARNINGS = ["Citykart Ventures not in gold: stop-gap from workbook", "provisional adjustments included", "Intercompany expense and loan eliminations not loaded"];
+export const WARNINGS = ["Citykart Ventures not in gold: stop-gap from workbook", "provisional adjustments included", "Intercompany loan, interest and service charges are read from the ledger (see Related Party); both sides are outside the Management P&L, so consolidated EBITDA is unaffected; SubCo and HoldCo standalone views omit them."];
 
 type Leaf = "revenue" | "other_operating_income" | "material_cost" | "rent" | "employee_cost" | "power_fuel" | "advertisement" | "freight" | "other_expenses" | "dc_cost" | "ho_cost" | "one_time";
 type Layer = Record<Leaf, number>;

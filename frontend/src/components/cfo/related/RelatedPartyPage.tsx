@@ -4,8 +4,9 @@ import { useRelatedItems, useRelatedSummary } from "@/api/relatedLiveHooks";
 import { absText, fmtRupees, num, toCr } from "@/api/creditorsLive";
 import { DASH, fmtCr, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { RelatedCandidate, RelatedLoans, RelatedParty, RelatedSummary } from "@/types/relatedParty";
+import type { RelatedCandidate, RelatedParty, RelatedSummary } from "@/types/relatedParty";
 import { Skeleton } from "../common";
+import { GlEntriesSection, IntercompanySection } from "./IntercompanySections";
 import { DataStateBadge, LiveBoundary, NotAvailable } from "../creditors/parts";
 import { BillVoucherCell } from "../entry/BillVoucherCell";
 import { useHere } from "../entry/parts";
@@ -196,36 +197,6 @@ function Candidates({ rows }: { rows: RelatedCandidate[] }) {
   );
 }
 
-function Loans({ loans }: { loans: RelatedLoans }) {
-  if (!loans.available) {
-    return (
-      <Block testId="loans" eyebrow="Intercompany loans" title="Loans between group companies">
-        <div data-testid="loans-unavailable"><NotAvailable title="Not loaded" reason={loans.reason ?? "Intercompany loan data is not available."} /></div>
-      </Block>
-    );
-  }
-  const cols = loans.tables.flatMap((t) => t.columns).filter((c, i, a) => a.indexOf(c) === i);
-  return (
-    <Block testId="loans" eyebrow="Intercompany loans" title={`Loans between group companies (${loans.rows.length} row${loans.rows.length === 1 ? "" : "s"})`}>
-      <div className="overflow-x-auto">
-        <table className="w-full text-[12.5px]" data-testid="loans-table">
-          <thead>
-            <tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground">
-              {cols.map((c) => <th key={c} className="px-3 py-2 font-semibold">{c}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {loans.rows.map((r, i) => (
-              <tr key={i} className="border-b">{cols.map((c) => <td key={c} className="num px-3 py-1.5">{r[c] === null || r[c] === undefined ? DASH : String(r[c])}</td>)}</tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="border-t px-4 py-2 text-[11px] text-muted-foreground">Shown as stored in {loans.tables.map((t) => t.table).join(", ")}; columns are not interpreted here.</div>
-    </Block>
-  );
-}
-
 function Recon({ s }: { s: RelatedSummary }) {
   const c = s.controls;
   const ok = c.main_plus_related_equals_all;
@@ -250,6 +221,14 @@ function Body({ s }: { s: RelatedSummary }) {
         <Cell testId="rp-net" label="Net payable" value={cr(c.net)} exact={c.net} sub="payable − debit balances (positive = we owe)" />
         <Cell testId="rp-parties" label="Parties" value={String(c.parties)} sub={`${s.register.proposed} proposed · ${s.register.confirmed} confirmed`} />
       </section>
+      {s.related_party_gl && (
+        <section className="grid grid-cols-4 divide-x rounded-md border bg-card shadow-elegant @max-[900px]:grid-cols-2 @max-[900px]:divide-y" data-testid="rp-gl-strip">
+          <Cell testId="rp-gl-entries" label="GL entries with group companies" value={s.related_party_gl.entries.toLocaleString("en-IN")} sub={`read from ${s.related_party_gl.source ?? "the ledger"}`} />
+          <Cell testId="rp-gl-holdco" label="In HoldCo (Citykart Ventures) books" value={s.related_party_gl.by_entity.VENTURES.entries.toLocaleString("en-IN")} sub={`Dr ${cr(s.related_party_gl.by_entity.VENTURES.debit)} · Cr ${cr(s.related_party_gl.by_entity.VENTURES.credit)}`} />
+          <Cell testId="rp-gl-subco" label="In SubCo (Citykart Stores) books" value={s.related_party_gl.by_entity.RETAIL.entries.toLocaleString("en-IN")} sub={`Dr ${cr(s.related_party_gl.by_entity.RETAIL.debit)} · Cr ${cr(s.related_party_gl.by_entity.RETAIL.credit)}`} />
+          <Cell testId="rp-gl-isd" label="Same-company registration (ISD)" value={s.related_party_gl.same_company.entries.toLocaleString("en-IN")} sub={`Cr ${cr(s.related_party_gl.same_company.credit)} · not a counterparty`} />
+        </section>
+      )}
       <Recon s={s} />
       <Block testId="parties" eyebrow="Creditors side · intercompany" title="Related-party sub-ledgers" right={<span className="text-[11px] text-muted-foreground">Click a party for its open bills</span>}>
         {c.by_party.length === 0 ? <NotAvailable title="No related parties registered" reason="Add sub-ledgers to config/mgmt/related_parties.csv; until then nothing is excluded from the main pages." /> : <PartyTable rows={c.by_party} />}
@@ -258,7 +237,8 @@ function Body({ s }: { s: RelatedSummary }) {
         </div>
       </Block>
       <Candidates rows={s.candidates} />
-      <Loans loans={s.loans} />
+      <IntercompanySection />
+      <GlEntriesSection />
     </div>
   );
 }
