@@ -25,3 +25,6 @@ data/inbox/
 # local secrets (loader login, vendor pseudonym key): never committed
 .secrets/
 *.egg-info/
+api.log
+fe.log
+npm_install.log

@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from ..gold import creditors as _gc, db as _gold
+
 ZERO = Decimal(0)
 AGE_BUCKETS = [("D0_30", "0–30"), ("D31_60", "31–60"), ("D61_90", "61–90"), ("D91_180", "91–180"), ("D181_365", "181–365"), ("D365_PLUS", ">365")]
 UNCLASSIFIED = ("UNCLASSIFIED", "Unclassified")
@@ -42,6 +44,8 @@ class Source:
 
 
 def source_for(run: dict, finance: bool) -> Source:
+    if _gold.enabled():
+        return Source("finance" if finance else "live", _gc.items(finance), _gc.CONTROLS, finance, True)
     live = run["publication_state"] == "live"
     if finance:
         return Source("finance", "cred.v_open_item_named" if live else "cred.v_open_item_named_candidate", "cred.v_live_controls" if live else "cred.v_control_candidate", True, live)
@@ -54,15 +58,21 @@ def data_state(run: dict) -> str:
 
 
 def get_run(conn, run_id: str) -> dict | None:
+    if _gold.enabled():
+        return conn.execute(f"SELECT * FROM {_gc.RUN} WHERE extraction_run_id = %s", (run_id,)).fetchone()
     return conn.execute("SELECT * FROM cred.v_candidate_run WHERE extraction_run_id = %s", (run_id,)).fetchone()
 
 
 def current_run(conn) -> dict | None:
     """The live run if there is one, otherwise the newest verified candidate."""
+    if _gold.enabled():
+        return conn.execute(f"SELECT * FROM {_gc.RUN} ORDER BY as_of_date DESC LIMIT 1").fetchone()
     return conn.execute("SELECT * FROM cred.v_candidate_run ORDER BY (publication_state = 'live') DESC, loaded_at DESC LIMIT 1").fetchone()
 
 
 def list_candidates(conn) -> list[dict]:
+    if _gold.enabled():
+        return conn.execute(f"SELECT * FROM {_gc.RUN} ORDER BY as_of_date DESC").fetchall()
     return conn.execute("SELECT * FROM cred.v_candidate_run ORDER BY loaded_at DESC").fetchall()
 
 
