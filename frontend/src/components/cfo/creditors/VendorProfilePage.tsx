@@ -10,6 +10,8 @@ import { AGE_FILTER_LABELS, type BucketId } from "@/types/creditors";
 import type { LiveItem, LiveVendor } from "@/types/creditorsLive";
 import { Skeleton } from "../common";
 import { PageFrame } from "../DeepPages";
+import { BillVoucherCell } from "../entry/BillVoucherCell";
+import { useHere } from "../entry/parts";
 import { DUE_COLOR, DUE_ORDER, DataStateBadge, LiveBoundary, NotAvailable, bucketColor } from "./parts";
 
 const AGE_KEYS = ["D0_30", "D31_60", "D61_90", "D91_180", "D181_365", "D365_PLUS"] as const;
@@ -68,7 +70,8 @@ function ageLabel(code: string): string {
   return id ? AGE_FILTER_LABELS[id] : code.startsWith("UNCLASSIFIED") ? "Unclassified" : code;
 }
 
-function OpenItems({ items, named }: { items: LiveItem[]; named: boolean }) {
+function OpenItems({ items, named, vendor }: { items: LiveItem[]; named: boolean; vendor: string }) {
+  const { next } = useHere([], `Creditors · ${vendor}`);
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[12.5px]" data-testid="open-items">
@@ -81,7 +84,8 @@ function OpenItems({ items, named }: { items: LiveItem[]; named: boolean }) {
             <th className="px-2 py-2 font-semibold">Due date</th>
             <th className="px-2 py-2 text-right font-semibold" title="As-of date − document date">Document age</th>
             <th className="px-2 py-2 font-semibold">Due status</th>
-            <th className="px-4 py-2 text-right font-semibold">Open amount</th>
+            <th className="px-2 py-2 text-right font-semibold">Open amount</th>
+            <th className="px-4 py-2 font-semibold" title="The voucher (accounting entry) behind this bill">Voucher</th>
           </tr>
         </thead>
         <tbody>
@@ -115,7 +119,8 @@ function OpenItems({ items, named }: { items: LiveItem[]; named: boolean }) {
                   <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-sm" style={{ background: DUE_COLOR[i.due_status] }} />{DUE_LABEL[i.due_status] ?? i.due_status}</span>
                   {i.overdue_days !== null && i.overdue_days > 0 && <span className="num ml-1 text-[11px] text-muted-foreground">{i.overdue_days} d</span>}
                 </td>
-                <td data-exact={absText(i.pending)} className={cn("num px-4 py-2 text-right font-semibold", i.drcr === "Dr" && "tone-warn")}>{fmtRupees(absText(i.pending))}</td>
+                <td data-exact={absText(i.pending)} className={cn("num px-2 py-2 text-right font-semibold", i.drcr === "Dr" && "tone-warn")}>{fmtRupees(absText(i.pending))}</td>
+                <td className="px-4 py-2"><BillVoucherCell itemRef={i.item_ref} documentCode={i.document_code} trail={next} /></td>
               </tr>
             );
           })}
@@ -199,7 +204,7 @@ function Profile({ v, named }: { v: LiveVendor; named: boolean }) {
         <LiveBoundary query={items} skeleton={<Skeleton className="m-4 h-[200px]" />}>
           {(p) => (
             <>
-              <OpenItems items={p.items} named={p.named} />
+              <OpenItems items={p.items} named={p.named} vendor={vendorLabel(v)} />
               {p.total_items > p.returned && <div className="border-t px-4 py-2 text-[11px] text-muted-foreground">Showing the oldest {p.returned} of {p.total_items.toLocaleString("en-IN")}.</div>}
               <div className="border-t bg-[oklch(0.985_0.006_265)] px-4 py-2 text-[11px] text-muted-foreground">Debit items are shown as found and never netted into the credit total.</div>
             </>

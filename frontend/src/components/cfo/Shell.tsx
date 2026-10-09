@@ -11,12 +11,13 @@ import type { DrillOrigin } from "@/types/cfo";
 import { useFreshness } from "@/api/hooks";
 import { useCashRun } from "@/api/cashLiveHooks";
 import { usePnlRun } from "@/api/pnlLiveHooks";
+import { useEntryRun } from "@/api/entryLiveHooks";
 import { useLiveRun } from "@/api/creditorsLiveHooks";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, stampText } from "@/lib/format";
 import { COMPARISON_ORDER, COMPARISONS, PERIOD_ORDER, PERIODS, SCENARIOS, SCENARIO_ORDER } from "@/mocks/scenarios";
 import type { ComparisonId, DataStateId, PeriodId, ScenarioId } from "@/types/cfo";
 import { cn } from "@/lib/utils";
-import { isMockApi } from "@/api";
+import { isLiveCfo, isMockApi } from "@/api";
 
 const DATA_STATES: { id: DataStateId; label: string }[] = [
   { id: "live", label: "Normal" },
@@ -50,7 +51,21 @@ function Select<T extends string>({ label, value, options, onChange, testId, wid
 export function DemoBanner() {
   const { state, dispatch } = useCfo();
   const path = useRouterState({ select: (r) => r.location.pathname });
-  const realPage = path.startsWith("/creditors") ? "Creditors" : path.startsWith("/cash") ? "Liquidity" : path === "/profitability" ? "Profitability" : null;
+  const realPage = path.startsWith("/creditors") ? "Creditors" : path.startsWith("/cash") ? "Liquidity" : path === "/profitability" ? "Profitability" : path.startsWith("/entry") ? "Voucher drill" : null;
+  if (isLiveCfo) {
+    // The Command Center and its drill pages read the same three real sources. Each figure carries its own run and as-of date.
+    const text = realPage
+      ? `${realPage} shows REAL data from its own verified run. The Command Center reads the same real sources, each figure with its own run and as-of date: real, per-source as-of, not one synchronized CFO position.`
+      : "Real data, per-source as-of: P&L, Creditors and Cash are separate runs and each figure shows its own run and date. This is not one synchronized CFO position. Budget, forecast, bank, receivables, inventory and vendor advances are unavailable.";
+    return (
+      <div data-testid="demo-banner" data-real="true" data-source-mode="live" className="flex h-6 items-center bg-[oklch(0.94_0.06_155)] px-4 text-[11px] font-medium text-[oklch(0.32_0.1_155)]">
+        <span className="flex min-w-0 items-center gap-1.5" title={text}>
+          <CircleDot className="h-3 w-3 shrink-0" />
+          <span className="truncate">{text}</span>
+        </span>
+      </div>
+    );
+  }
   if (realPage) {
     // this page runs on a verified mart; every module not yet connected is still demo data and the banner says so
     return (
@@ -67,7 +82,7 @@ export function DemoBanner() {
       <span className="flex items-center gap-1.5">
         <CircleDot className="h-3 w-3" />
         Demo data — financial source reconciliation pending
-        {!isMockApi && <span className="rounded bg-white/60 px-1">API configured</span>}
+        {!isMockApi && !isLiveCfo && <span className="rounded bg-white/60 px-1">API configured</span>}
       </span>
       <label className="flex items-center gap-1.5 opacity-90">
         <span>Simulate data state</span>
@@ -90,7 +105,7 @@ export function DemoBanner() {
 }
 
 /** Real-data pages state their OWN as-of date and state (from the API), not the demo shell's freshness or controls. */
-interface RealMeta { asOf: string | null; state: string; stateLabel: string; updated: string | null; scope: "cash" | "cred" | "pnl"; status: "ok" | "error" | "pending" }
+interface RealMeta { asOf: string | null; state: string; stateLabel: string; updated: string | null; scope: "cash" | "cred" | "pnl" | "entry"; status: "ok" | "error" | "pending" }
 const STATE_TEXT: Record<string, string> = { verified_candidate: "Verified candidate · not live", live: "Live", superseded: "Superseded", withdrawn: "Withdrawn" };
 
 function useRealMeta(): RealMeta | null {
@@ -98,12 +113,13 @@ function useRealMeta(): RealMeta | null {
   const cash = useCashRun();
   const cred = useLiveRun();
   const pnl = usePnlRun();
-  const scope = path.startsWith("/cash") ? "cash" : path.startsWith("/creditors") ? "cred" : path === "/profitability" ? "pnl" : null;
+  const entry = useEntryRun();
+  const scope = path.startsWith("/cash") ? "cash" : path.startsWith("/creditors") ? "cred" : path === "/profitability" ? "pnl" : path.startsWith("/entry") ? "entry" : null;
   if (!scope) return null;
-  const run = scope === "cash" ? cash : scope === "pnl" ? pnl : cred;
+  const run = scope === "cash" ? cash : scope === "pnl" ? pnl : scope === "entry" ? entry : cred;
   if (run.isError) return { asOf: null, state: "error", stateLabel: "Real data unavailable", updated: null, scope, status: "error" };
   if (!run.data) return { asOf: null, state: "pending", stateLabel: "Checking…", updated: null, scope, status: "pending" };
-  const d = run.data as { as_of_date: string; data_state: string; source_updated_at?: string };
+  const d = scope === "entry" ? { ...(run.data as { register_report_date: string; data_state: string; source_updated_at?: string }), as_of_date: (run.data as { register_report_date: string }).register_report_date } : (run.data as { as_of_date: string; data_state: string; source_updated_at?: string });
   const updated = d.source_updated_at ? new Date(d.source_updated_at).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : null;
   return { asOf: d.as_of_date, state: d.data_state, stateLabel: STATE_TEXT[d.data_state] ?? d.data_state, updated, scope, status: "ok" };
 }
@@ -151,11 +167,34 @@ export function TopBar() {
       ) : (
       <div className="flex flex-1 flex-wrap items-center gap-3">
         <Select<PeriodId> label="Period" testId="select-period" value={state.period} options={PERIOD_ORDER.map((id) => ({ id, label: PERIODS[id].label }))} onChange={(v) => dispatch({ type: "setPeriod", value: v })} />
-        <Select<ComparisonId> label="Compare" testId="select-comparison" value={state.comparison} options={COMPARISON_ORDER.map((id) => ({ id, label: COMPARISONS[id].label }))} onChange={(v) => dispatch({ type: "setComparison", value: v })} />
-        <Select<ScenarioId> label="Scenario" testId="select-scenario" value={state.scenario} options={SCENARIO_ORDER.map((id) => ({ id, label: SCENARIOS[id].label }))} onChange={(v) => dispatch({ type: "setScenario", value: v })} />
+        <Select<ComparisonId> label="Compare" testId="select-comparison" value={state.comparison} options={COMPARISON_ORDER.map((id) => ({ id, label: isLiveCfo && id !== "ly" ? `${COMPARISONS[id].label} (not available)` : COMPARISONS[id].label }))} onChange={(v) => dispatch({ type: "setComparison", value: v })} />
+        {isLiveCfo ? (
+          <span data-testid="scenario-live-note" title="Scenarios are demo-only controls. They do not apply to real data." className="rounded bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+            Scenarios: demo only
+          </span>
+        ) : (
+          <Select<ScenarioId> label="Scenario" testId="select-scenario" value={state.scenario} options={SCENARIO_ORDER.map((id) => ({ id, label: SCENARIOS[id].label }))} onChange={(v) => dispatch({ type: "setScenario", value: v })} />
+        )}
       </div>
       )}
-      {!real && (      <div
+      {!real && isLiveCfo && (
+        <div data-testid="freshness" className="flex flex-wrap items-center gap-1.5">
+          {(f?.sources ?? []).map((s) => (
+            <span
+              key={s.id}
+              data-testid={`freshness-${s.id}`}
+              data-ok={s.ok}
+              title={stampText(s)}
+              className={cn("flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium", s.ok ? "bg-[oklch(0.96_0.03_155)] text-[oklch(0.38_0.1_155)]" : "bg-[oklch(0.96_0.05_85)] text-[oklch(0.42_0.1_75)]")}
+            >
+              <span className={cn("h-1.5 w-1.5 rounded-full", s.ok ? "bg-[oklch(0.62_0.16_155)]" : "bg-[oklch(0.7_0.15_75)]")} />
+              {s.label} {s.ok && s.asOf ? fmtDate(s.asOf) : "not read"}
+            </span>
+          ))}
+          {!f && <span className="text-[11px] text-muted-foreground">Checking sources…</span>}
+        </div>
+      )}
+      {!real && !isLiveCfo && (      <div
         data-testid="freshness"
         className={cn("flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium", f?.stale ? "bg-[oklch(0.96_0.05_85)] text-[oklch(0.42_0.1_75)]" : "bg-[oklch(0.96_0.03_155)] text-[oklch(0.38_0.1_155)]")}
       >
@@ -192,7 +231,13 @@ const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: str
 const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN };
 
 /** The destination the current investigation belongs to, so a ledger or voucher still highlights its own area. */
-function activeNav(scope: string | undefined, path: string): NavId {
+function activeNav(scope: string | undefined, path: string, trail?: unknown): NavId {
+  if (path.startsWith("/entry")) {
+    // the voucher drill highlights the area it was reached from: the first step of its trail
+    const first = Array.isArray(trail) ? (trail[0] as { h?: unknown } | undefined)?.h : undefined;
+    const h = typeof first === "string" ? first : "";
+    return h.startsWith("/creditors") ? "creditors" : h.startsWith("/profitability") ? "profitability" : h.startsWith("/cash") ? "cash" : "command";
+  }
   if (scope === "creditors" || path.startsWith("/creditors")) return "creditors";
   if (scope === "profitability" || path.startsWith("/profitability")) return "profitability";
   if (scope === "cashroom" || path === "/cash") return "cash";
@@ -202,7 +247,8 @@ function activeNav(scope: string | undefined, path: string): NavId {
 export function SideNav() {
   const { state, dispatch, enterCreditors, enterRoom } = useCfo();
   const path = useRouterState({ select: (x) => x.location.pathname });
-  const active = activeNav(state.origin?.scope, path);
+  const trail = useRouterState({ select: (x) => (x.location.search as { trail?: unknown }).trail });
+  const active = activeNav(state.origin?.scope, path, trail);
   const go: Record<NavId, () => void> = {
     command: () => dispatch({ type: "home" }),
     profitability: () => enterRoom("profitability"),
@@ -253,6 +299,7 @@ export function SideNav() {
 export function Breadcrumbs() {
   const { crumbs, goToCrumb } = useCfo();
   const path = useRouterState({ select: (x) => x.location.pathname });
+  if (path.startsWith("/entry")) return null; // the voucher drill carries its own trail (where the user came from), in the URL
   if (path === "/profitability") {
     return (
       <nav aria-label="Breadcrumb" data-testid="breadcrumbs" className="flex h-8 items-center gap-1 overflow-x-auto whitespace-nowrap border-b bg-background px-4 text-[12px]">

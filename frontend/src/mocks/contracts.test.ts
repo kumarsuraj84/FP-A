@@ -24,7 +24,7 @@ describe("bridges reconcile", () => {
 
   it("working-capital panel nets to the sum of its rows", async () => {
     const env = await mockApi.getWorkingCapital(ctx("normal"));
-    expect(env.data!.netCashImpact).toBeCloseTo(sum(env.data!.rows.map((r) => r.cashImpact)), 2);
+    expect(env.data!.netCashImpact).toBeCloseTo(sum(env.data!.rows.map((r) => r.cashImpact ?? 0)), 2);
   });
 
   it("operating profit on the pulse equals the profit bridge actual", async () => {

@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, BookOpenText, ChevronRight, Store, Truck, UserSquare2, X } from "lucide-react";
+import { ArrowLeft, BookOpenText, ChevronRight, ExternalLink, Store, Truck, UserSquare2, X } from "lucide-react";
 import { useDrill } from "@/api/hooks";
 import { useCfo } from "@/context/CfoContext";
 import { storeNodeByName } from "@/lib/profitNodes";
 import { drawerNodes } from "@/context/cfoState";
 import { fmtCr, fmtPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { DrillNode, DrillRow, DrillView } from "@/types/cfo";
-import { Boundary, Skeleton, StaleChip, toneClass } from "./common";
+import type { DrillLink, DrillNode, DrillRow, DrillView } from "@/types/cfo";
+import { Boundary, SourceLines, Skeleton, StaleChip, toneClass } from "./common";
 
 const TONE_FILL: Record<string, string> = {
   good: "bg-[oklch(0.62_0.16_155)]",
@@ -47,7 +47,7 @@ function RowButton({ row, onOpen, showVar = true }: { row: DrillRow; onOpen: (n:
   );
 }
 
-function Body({ view, onOpen, onLedger, onProfile, onStore, showProfile, stale }: { view: DrillView; onOpen: (n: DrillNode) => void; onLedger: () => void; onProfile: () => void; onStore?: () => void; showProfile: boolean; stale: boolean }) {
+function Body({ view, onOpen, onLedger, onProfile, onStore, onLink, showProfile, stale }: { view: DrillView; onOpen: (n: DrillNode) => void; onLedger: () => void; onProfile: () => void; onStore?: () => void; onLink: (l: DrillLink) => void; showProfile: boolean; stale: boolean }) {
   const [tab, setTab] = useState(0);
   const split = view.splits[Math.min(tab, view.splits.length - 1)];
   // for movement items the row amount IS the variance; don't repeat the same figure twice
@@ -76,6 +76,7 @@ function Body({ view, onOpen, onLedger, onProfile, onStore, showProfile, stale }
         <p className="mt-2.5 text-[12.5px] leading-relaxed text-foreground/80" data-testid="drawer-explanation">
           {view.explanation}
         </p>
+        <SourceLines stamps={view.sources} className="mt-2 px-0 pb-0" />
       </div>
 
       <div className="border-b px-4 py-3">
@@ -143,6 +144,27 @@ function Body({ view, onOpen, onLedger, onProfile, onStore, showProfile, stale }
         </div>
       )}
 
+      {!view.terminal && view.sources && view.facts.length > 0 && (
+        <dl data-testid="drawer-facts" className="grid grid-cols-2 gap-x-4 gap-y-2 border-t px-4 py-3 text-[12.5px]">
+          {view.facts.map((f) => (
+            <div key={f.label} className="min-w-0">
+              <dt className="text-[11px] text-muted-foreground">{f.label}</dt>
+              <dd className="break-words font-medium text-foreground">{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {view.links && view.links.length > 0 && (
+        <div data-testid="drawer-links" className="flex flex-col gap-2 border-t px-4 py-3">
+          {view.links.map((l) => (
+            <button key={l.label} data-testid="open-live-page" onClick={() => onLink(l)} className="press flex items-center justify-between rounded bg-primary px-3 py-2 text-[13px] font-semibold text-primary-foreground hover:bg-primary/90">
+              <span className="flex items-center gap-2"><ExternalLink className="h-4 w-4" /> {l.label}</span>
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          ))}
+        </div>
+      )}
+
       {view.terminal && (
         <div className="px-4 py-3" data-testid="drawer-terminal">
           <div className="eyebrow mb-2">Entity</div>
@@ -155,17 +177,19 @@ function Body({ view, onOpen, onLedger, onProfile, onStore, showProfile, stale }
             ))}
           </dl>
           <div className="mt-4 flex flex-col gap-2">
+            {!view.links && (
             <button data-testid="open-ledger" onClick={onLedger} className="press flex items-center justify-between rounded bg-primary px-3 py-2 text-[13px] font-semibold text-primary-foreground hover:bg-primary/90">
               <span className="flex items-center gap-2"><BookOpenText className="h-4 w-4" /> Open ledger</span>
               <ChevronRight className="h-4 w-4" />
             </button>
+            )}
             {onStore && (
               <button data-testid="open-store-workspace" onClick={onStore} className="press flex items-center justify-between rounded border bg-card px-3 py-2 text-[13px] font-semibold text-foreground hover:bg-muted">
                 <span className="flex items-center gap-2"><Store className="h-4 w-4" /> Open store profitability</span>
                 <ChevronRight className="h-4 w-4" />
               </button>
             )}
-            {showProfile && (
+            {showProfile && !view.links && (
               <button data-testid="open-profile" onClick={onProfile} className="press flex items-center justify-between rounded border bg-card px-3 py-2 text-[13px] font-semibold text-foreground hover:bg-muted">
                 <span className="flex items-center gap-2"><ProfileIcon className="h-4 w-4" /> Open {view.entityKind === "store" ? "store" : view.entityKind === "vendor" ? "vendor" : "account"} profile</span>
                 <ChevronRight className="h-4 w-4" />
@@ -179,7 +203,7 @@ function Body({ view, onOpen, onLedger, onProfile, onStore, showProfile, stale }
 }
 
 export function InvestigationDrawer() {
-  const { state, closeDrawer, pushNode, back, enterStore } = useCfo();
+  const { state, closeDrawer, pushNode, back, enterStore, enterCreditors, enterRoom } = useCfo();
   const origin = state.origin;
   const open = state.drawerOpen && origin !== null;
   const q = useDrill(open ? origin : null, state.nodes);
@@ -194,6 +218,7 @@ export function InvestigationDrawer() {
   }, [open, closeDrawer]);
 
   if (!open || !origin) return null;
+  const openLink = (l: DrillLink) => (l.room === "creditors" ? enterCreditors({ age: l.age }) : enterRoom(l.room));
   const goDeep = (level: "ledger" | "profile") =>
     pushNode({ level, dim: level === "ledger" ? "Ledger" : "Profile", id: level, label: level === "ledger" ? "GL" : q.data?.data?.entityKind === "vendor" ? "Vendor profile" : q.data?.data?.entityKind === "store" ? "Store profile" : "Profile", amount: last?.amount ?? origin.amount, variance: last?.variance ?? origin.variance });
 
@@ -230,6 +255,7 @@ export function InvestigationDrawer() {
             onLedger={() => goDeep("ledger")}
             onProfile={() => goDeep("profile")}
             // a store reached from the Command Center hands over to its profitability workspace; a GL account in Profitability has no separate profile
+            onLink={openLink}
             onStore={view.entityKind === "store" && origin.scope !== "profitability" && last?.dim === "Store" ? () => enterStore(storeNodeByName(last.label)) : undefined}
             showProfile={!(view.entityKind === "account" && origin.scope === "profitability")}
           />

@@ -9,6 +9,8 @@ import type { BankLedger, BankReview, CashSummary, CashTill, CreditorObligations
 import { Skeleton } from "../common";
 import { DataStateBadge, LiveBoundary, NotAvailable } from "../creditors/parts";
 import { Panel, WorkspaceHeader } from "../panels";
+import { AppLink, useHere } from "../entry/parts";
+import { tillHref } from "@/lib/entryLinks";
 
 /**
  * Liquidity & Working Capital Control, on REAL data (the verified cash mart and the creditors mart).
@@ -57,6 +59,7 @@ function Strip({ s }: { s: CashSummary }) {
 function TillPanel({ till }: { till: CashTill }) {
   const [limit, setLimit] = useState(15);
   const q = useTillStores(limit, "balance");
+  const { next } = useHere([], "Liquidity & Working Capital");
   const stat = (label: string, value: string, exact?: string) => (
     <div className="px-4 py-2.5">
       <div className="eyebrow">{label}</div>
@@ -81,7 +84,8 @@ function TillPanel({ till }: { till: CashTill }) {
                   <th className="px-4 py-2 font-semibold">Store</th>
                   <th className="px-2 py-2 text-right font-semibold">Till cash</th>
                   <th className="px-2 py-2 text-right font-semibold">Month to date in / out</th>
-                  <th className="px-4 py-2 text-right font-semibold">Last activity</th>
+                  <th className="px-2 py-2 text-right font-semibold">Last activity</th>
+                  <th className="px-4 py-2 text-right font-semibold" title="Days with till movement, then the vouchers of a day">Drill</th>
                 </tr>
               </thead>
               <tbody>
@@ -90,7 +94,10 @@ function TillPanel({ till }: { till: CashTill }) {
                     <td className="px-4 py-1.5"><span className="font-medium text-foreground">{r.store_name ?? `Site ${r.site_code}`}</span> <span className="text-muted-foreground">· {r.site_code}</span></td>
                     <td data-exact={r.cumulative_balance} className={cn("num px-2 py-1.5 text-right font-semibold", signedClass(r.cumulative_balance))} title={fmtRupees(r.cumulative_balance)}>{cr(r.cumulative_balance)}</td>
                     <td className="num px-2 py-1.5 text-right text-muted-foreground">{cr(r.mtd_debit)} / {cr(r.mtd_credit)}</td>
-                    <td className="num px-4 py-1.5 text-right text-muted-foreground">{r.last_activity_date ? fmtDate(r.last_activity_date) : DASH}</td>
+                    <td className="num px-2 py-1.5 text-right text-muted-foreground">{r.last_activity_date ? fmtDate(r.last_activity_date) : DASH}</td>
+                    <td className="px-4 py-1.5 text-right">
+                      <AppLink href={tillHref(r.site_code, next, r.store_name)} testId={`till-drill-${r.site_code}`} className="press whitespace-nowrap rounded border px-1.5 py-0.5 text-[11px] font-semibold text-primary hover:bg-muted">Days and vouchers</AppLink>
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -4,6 +4,7 @@ import type {
   CfoAction,
   ForecastTrajectory,
   Horizon,
+  LiveSeverity,
   LiquidityPoint,
   LiquiditySummary,
   PulseMetric,
@@ -11,6 +12,7 @@ import type {
   RiskPillar,
   Severity,
   Tone,
+  WorkingCapitalRow,
   WorkingCapitalSummary,
 } from "@/types/cfo";
 import { COMPARISONS, PERIODS, SCENARIOS, type ScenarioParams } from "./scenarios";
@@ -313,7 +315,7 @@ export function buildLiquidity(ctx: QueryCtx, horizon: Horizon): LiquiditySummar
 
 /* ───────────── working capital ───────────── */
 
-export function buildWorkingCapital(ctx: QueryCtx): WorkingCapitalSummary {
+export function buildWorkingCapital(ctx: QueryCtx): Omit<WorkingCapitalSummary, "rows" | "netCashImpact"> & { rows: WorkingCapitalRow[]; netCashImpact: number } {
   const { S, k } = params(ctx);
   const f = cashFlowsFor(S, k);
   const mk = (id: string, label: string, v: number, note: string, family: BridgeItem["family"]) => ({
@@ -409,7 +411,7 @@ export function buildRisks(ctx: QueryCtx): RiskPillar[] {
 
 /* ───────────── actions ───────────── */
 
-const SEV_W: Record<Severity, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+const SEV_W: Record<LiveSeverity, number> = { critical: 4, high: 3, medium: 2, low: 1, unrated: 0 };
 
 export function buildActions(ctx: QueryCtx): CfoAction[] {
   const { S } = params(ctx);

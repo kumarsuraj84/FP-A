@@ -1,11 +1,11 @@
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useLiquidity, useWorkingCapital } from "@/api/hooks";
 import { useCfo } from "@/context/CfoContext";
-import { fmtCr } from "@/lib/format";
+import { DASH, fmtCr } from "@/lib/format";
 import { originFromLiquidity, originFromWcRow } from "@/lib/origins";
 import { cn } from "@/lib/utils";
 import type { Horizon, LiquiditySummary } from "@/types/cfo";
-import { Boundary, Metric, SectionTitle, Skeleton, StaleChip, toneClass } from "./common";
+import { Boundary, Metric, SectionTitle, SourceLines, Skeleton, StaleChip, toneClass } from "./common";
 
 const HORIZONS: { id: Horizon; label: string }[] = [
   { id: "today", label: "Today" },
@@ -32,13 +32,39 @@ function Stat({ label, children, onClick, testId, tone }: { label: string; child
   );
 }
 
+/** Live data: the projection has no source. Say so and say why, instead of drawing a line. */
+function NoProjection({ s }: { s: LiquiditySummary }) {
+  const gaps = [
+    ["Projected cash", s.projectedCash.reason],
+    ["Expected inflows", s.expectedInflows.reason],
+    ["Upcoming obligations", s.upcomingObligations.reason],
+  ].filter(([, r]) => r);
+  return (
+    <div data-testid="liquidity-no-projection" className="mx-2 mb-3 rounded border border-dashed px-4 py-3 text-[12px] text-muted-foreground">
+      <div className="mb-1 font-semibold text-foreground">{DASH} No projection is shown</div>
+      <ul className="space-y-0.5">
+        {gaps.map(([k, r]) => (
+          <li key={k}>
+            <span className="font-medium text-foreground/80">{k}:</span> {r}
+          </li>
+        ))}
+        <li>
+          <span className="font-medium text-foreground/80">Operating minimum:</span> not set in any source
+        </li>
+      </ul>
+    </div>
+  );
+}
+
 function Chart({ s, onClick }: { s: LiquiditySummary; onClick: () => void }) {
+  if (s.series.length === 0) return <NoProjection s={s} />;
+  const opMin = s.operatingMinimum;
   let todayIdx = 0;
   s.series.forEach((p, i) => {
     if (p.actual) todayIdx = i;
   });
   const data = s.series.map((p, i) => ({ label: p.label, actual: p.actual ? p.cash : null, projected: !p.actual || i === todayIdx ? p.cash : null }));
-  const all = s.series.map((p) => p.cash).concat(s.operatingMinimum);
+  const all = s.series.map((p) => p.cash).concat(opMin === null ? [] : [opMin]);
   const lo = Math.floor(Math.min(...all) - 4);
   const hi = Math.ceil(Math.max(...all) + 4);
   return (
@@ -55,7 +81,7 @@ function Chart({ s, onClick }: { s: LiquiditySummary; onClick: () => void }) {
           <XAxis dataKey="label" tick={{ fontSize: 10.5, fill: "oklch(0.5 0.02 260)" }} tickLine={false} axisLine={{ stroke: "oklch(0.9 0.01 260)" }} interval="preserveStartEnd" minTickGap={24} />
           <YAxis domain={[lo, hi]} ticks={Array.from({ length: 5 }, (_, i) => Math.round(lo + ((hi - lo) * i) / 4))} tick={{ fontSize: 10.5, fill: "oklch(0.5 0.02 260)" }} tickLine={false} axisLine={false} width={40} tickFormatter={(v) => `${v}`} />
           <Tooltip formatter={(v: number, name: string) => [fmtCr(v), name === "actual" ? "Actual cash" : "Projected cash"]} contentStyle={{ fontSize: 12, borderRadius: 6 }} />
-          <ReferenceLine y={s.operatingMinimum} stroke="oklch(0.58 0.2 25)" strokeDasharray="5 4" label={{ value: `Operating minimum ₹${s.operatingMinimum} Cr`, position: "insideBottomRight", fontSize: 10.5, fill: "oklch(0.5 0.2 25)" }} />
+          {opMin !== null && <ReferenceLine y={opMin} stroke="oklch(0.58 0.2 25)" strokeDasharray="5 4" label={{ value: `Operating minimum ₹${opMin} Cr`, position: "insideBottomRight", fontSize: 10.5, fill: "oklch(0.5 0.2 25)" }} />}
           <ReferenceLine x={s.series[todayIdx]?.label} stroke="oklch(0.55 0.02 260)" strokeDasharray="2 3" label={{ value: "Today", position: "top", fontSize: 10.5, fill: "oklch(0.4 0.03 260)" }} />
           <Area type="monotone" dataKey="actual" stroke="oklch(0.3 0.08 255)" strokeWidth={2.4} fill="url(#cashFill)" dot={false} connectNulls isAnimationActive={false} />
           <Line type="monotone" dataKey="projected" stroke={s.tone === "bad" ? "oklch(0.58 0.2 25)" : "oklch(0.5 0.15 255)"} strokeWidth={2.4} strokeDasharray="6 4" dot={false} connectNulls isAnimationActive={false} />
@@ -101,7 +127,7 @@ export function LiquidityTrajectory() {
                 <Metric m={s.projectedCash} fmt={(n) => fmtCr(n)} />
               </Stat>
               <Stat testId="liq-min" label="Operating minimum">
-                {fmtCr(s.operatingMinimum)}
+                {s.operatingMinimum === null ? DASH : fmtCr(s.operatingMinimum)}
               </Stat>
               <Stat testId="liq-inflows" label="Expected inflows" tone="tone-good" onClick={() => openOrigin(originFromLiquidity("inflows", s))}>
                 <Metric m={s.expectedInflows} fmt={(n) => fmtCr(n, { signed: true })} />
@@ -116,6 +142,7 @@ export function LiquidityTrajectory() {
             <div className="px-2 pb-2 pt-1">
               <Chart s={s} onClick={() => openOrigin(originFromLiquidity("projected", s))} />
             </div>
+            <SourceLines stamps={s.sources} />
           </>
         )}
       </Boundary>
@@ -133,15 +160,17 @@ export function WorkingCapitalPanel() {
       </div>
       <Boundary query={q} skeleton={<Skeleton className="m-4 h-[300px]" />} emptyTitle="No working-capital movement for this selection">
         {(w) => {
-          const max = Math.max(...w.rows.map((r) => Math.abs(r.cashImpact)), 1);
+          const max = Math.max(...w.rows.map((r) => Math.abs(r.cashImpact ?? 0)), 1);
+          const netTone = w.netCashImpact === null ? "text-muted-foreground" : w.netCashImpact < 0 ? "tone-bad" : "tone-good";
           return (
             <div className="flex flex-1 flex-col">
-              <div className={cn("px-4 pt-3 text-[13px] font-semibold", w.netCashImpact < 0 ? "tone-bad" : "tone-good")} data-testid="wc-headline">
+              <div className={cn("px-4 pt-3 text-[13px] font-semibold", netTone)} data-testid="wc-headline">
                 {w.headline}
               </div>
               <ul className="mt-1 flex-1">
                 {w.rows.map((r) => {
-                  const pct = (Math.abs(r.cashImpact) / max) * 50;
+                  const impact = r.cashImpact;
+                  const pct = impact === null ? 0 : (Math.abs(impact) / max) * 50;
                   const sel = state.origin?.scope === "wc" && state.origin.id === r.id;
                   return (
                     <li key={r.id}>
@@ -153,16 +182,25 @@ export function WorkingCapitalPanel() {
                       >
                         <span className="min-w-0">
                           <span className="block truncate text-[13px] font-medium text-foreground">{r.label}</span>
-                          <span className="block truncate text-[10.5px] text-muted-foreground">{r.direction === "absorbed" ? "Absorbed" : "Released"} · {r.note}</span>
+                          <span className="block truncate text-[10.5px] text-muted-foreground" title={r.note}>{impact === null ? r.note : `${r.direction === "absorbed" ? "Absorbed" : "Released"} · ${r.note}`}</span>
                         </span>
                         <span className="relative h-3.5">
                           <span className="absolute inset-y-0 left-1/2 w-px bg-border" />
-                          <span
-                            className={cn("absolute inset-y-0.5 rounded-sm", r.cashImpact < 0 ? "bg-[oklch(0.58_0.2_25)]" : "bg-[oklch(0.58_0.15_155)]")}
-                            style={r.cashImpact < 0 ? { right: "50%", width: `${pct}%` } : { left: "50%", width: `${pct}%` }}
-                          />
+                          {impact !== null && (
+                            <span
+                              className={cn("absolute inset-y-0.5 rounded-sm", impact < 0 ? "bg-[oklch(0.58_0.2_25)]" : "bg-[oklch(0.58_0.15_155)]")}
+                              style={impact < 0 ? { right: "50%", width: `${pct}%` } : { left: "50%", width: `${pct}%` }}
+                            />
+                          )}
                         </span>
-                        <span className={cn("num text-right text-[13px] font-semibold", toneClass(r.tone))}>{fmtCr(r.cashImpact, { signed: true })}</span>
+                        {impact === null ? (
+                          <span className="num text-right text-[13px] font-semibold text-foreground" title={r.balance?.reason ?? r.note}>
+                            <Metric m={r.balance ?? { value: null, reason: r.note }} fmt={(v) => fmtCr(v)} />
+                            {r.balance?.value != null && <span className="block text-[9.5px] font-normal text-muted-foreground">balance</span>}
+                          </span>
+                        ) : (
+                          <span className={cn("num text-right text-[13px] font-semibold", toneClass(r.tone))}>{fmtCr(impact, { signed: true })}</span>
+                        )}
                       </button>
                     </li>
                   );
@@ -170,8 +208,9 @@ export function WorkingCapitalPanel() {
               </ul>
               <div className="flex items-center justify-between bg-[oklch(0.975_0.008_265)] px-4 py-3" data-testid="wc-net">
                 <span className="eyebrow">Net working-capital cash impact</span>
-                <span className={cn("num-mono text-[20px] font-semibold", w.netCashImpact < 0 ? "tone-bad" : "tone-good")}>{fmtCr(w.netCashImpact, { signed: true })}</span>
+                <span className={cn("num-mono text-[20px] font-semibold", netTone)} title={w.netCashImpact === null ? "Not available: it needs a prior-period snapshot and sources for inventory, receivables and vendor advances" : undefined}>{w.netCashImpact === null ? DASH : fmtCr(w.netCashImpact, { signed: true })}</span>
               </div>
+              <SourceLines stamps={w.sources} className="pt-2" />
             </div>
           );
         }}

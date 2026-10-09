@@ -1,4 +1,4 @@
-import type { MetricValue } from "@/types/cfo";
+import type { MetricValue, SourceStamp } from "@/types/cfo";
 
 export const DASH = "—";
 
@@ -34,6 +34,11 @@ export function fmtRs(v: number | null | undefined): string {
 export function fmtDate(iso: string): string {
   const d = new Date(iso + (iso.length === 10 ? "T00:00:00Z" : ""));
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+/** One line naming a real source, its run and the run's OWN as-of date. */
+export function stampText(s: SourceStamp): string {
+  return s.ok ? `${s.label} · ${s.runId} · as of ${s.asOf ? fmtDate(s.asOf) : DASH} · ${s.stateLabel}` : `${s.label} · not read · ${s.reason ?? "unavailable"}`;
 }
 
 export function metricText(m: MetricValue, f: (n: number) => string): string {

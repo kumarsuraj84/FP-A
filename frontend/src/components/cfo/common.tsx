@@ -2,16 +2,17 @@ import type { ReactNode } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { AlertTriangle, DatabaseZap, Inbox, RefreshCw, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DASH } from "@/lib/format";
-import type { Envelope, MetricValue, Severity, Tone } from "@/types/cfo";
+import { DASH, stampText } from "@/lib/format";
+import type { Envelope, LiveSeverity, MetricValue, SourceStamp, Tone } from "@/types/cfo";
 
 export const toneClass = (t: Tone) => (t === "good" ? "tone-good" : t === "bad" ? "tone-bad" : t === "warn" ? "tone-warn" : "tone-neutral");
 
-export const SEVERITY_STYLE: Record<Severity, { bar: string; chip: string; label: string }> = {
+export const SEVERITY_STYLE: Record<LiveSeverity, { bar: string; chip: string; label: string }> = {
   critical: { bar: "bg-[oklch(0.55_0.22_25)]", chip: "bg-[oklch(0.95_0.04_25)] text-[oklch(0.45_0.2_25)]", label: "Critical" },
   high: { bar: "bg-[oklch(0.68_0.17_50)]", chip: "bg-[oklch(0.96_0.05_60)] text-[oklch(0.45_0.14_50)]", label: "High" },
   medium: { bar: "bg-[oklch(0.8_0.14_85)]", chip: "bg-[oklch(0.97_0.05_95)] text-[oklch(0.45_0.1_80)]", label: "Medium" },
   low: { bar: "bg-[oklch(0.7_0.14_155)]", chip: "bg-[oklch(0.96_0.04_155)] text-[oklch(0.4_0.12_155)]", label: "Low" },
+  unrated: { bar: "bg-[oklch(0.8_0.01_260)]", chip: "bg-muted text-muted-foreground", label: "Not rated" },
 };
 
 /** Renders "—" with its reason whenever a metric is genuinely missing. Never zero. */
@@ -24,6 +25,21 @@ export function Metric({ m, fmt, className }: { m: MetricValue; fmt: (n: number)
     );
   }
   return <span className={className}>{fmt(m.value)}</span>;
+}
+
+/** Live data: each real source behind a section, with its own run id and as-of date (never one synchronized position). */
+export function SourceLines({ stamps, className }: { stamps?: (SourceStamp | undefined)[]; className?: string }) {
+  const list = (stamps ?? []).filter((s): s is SourceStamp => !!s);
+  if (!list.length) return null;
+  return (
+    <div data-testid="source-lines" className={cn("space-y-0.5 px-4 pb-2 text-[10.5px] text-muted-foreground", className)}>
+      {list.map((s) => (
+        <div key={s.id} data-source={s.id} className="truncate" title={stampText(s)}>
+          Source · {stampText(s)}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function SectionTitle({ eyebrow, title, right, className }: { eyebrow?: string; title: ReactNode; right?: ReactNode; className?: string }) {

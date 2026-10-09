@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, Minus, RefreshCw } from "lucide-react";
 import { usePulse } from "@/api/hooks";
 import { useCfo } from "@/context/CfoContext";
-import { fmtBps, fmtCr, fmtPct, DASH } from "@/lib/format";
+import { fmtBps, fmtCr, fmtDate, fmtPct, stampText, DASH } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { PulseMetric } from "@/types/cfo";
 import { StaleChip, Skeleton, toneClass } from "./common";
@@ -38,6 +38,11 @@ function Cell({ m, active, onClick }: { m: PulseMetric; active: boolean; onClick
       <span className="w-full truncate text-[11px] text-muted-foreground @max-[1000px]:hidden" title={m.status}>
         {m.status}
       </span>
+      {m.source && (
+        <span data-testid={`pulse-source-${m.id}`} data-source={m.source.id} className="w-full truncate text-[10px] text-muted-foreground/80 @max-[1000px]:hidden" title={stampText(m.source)}>
+          {m.source.label} · {m.source.runId ?? "not read"} · {m.source.asOf ? fmtDate(m.source.asOf) : DASH}
+        </span>
+      )}
     </button>
   );
 }

@@ -1,4 +1,4 @@
-import type { Bridge, BridgeItem, DrillOrigin, HeroTab, LiquiditySummary, WorkingCapitalRow } from "@/types/cfo";
+import type { Bridge, BridgeItem, DrillOrigin, HeroTab, LiquiditySummary, WorkingCapitalLine } from "@/types/cfo";
 
 /** Builds the drill origin for a clicked waterfall bar. Totals carry the net movement as variance. */
 export function originFromBridgeItem(bridge: Bridge, item: BridgeItem, scope: string): DrillOrigin {
@@ -17,7 +17,7 @@ export function originFromBridgeItem(bridge: Bridge, item: BridgeItem, scope: st
   };
 }
 
-export function originFromWcRow(row: WorkingCapitalRow): DrillOrigin {
+export function originFromWcRow(row: WorkingCapitalLine): DrillOrigin {
   return { source: "workingCapital", scope: "wc", id: row.id, label: row.label, family: row.family, amount: row.cashImpact, variance: row.cashImpact };
 }
 

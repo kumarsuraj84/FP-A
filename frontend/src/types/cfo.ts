@@ -30,6 +30,33 @@ export interface QueryCtx {
 
 export type Tone = "good" | "bad" | "neutral" | "warn";
 export type Severity = "low" | "medium" | "high" | "critical";
+/** "unrated" = there is no real source to rate this on (live data): it is shown as "Not rated", never as low. */
+export type LiveSeverity = Severity | "unrated";
+
+/**
+ * Where a real figure comes from. Every live figure carries its OWN run id and as-of date: the three real sources
+ * (P&L, Creditors, Cash) are separate runs and are never presented as one synchronized position.
+ */
+export type SourceId = "pnl" | "creditors" | "cash";
+export interface SourceStamp {
+  id: SourceId;
+  label: string;
+  runId: string | null;
+  /** the run's own as-of date (YYYY-MM-DD); null when the source could not be read */
+  asOf: string | null;
+  state: string;
+  stateLabel: string;
+  ok: boolean;
+  /** why the source could not be read */
+  reason?: string;
+}
+
+/** A jump from a real drill to the dedicated live page that owns the detail. */
+export interface DrillLink {
+  label: string;
+  room: "profitability" | "cashroom" | "creditors";
+  age?: AgeFilter;
+}
 
 /** Envelope: lets every section render loading / stale / unavailable / empty honestly. */
 export interface Envelope<T> {
@@ -116,6 +143,10 @@ export interface DrillView {
   terminal: boolean;
   entityKind: "store" | "vendor" | "account" | "other";
   facts: { label: string; value: string }[];
+  /** live data: the real source(s) behind this view */
+  sources?: SourceStamp[];
+  /** live data: dedicated pages that own the detail (replaces the demo ledger / profile buttons) */
+  links?: DrillLink[];
 }
 
 export interface LedgerEntry {
@@ -201,6 +232,8 @@ export interface PulseMetric {
   origin: DrillOrigin;
   /** when set, the click navigates to a dedicated workspace instead of opening the drawer */
   target?: CreditorsTarget;
+  /** live data: the source run this figure comes from */
+  source?: SourceStamp;
 }
 
 export type HeroTab = "profit" | "cash" | "workingCapital";
@@ -221,6 +254,9 @@ export interface Bridge {
   subtitle: string;
   unitNote: string;
   items: BridgeItem[];
+  /** live data: replaces the variance "net movement" readout for a composition bridge (set by the service, never computed in the UI) */
+  readout?: { label: string; value: string; note: string };
+  sources?: SourceStamp[];
 }
 
 export interface LiquidityPoint {
@@ -235,13 +271,15 @@ export type Horizon = "today" | "7d" | "15d" | "30d";
 export interface LiquiditySummary {
   currentCash: MetricValue;
   projectedCash: MetricValue;
-  operatingMinimum: number;
+  /** null = no operating minimum has been set in any source */
+  operatingMinimum: number | null;
   expectedInflows: MetricValue;
   upcomingObligations: MetricValue;
   breachDay: string | null;
   series: LiquidityPoint[];
   headline: string;
   tone: Tone;
+  sources?: SourceStamp[];
 }
 
 export interface WorkingCapitalRow {
@@ -255,10 +293,17 @@ export interface WorkingCapitalRow {
   family: Family;
 }
 
+/** A working-capital line of the live service: the movement may be unavailable (null), in which case the balance (or its reason) is shown. */
+export interface WorkingCapitalLine extends Omit<WorkingCapitalRow, "cashImpact"> {
+  cashImpact: number | null;
+  balance?: MetricValue;
+}
+
 export interface WorkingCapitalSummary {
-  rows: WorkingCapitalRow[];
-  netCashImpact: number;
+  rows: WorkingCapitalLine[];
+  netCashImpact: number | null;
   headline: string;
+  sources?: SourceStamp[];
 }
 
 export interface RiskPillar {
@@ -266,12 +311,15 @@ export interface RiskPillar {
   label: string;
   exposure: MetricValue;
   movement: MetricValue;
-  severity: Severity;
+  severity: LiveSeverity;
   diagnosticLabel: string;
   diagnosticValue: string;
+  /** live data: overrides the fixed caption under the exposure figure */
+  exposureLabel?: string;
   family: Family;
   origin: DrillOrigin;
   target?: CreditorsTarget;
+  source?: SourceStamp;
 }
 
 export interface CfoAction {
@@ -282,10 +330,12 @@ export interface CfoAction {
   concentration: string;
   age: string;
   cta: string;
-  severity: Severity;
+  severity: LiveSeverity;
   family: Family;
   origin: DrillOrigin;
   target?: CreditorsTarget;
+  /** live data: the real facts this action rests on (source run, as-of and the field it is read from) */
+  evidence?: string;
 }
 
 export interface ForecastMonth {
@@ -308,6 +358,8 @@ export interface FreshnessInfo {
   asOf: string;
   stale: boolean;
   label: string;
+  /** live data: one stamp per real source, each with its own run and as-of date */
+  sources?: SourceStamp[];
 }
 
 export interface CfoApi {

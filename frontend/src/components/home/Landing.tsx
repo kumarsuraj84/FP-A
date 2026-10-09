@@ -2,15 +2,17 @@ import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Banknote, BarChart3, Boxes, ChevronRight, LayoutDashboard, Lock, Store, Truck, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isLiveCfo } from "@/api";
 
 /**
  * The front door: Finance, Operations and Merchandising reports kept apart.
  * The status chip on every tile says what stands behind it, so a user never has to guess whether a page is real, demo, sample or not started.
  */
-type Tone = "real" | "demo" | "sample" | "planned";
+type Tone = "real" | "live" | "demo" | "sample" | "planned";
 
 const TONE: Record<Tone, { label: string; cls: string }> = {
   real: { label: "Real data · verified candidate · not live", cls: "bg-[oklch(0.94_0.06_155)] text-[oklch(0.32_0.1_155)]" },
+  live: { label: "Real data · per-source as-of", cls: "bg-[oklch(0.94_0.06_155)] text-[oklch(0.32_0.1_155)]" },
   demo: { label: "Demo data", cls: "bg-[oklch(0.96_0.06_85)] text-[oklch(0.38_0.09_70)]" },
   sample: { label: "Sample-data prototype", cls: "bg-[oklch(0.95_0.025_265)] text-[oklch(0.3_0.12_265)]" },
   planned: { label: "Not started", cls: "bg-secondary text-secondary-foreground" },
@@ -33,7 +35,7 @@ const AREAS: { id: string; eyebrow: string; title: string; blurb: string; tiles:
     title: "Finance",
     blurb: "The CFO's view: profit, cash and what the company owes.",
     tiles: [
-      { id: "command", title: "CFO Command Center", blurb: "Financial pulse, what changed, risk and forecast.", tone: "demo", to: "/", icon: <LayoutDashboard className="h-4 w-4" /> },
+      { id: "command", title: "CFO Command Center", blurb: "Financial pulse, what changed, risk and forecast.", tone: isLiveCfo ? "live" : "demo", to: "/", icon: <LayoutDashboard className="h-4 w-4" /> },
       { id: "profitability", title: "Store Profitability", blurb: "Store-level profit, from revenue to contribution.", tone: "demo", to: "/profitability", icon: <Store className="h-4 w-4" /> },
       { id: "cash", title: "Liquidity & Working Capital", blurb: "Store till cash, creditors and the bank review card.", tone: "real", to: "/cash", icon: <Banknote className="h-4 w-4" /> },
       { id: "creditors", title: "Creditors Control", blurb: "How much we owe, how old it is and which vendors carry it.", tone: "real", to: "/creditors", icon: <Truck className="h-4 w-4" /> },

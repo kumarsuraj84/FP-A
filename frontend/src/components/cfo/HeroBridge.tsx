@@ -4,10 +4,23 @@ import { fmtCr } from "@/lib/format";
 import { HERO_TABS, originFromBridgeItem } from "@/lib/origins";
 import { cn } from "@/lib/utils";
 import type { Bridge, HeroTab } from "@/types/cfo";
-import { Boundary, Skeleton, StaleChip } from "./common";
+import { Boundary, SourceLines, Skeleton, StaleChip } from "./common";
 import { WaterfallChart } from "./WaterfallChart";
 
 export function Readout({ bridge }: { bridge: Bridge }) {
+  // a real composition (live data) states its own readout; there is no variance to net or rank
+  if (bridge.readout) {
+    return (
+      <aside className="hidden w-[232px] shrink-0 flex-col justify-between gap-4 border-l bg-[oklch(0.985_0.006_265)] px-4 py-4 2xl:flex" data-testid="hero-readout">
+        <div>
+          <div className="eyebrow">{bridge.readout.label}</div>
+          <div className="num-mono mt-0.5 text-[26px] font-semibold leading-tight text-foreground">{bridge.readout.value}</div>
+          <div className="text-[11px] text-muted-foreground">{bridge.readout.note}</div>
+        </div>
+        <p className="text-[11px] leading-snug text-muted-foreground">Select any bar to see the real split behind it and open the page that owns the detail.</p>
+      </aside>
+    );
+  }
   const totals = bridge.items.filter((i) => i.kind === "total");
   const deltas = bridge.items.filter((i) => i.kind === "delta");
   const net = totals.length >= 2 ? totals[totals.length - 1].value - totals[0].value : 0;
@@ -54,7 +67,7 @@ export function HeroBridge() {
     <section aria-label="What changed" data-testid="hero" className="overflow-hidden rounded-md border bg-card shadow-elegant">
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[oklch(0.22_0.06_255)] px-5 py-3 text-white">
         <div className="min-w-0">
-          <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/60">What changed?</div>
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/60">{q.data?.data?.readout ? "Real data" : "What changed?"}</div>
           <h2 className="truncate text-[17px] font-semibold tracking-tight" data-testid="hero-title">
             {q.data?.data?.title ?? "Financial bridge"}
           </h2>
@@ -91,6 +104,7 @@ export function HeroBridge() {
                   onSelect={(item) => openOrigin(originFromBridgeItem(bridge, item, scope))}
                 />
                 <div className="px-3 pb-1 text-[10.5px] text-muted-foreground">{bridge.unitNote}</div>
+                <SourceLines stamps={bridge.sources} className="px-3" />
               </>
             )}
           </Boundary>

@@ -1,7 +1,7 @@
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Clock, Users } from "lucide-react";
 import { useActions, useRisks } from "@/api/hooks";
 import { useCfo } from "@/context/CfoContext";
-import { fmtBps, fmtCr } from "@/lib/format";
+import { DASH, fmtBps, fmtCr, fmtDate, stampText } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { RiskPillar } from "@/types/cfo";
 import { Boundary, Metric, SectionTitle, SEVERITY_STYLE, Skeleton, StaleChip } from "./common";
@@ -50,7 +50,9 @@ export function RiskLandscape() {
                   <span className="num-mono mt-1 text-[24px] font-semibold leading-none text-foreground">
                     <Metric m={p.exposure} fmt={(n) => fmtCr(n)} />
                   </span>
-                  <span className="text-[11px] text-muted-foreground">{p.diagnosticLabel === "Shortfall vs minimum" ? "Shortfall vs minimum" : EXPOSURE_LABEL[p.id]}</span>
+                  <span className={cn("text-[11px] text-muted-foreground", p.exposure.value === null && p.exposure.reason && "line-clamp-3")} title={p.exposure.reason}>
+                    {p.exposure.value === null && p.exposure.reason ? p.exposure.reason : p.exposureLabel ?? (p.diagnosticLabel === "Shortfall vs minimum" ? "Shortfall vs minimum" : EXPOSURE_LABEL[p.id])}
+                  </span>
                   <span className={cn("num mt-1 flex items-center gap-1 text-[12px] font-semibold", bad ? "tone-bad" : "tone-good")}>
                     <Arrow className="h-3.5 w-3.5" />
                     <Metric m={p.movement} fmt={(n) => (p.id === "gm" ? fmtBps(n) : fmtCr(n, { signed: true }))} />
@@ -59,6 +61,11 @@ export function RiskLandscape() {
                     <span className="truncate text-muted-foreground">{p.diagnosticLabel}</span>
                     <span className="num shrink-0 font-semibold text-foreground">{p.diagnosticValue}</span>
                   </span>
+                  {p.source && (
+                    <span data-testid={`risk-source-${p.id}`} className="w-full truncate text-[10px] text-muted-foreground/80" title={stampText(p.source)}>
+                      {p.source.label} · {p.source.runId ?? "not read"} · {p.source.asOf ? fmtDate(p.source.asOf) : DASH}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -91,7 +98,12 @@ export function AttentionQueue() {
                       <span className="truncate text-[14px] font-semibold text-foreground">{a.problem}</span>
                       <span className={cn("shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide", sev.chip)}>{sev.label}</span>
                     </div>
-                    <div className="truncate text-[12px] text-muted-foreground">{a.driver}</div>
+                    <div className="truncate text-[12px] text-muted-foreground" title={a.driver}>{a.driver}</div>
+                    {a.evidence && (
+                      <div data-testid={`action-evidence-${a.id}`} className="truncate text-[10.5px] text-muted-foreground/80" title={a.evidence}>
+                        Evidence · {a.evidence}
+                      </div>
+                    )}
                   </div>
                   <div className="num-mono text-[17px] font-semibold text-foreground">
                     <Metric m={a.amount} fmt={(n) => fmtCr(n)} />

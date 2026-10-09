@@ -143,6 +143,8 @@ export interface PnlStore extends PnlHeader {
 }
 
 export interface PnlGroupLedgers extends PnlHeader {
+  /** the period and basis the amounts are for (the voucher list must use the same) */
+  scope?: { from_month: string; to_month: string; basis: Basis };
   site_code: string;
   group_label: string;
   ledgers: { glcode: string; ledger_name: string; amount: string; lines: number; months: { month: string; amount: string }[] }[];

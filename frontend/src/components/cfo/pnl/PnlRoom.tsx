@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { CheckCircle2, ChevronRight, X } from "lucide-react";
 import { usePnlExpenseExceptions, usePnlHierarchy, usePnlLedgers, usePnlReconciliation, usePnlRevenueExceptions, usePnlRun, usePnlStore, usePnlStores, usePnlSummary, usePnlTrend } from "@/api/pnlLiveHooks";
 import { fmtDate } from "@/lib/format";
@@ -13,6 +14,8 @@ import { PnlComparisonTab, PnlPivotTab } from "./PnlPivotTab";
 import { ExpenseExceptionsTab, HeatMapTab, PeersTab, QualityTab, RevenueExceptionsTab } from "./PnlReviewTabs";
 import { FLAG_LABEL, SEVERITY_STYLE, lakh } from "./pnlFormat";
 import { GrowthMarginQuadrant, reference } from "./PnlQuadrant";
+import { AppLink } from "../entry/parts";
+import { ledgerListHref } from "@/lib/entryLinks";
 
 /**
  * Store P&L actuals, on REAL data (the verified pnl mart).
@@ -186,8 +189,20 @@ function Lines({ lines, revenue, onGroup, selected }: { lines: PnlLine[]; revenu
   );
 }
 
-function LedgerDrill({ site, group, q }: { site: string; group: string; q: PnlQuery }) {
+/** The P&L view to come back to from the voucher drill: store, finance group and period are in the address (P&L state otherwise lives in the page). */
+export function pnlBackHref(site: string, group: string | null, q: PnlQuery): string {
+  const p = new URLSearchParams({ ps: site });
+  if (group) p.set("pg", group);
+  if (q.from_month) p.set("pf", q.from_month);
+  if (q.to_month) p.set("pe", q.to_month);
+  if (q.basis === "posted") p.set("pb", "posted");
+  return `/profitability?${p}`;
+}
+
+function LedgerDrill({ site, group, q, storeName }: { site: string; group: string; q: PnlQuery; storeName?: string | null }) {
   const l = usePnlLedgers(site, group, q);
+  const label = `Profitability · ${storeName ?? `site ${site}`} · ${group.replace(/^\d+-/, "")}`;
+  const back = [{ l: label, h: pnlBackHref(site, group, q) }];
   return (
     <div data-testid="ledger-drill" className="border-t bg-[oklch(0.985_0.006_265)]">
       <div className="flex items-center justify-between px-4 py-1.5 text-[11.5px]">
@@ -202,6 +217,15 @@ function LedgerDrill({ site, group, q }: { site: string; group: string; q: PnlQu
                 <tr key={x.glcode} className="border-t" data-testid={`ledger-${x.glcode}`} data-exact={x.amount}>
                   <td className="px-4 py-1">{x.ledger_name}<span className="ml-2 text-[10.5px] text-muted-foreground">{x.lines} lines · ledger {x.glcode}</span></td>
                   <td className={cn("num-mono px-3 py-1 text-right", tone(x.amount))}>{cr(x.amount)}</td>
+                  <td className="px-3 py-1 text-right">
+                    <AppLink
+                      testId={`ledger-vouchers-${x.glcode}`}
+                      href={ledgerListHref({ site, glcode: x.glcode, from_month: d.scope?.from_month ?? q.from_month, to_month: d.scope?.to_month ?? q.to_month, basis: d.scope?.basis ?? q.basis, title: `${x.ledger_name} · ${storeName ?? `site ${site}`}` }, back)}
+                      className="press whitespace-nowrap rounded border px-1.5 py-0.5 text-[11px] font-semibold text-primary hover:bg-muted"
+                    >
+                      Vouchers
+                    </AppLink>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -246,7 +270,7 @@ function StorePanel({ site, q, onClose, initialGroup }: { site: string; q: PnlQu
             </div>
             <div>
               <Lines lines={d.lines} revenue={d.totals.revenue} onGroup={(g) => setGroup((p) => (p === g ? null : g))} selected={group} />
-              {group && <LedgerDrill site={site} group={group} q={q} />}
+              {group && <LedgerDrill site={site} group={group} q={q} storeName={d.site.store_name} />}
             </div>
           </div>
         )}
@@ -463,10 +487,16 @@ function NeedsAttention({ q, onStore, onTab }: { q: PnlQuery; onStore: (site: st
 
 export function PnlRoom() {
   const run = usePnlRun();
-  const [q, setQ0] = useState<PnlQuery>({ basis: "all" });
+  // coming back from the voucher drill restores the store, finance group and period it left from (absent on a normal visit)
+  const back = useRouterState({ select: (s) => s.location.search as Record<string, unknown> });
+  const [q, setQ0] = useState<PnlQuery>(() => ({
+    basis: back.pb === "posted" ? "posted" : "all",
+    ...(typeof back.pf === "string" && /^\d{4}-\d{2}$/.test(back.pf) ? { from_month: back.pf } : {}),
+    ...(typeof back.pe === "string" && /^\d{4}-\d{2}$/.test(back.pe) ? { to_month: back.pe } : {}),
+  }));
   const [tab, setTab] = useState<TabId>("overview");
-  const [site, setSite0] = useState<string | null>(null);
-  const [group, setGroup] = useState<string | null>(null);
+  const [site, setSite0] = useState<string | null>(() => (back.ps !== undefined && /^\d{1,9}$/.test(String(back.ps)) ? String(back.ps) : null));
+  const [group, setGroup] = useState<string | null>(() => (back.ps !== undefined && typeof back.pg === "string" && back.pg.length < 80 ? back.pg : null));
   const setQ = (f: (p: PnlQuery) => PnlQuery) => setQ0((p) => f(p));
   const pickStore = (s: string | null, g: string | null = null) => {
     setSite0(s);
