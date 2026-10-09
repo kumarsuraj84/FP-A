@@ -7,7 +7,7 @@ import type { MgmtReconCell } from "@/types/mgmtLive";
 import { Skeleton } from "../common";
 import { LiveBoundary } from "../creditors/parts";
 import { Panel } from "../panels";
-import { MgmtFrame, MonthRange, WarningsBanner } from "./MgmtFrame";
+import { MgmtFrame, MonthRange, WarningsBanner, fyYtdRange } from "./MgmtFrame";
 import { useMgmtEntity } from "./mgmtEntity";
 import { cr2, cr3, monthShort, toneOf } from "./mgmtFormat";
 
@@ -44,8 +44,8 @@ function VarianceCell({ lineKey, month, c }: { lineKey: string; month: string; c
 }
 
 function ReconBody({ months }: { months: string[] }) {
-  const [from, setFrom] = useState(months[0] ?? "");
-  const [to, setTo] = useState(months[months.length - 1] ?? "");
+  const [from, setFrom] = useState(fyYtdRange(months)[0]);
+  const [to, setTo] = useState(fyYtdRange(months)[1]);
   const entity = useMgmtEntity();
   const rec = useMgmtReconciliation(from || undefined, to || undefined, entity);
   return (

@@ -534,7 +534,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       pillars.push({
         id: "gm", label: T.materialMargin, exposure: na("No AOP or margin-at-risk estimate exists, so no financial impact is stated."),
         movement: bps === null ? na("No comparable LY margin") : { value: bps, reason: "vs LY, complete months, books basis" }, severity: bps === null ? "unrated" : sevOfGm(bps),
-        diagnosticLabel: T.materialMargin, diagnosticValue: s.totals.gross_margin_pct === null ? DASH : pct1(n(s.totals.gross_margin_pct)),
+        diagnosticLabel: `${T.materialMargin} (books basis)`, diagnosticValue: s.totals.gross_margin_pct === null ? DASH : pct1(n(s.totals.gross_margin_pct)),
         family: "margin", origin: o("gm", T.materialMargin, "margin", rupToCr(s.totals.gross_margin)), source: pnl.stamp,
       });
     } else pillars.push(missingRisk("gm", T.materialMargin, "margin", pnl.stamp));

@@ -7,7 +7,7 @@ import type { MgmtAdjustment, MgmtLine, MgmtMode, MgmtTriple } from "@/types/mgm
 import { Skeleton } from "../common";
 import { LiveBoundary } from "../creditors/parts";
 import { Panel } from "../panels";
-import { MgmtFrame, MonthRange, WarningsBanner } from "./MgmtFrame";
+import { MgmtFrame, MonthRange, WarningsBanner, fyYtdRange } from "./MgmtFrame";
 import { useMgmtEntity } from "./mgmtEntity";
 import { cr2, cr2s, dashReason, downloadCsv, monthShort, pct1, toneOf } from "./mgmtFormat";
 
@@ -228,8 +228,8 @@ function Strip({ lines }: { lines: MgmtLine[] }) {
 }
 
 function PnlBody({ months, runWarnings }: { months: string[]; runWarnings: string[] }) {
-  const [from, setFrom] = useState<string>(months[0] ?? "");
-  const [to, setTo] = useState<string>(months[months.length - 1] ?? "");
+  const [from, setFrom] = useState<string>(fyYtdRange(months)[0]);
+  const [to, setTo] = useState<string>(fyYtdRange(months)[1]);
   const [mode, setMode] = useState<MgmtMode>("total");
   const [includeProposed, setIncludeProposed] = useState(true);
   const [pick, setPick] = useState<Pick | null>(null);

@@ -76,8 +76,14 @@ describe("Command Center on real data", () => {
     expect(text("pulse-advances")).not.toMatch(/₹0/);
   });
 
-  it("AOP is not available: the default comparison shows an em dash with the reason", async () => {
+  it("live data defaults to the Last Year comparison, so movements are shown", async () => {
     mount();
+    await screen.findByTestId("pulse-revenue", {}, T);
+    expect(text("pulse-revenue")).not.toMatch(/AOP not available/);
+  });
+
+  it("AOP is not available: choosing it shows an em dash with the reason", async () => {
+    mount("/?compare=budget");
     await screen.findByTestId("pulse-revenue", {}, T);
     expect(text("pulse-revenue")).toMatch(/—/);
     expect(text("pulse-revenue")).toMatch(/Revenue from operations/);

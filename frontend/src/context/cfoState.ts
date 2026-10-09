@@ -25,7 +25,8 @@ export interface CfoState {
 
 export const initialState: CfoState = {
   period: "ytdfy27",
-  comparison: "budget",
+  /* Live data has no AOP (budget) yet, so the default comparison is Last Year there; the demo (mock) service keeps Budget. */
+  comparison: (import.meta.env.VITE_CFO_DATA as string | undefined) === "mock" ? "budget" : "ly",
   scenario: "normal",
   dataState: "live",
   heroTab: "profit",

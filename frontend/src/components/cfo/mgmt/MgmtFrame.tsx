@@ -22,18 +22,33 @@ const TABS: { id: MgmtTab; label: string; to: "/mgmt" | "/mgmt/stores" | "/mgmt/
   { id: "mapping", label: "Ledger mapping", to: "/mgmt/mapping" },
 ];
 
-/** Warnings from the API, shown above the figures they qualify: never hidden, never softened. */
+/** Warnings from the API, shown above the figures they qualify: never dropped, never softened. They sit in ONE line ("Data notes (N)") that opens on click,
+ *  so the numbers come first; the line itself says what kind of notes there are. */
 export function WarningsBanner({ warnings }: { warnings: string[] }) {
   if (!warnings.length) return null;
+  const kinds = [
+    [/provisional/i, "provisional adjustments"],
+    [/eliminations? not loaded/i, "intercompany not loaded"],
+    [/unmapped/i, "unmapped ledgers"],
+    [/partial month/i, "partial month"],
+    [/stop-gap/i, "stop-gap data"],
+  ] as const;
+  const found = kinds.filter(([re]) => warnings.some((w) => re.test(w))).map(([, label]) => label);
   return (
-    <div data-testid="mgmt-warnings" role="status" className="flex items-start gap-2 border-b bg-[oklch(0.97_0.05_85)] px-5 py-2 text-[12px] text-[oklch(0.38_0.09_70)]">
-      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-      <ul className="space-y-0.5">
+    <details data-testid="mgmt-warnings" role="status" className="group border-b bg-[oklch(0.97_0.05_85)] px-5 py-2 text-[12px] text-[oklch(0.38_0.09_70)]">
+      <summary className="flex cursor-pointer list-none items-center gap-2">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        <span className="font-semibold">Data notes ({warnings.length})</span>
+        {found.length > 0 && <span className="opacity-80">· {found.join(" · ")}</span>}
+        <span className="ml-auto underline-offset-2 group-open:hidden hover:underline">Read</span>
+        <span className="ml-auto hidden underline-offset-2 group-open:inline hover:underline">Hide</span>
+      </summary>
+      <ul className="mt-2 space-y-0.5 pl-5">
         {warnings.map((w) => (
           <li key={w} data-testid="mgmt-warning">{w}</li>
         ))}
       </ul>
-    </div>
+    </details>
   );
 }
 
@@ -63,6 +78,15 @@ export function EntitySelector({ entity }: { entity: MgmtEntity }) {
 }
 
 /** From / To month selectors over the months the run serves. */
+/** Default window for a CFO: the current financial year to date (April to the latest month on record). Falls back to the first month when April is not on record. */
+export function fyYtdRange(months: string[]): [string, string] {
+  if (!months.length) return ["", ""];
+  const last = months[months.length - 1];
+  const y = Number(last.slice(0, 4)), m = Number(last.slice(5, 7));
+  const start = `${m >= 4 ? y : y - 1}-04`;
+  return [months.includes(start) ? start : months[0], last];
+}
+
 export function MonthRange({ months, from, to, onChange }: { months: string[]; from: string; to: string; onChange: (from: string, to: string) => void }) {
   const sel = "h-7 rounded border bg-card px-1.5 text-[12px]";
   return (
@@ -79,7 +103,7 @@ export function MonthRange({ months, from, to, onChange }: { months: string[]; f
           {months.map((m) => <option key={m} value={m}>{monthShort(m)}</option>)}
         </select>
       </label>
-      <button className="press rounded border px-2 py-1 text-[12px] font-medium hover:bg-muted" data-testid="mgmt-preset-ytd" onClick={() => onChange(months[0], months[months.length - 1])}>FY YTD</button>
+      <button className="press rounded border px-2 py-1 text-[12px] font-medium hover:bg-muted" data-testid="mgmt-preset-ytd" onClick={() => onChange(...fyYtdRange(months))}>FY YTD</button>
       <button className="press rounded border px-2 py-1 text-[12px] font-medium hover:bg-muted" data-testid="mgmt-preset-month" onClick={() => onChange(months[months.length - 1], months[months.length - 1])}>Latest month</button>
     </div>
   );
