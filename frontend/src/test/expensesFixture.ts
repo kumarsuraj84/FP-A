@@ -146,7 +146,7 @@ export function buildExceptions(scope: ExpScope, entity: "consolidated" | "subco
 }
 
 /** Serve the expense API plus the management run header through a stubbed fetch (tests only). `fail` makes the expense calls fail with that status. */
-export function installExpensesApi(opts: { fail?: number } = {}) {
+export function installExpensesApi(opts: { fail?: number; months?: string[] } = {}) {
   const calls: string[] = [];
   vi.stubGlobal(
     "fetch",
@@ -158,7 +158,7 @@ export function installExpensesApi(opts: { fail?: number } = {}) {
       const path = url.pathname.slice("/mgmt-api/".length);
       const p = Object.fromEntries(url.searchParams.entries());
       const entity = (p.entity === "subco" || p.entity === "holdco" ? p.entity : "consolidated") as "consolidated" | "subco" | "holdco";
-      if (path === "current") return json({ run_id: "MGMT-20261009", as_of_date: "2026-10-09", months: MONTHS, months_available: MONTHS, warnings: [] });
+      if (path === "current") return json({ run_id: "MGMT-20261009", as_of_date: "2026-10-09", months: opts.months ?? MONTHS, months_available: opts.months ?? MONTHS, warnings: [] });
       if (opts.fail) return json({ detail: "boom" }, opts.fail);
       const scope = (p.scope as ExpScope) ?? "store";
       switch (path) {

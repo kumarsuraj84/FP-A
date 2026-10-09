@@ -256,6 +256,8 @@ export interface Bridge {
   items: BridgeItem[];
   /** live data: replaces the variance "net movement" readout for a composition bridge (set by the service, never computed in the UI) */
   readout?: { label: string; value: string; note: string };
+  /** live data: the basis of the EBITDA figures (label only), so the books fallback is not mistaken for the management total */
+  basis?: "books" | "mgmt_total";
   sources?: SourceStamp[];
 }
 

@@ -108,6 +108,7 @@ describe("live adapter: pulse", () => {
     const b = (await a.getBridge(ctx(), "profit")).data!;
     expect(b.subtitle).toMatch(/Management P&L not read/);
     expect(b.unitNote).toMatch(/Books basis, before management adjustments; see Management P&L/);
+    expect(b.basis).toBe("books"); // P-04: the fallback is tagged Books, never passed off as the management total
     expect(b.items.map((i) => i.id)).toEqual(["net_sales", "cogs", "cogs_books", "other_operating_income", "gross_margin", "store_opex", "contribution", "dc_cost", "ho_cost", "corporate_ebitda"]);
     const f = await a.getFreshness(ctx());
     expect(f.stale).toBe(true);

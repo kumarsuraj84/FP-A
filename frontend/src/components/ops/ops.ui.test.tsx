@@ -26,7 +26,9 @@ describe("Analytics Home", () => {
     for (const a of ["finance", "operations", "merchandising"]) expect(screen.getByTestId(`area-${a}`)).toBeInTheDocument();
     expect(within(screen.getByTestId("area-finance")).getByTestId("tile-creditors")).toBeInTheDocument();
     expect(within(screen.getByTestId("area-operations")).getByTestId("tile-sales")).toBeInTheDocument();
-    expect(screen.getByTestId("tone-creditors")).toHaveTextContent("Real data · verified candidate · not live");
+    // the chips of the data-backed tiles are read from the run headers (see commandCenter.live.ui.test.tsx); with no API they never claim real data
+    expect(screen.getByTestId("tone-creditors")).not.toHaveTextContent("verified candidate");
+    expect(screen.getByTestId("tone-profitability")).not.toHaveTextContent("Demo data");
     expect(screen.getByTestId("tone-command")).toHaveTextContent("Demo data");
     expect(screen.getByTestId("tone-sales")).toHaveTextContent("Sample-data prototype");
     expect(screen.getByTestId("tone-merch")).toHaveTextContent("Not started");

@@ -7,7 +7,7 @@ import type { RiskPillar } from "@/types/cfo";
 import { Boundary, Metric, SectionTitle, SEVERITY_STYLE, Skeleton, StaleChip } from "./common";
 
 const EXPOSURE_LABEL: Record<RiskPillar["id"], string> = {
-  liquidity: "Cash on hand",
+  liquidity: "Store till cash",
   gm: "Est. FY impact",
   payables: "Owed over 180 days",
   advances: "Advances over 90 days",

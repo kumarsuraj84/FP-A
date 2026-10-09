@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, BookOpenText, ChevronRight, ExternalLink, Store, Truck, UserSquare2, X } from "lucide-react";
 import { useDrill } from "@/api/hooks";
+import { isLiveCfo } from "@/api";
 import { useCfo } from "@/context/CfoContext";
 import { storeNodeByName } from "@/lib/profitNodes";
 import { drawerNodes } from "@/context/cfoState";
@@ -256,7 +257,7 @@ export function InvestigationDrawer() {
             onProfile={() => goDeep("profile")}
             // a store reached from the Command Center hands over to its profitability workspace; a GL account in Profitability has no separate profile
             onLink={openLink}
-            onStore={view.entityKind === "store" && origin.scope !== "profitability" && last?.dim === "Store" ? () => enterStore(storeNodeByName(last.label)) : undefined}
+            onStore={!isLiveCfo && view.entityKind === "store" && origin.scope !== "profitability" && last?.dim === "Store" ? () => enterStore(storeNodeByName(last.label)) : undefined}
             showProfile={!(view.entityKind === "account" && origin.scope === "profitability")}
           />
         )}

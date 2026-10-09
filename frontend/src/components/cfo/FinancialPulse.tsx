@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import type { PulseMetric } from "@/types/cfo";
 import { StaleChip, Skeleton, toneClass } from "./common";
 
-const LABELS = ["Cash", "Revenue", "Gross Margin", "Operating Profit", "Creditors", "Vendor Advances", "Unreconciled"];
+const LABELS = ["Store till cash", "Revenue from operations", "Material Margin", "Store EBITDA", "Creditors", "Vendor Advances", "Unreconciled"];
 const TONE_BAR: Record<string, string> = {
   good: "bg-[oklch(0.62_0.16_155)]",
   bad: "bg-[oklch(0.58_0.2_25)]",

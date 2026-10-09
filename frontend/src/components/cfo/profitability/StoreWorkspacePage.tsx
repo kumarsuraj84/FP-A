@@ -247,6 +247,7 @@ export function StoreWorkspacePage() {
           <h1 className="truncate text-[20px] font-semibold tracking-tight text-foreground" data-testid="store-title">{ws?.store.name ?? storeNodeInPath?.label ?? "Store"}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <span data-testid="store-demo-chip" className="rounded bg-[oklch(0.96_0.06_85)] px-2 py-0.5 text-[11px] font-semibold text-[oklch(0.38_0.09_70)]">Demo data - not real</span>
           {ws && <Chip color={QUADRANT_COLOR[ws.store.quadrant]}>{QUADRANT_META[ws.store.quadrant].label}</Chip>}
           {ws && <Chip>{ws.store.format}</Chip>}
           {q.data?.status === "stale" && <StaleChip reason={q.data.reason} />}

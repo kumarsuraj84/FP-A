@@ -37,11 +37,11 @@ function Row({ r, d, head, mode, scope, selected, onPick, peerMedian }: { r: Exp
         {scope !== "store" && <span className="ml-1.5 rounded-sm border px-1 text-[10px] uppercase tracking-wide text-muted-foreground">{r.entity === "HOLDCO" ? "HoldCo" : "SubCo"}</span>}
       </th>
       {scope === "store" && <td className="whitespace-nowrap px-3 py-1.5 text-muted-foreground" title={r.opening_date ? `Opened ${fmtDate(r.opening_date)}` : undefined}>{r.store_type ?? DASH}</td>}
-      {scope === "store" && <td className="num-mono whitespace-nowrap px-3 py-1.5 text-right">{r.net_sales === null ? <span title={dashReason("value", "Net sales are only read for SubCo stores")}>{DASH}</span> : cr2(r.net_sales)}</td>}
+      {scope === "store" && <td className="num-mono whitespace-nowrap px-3 py-1.5 text-right">{r.net_sales === null ? <span title={dashReason("value", "Revenue from operations are only read for SubCo stores")}>{DASH}</span> : cr2(r.net_sales)}</td>}
       <td data-exact={String(v)} className="num-mono whitespace-nowrap px-3 py-1.5 text-right font-medium">{cr2(v)}</td>
-      {scope === "store" && <td className="num-mono whitespace-nowrap px-3 py-1.5 text-right">{pc === null ? <span title={dashReason("pct", "No net sales in the period, so no % of net sales")}>{DASH}</span> : pct1(pc)}</td>}
+      {scope === "store" && <td className="num-mono whitespace-nowrap px-3 py-1.5 text-right">{pc === null ? <span title={dashReason("pct", "No revenue from operations in the period, so no % of revenue")}>{DASH}</span> : pct1(pc)}</td>}
       {scope === "store" && (
-        <td className={cn("num-mono whitespace-nowrap px-3 py-1.5 text-right", vs !== null && vs > 0.5 && "tone-bad")} title={vs === null ? dashReason("value", "No peer comparison without net sales") : `Peer median ${pct1(peerMedian)}`}>
+        <td className={cn("num-mono whitespace-nowrap px-3 py-1.5 text-right", vs !== null && vs > 0.5 && "tone-bad")} title={vs === null ? dashReason("value", "No peer comparison without revenue from operations") : `Peer median ${pct1(peerMedian)}`}>
           {vs === null ? DASH : `${vs > 0 ? "+" : vs < 0 ? "−" : ""}${Math.abs(vs).toFixed(1)} pp`}
         </td>
       )}
@@ -104,7 +104,7 @@ export function ExpSitesPanel({ q, scope, mode, s, onPick, headLabels }: { q: Ex
   );
   const csv = (d: ExpSites) => {
     const rows = body?.rows ?? [];
-    downloadCsv(`${scope}-expenses-sites-${d.from_month}_${d.to_month}.csv`, [["Site", "Code", "Entity", "Net sales", mode, "% of net sales", "Per sq ft per month", "Rank", "MoM %", "Flags"], ...rows.map((r) => [r.short_name ?? r.name ?? "", r.site_code, r.entity, r.net_sales ?? "", valueOf(r, head, mode), pctOf(r, head) ?? "", r.per_sqft_month ?? "", r.rank ?? "", r.mom_pct ?? "", r.flags.map((f) => f.code).join(" ")])]);
+    downloadCsv(`${scope}-expenses-sites-${d.from_month}_${d.to_month}.csv`, [["Site", "Code", "Entity", "Revenue from operations", mode, "% of revenue", "Per sq ft per month", "Rank", "MoM %", "Flags"], ...rows.map((r) => [r.short_name ?? r.name ?? "", r.site_code, r.entity, r.net_sales ?? "", valueOf(r, head, mode), pctOf(r, head) ?? "", r.per_sqft_month ?? "", r.rank ?? "", r.mom_pct ?? "", r.flags.map((f) => f.code).join(" ")])]);
   };
   const inputCls = "h-7 rounded border bg-card px-1.5 text-[12px]";
   return (
@@ -150,7 +150,7 @@ export function ExpSitesPanel({ q, scope, mode, s, onPick, headLabels }: { q: Ex
               )}
               <span className="ml-auto text-[11.5px] text-muted-foreground" data-testid="sites-peer" title={d.peer.method}>
                 {scope === "store"
-                  ? `Peer median ${pct1(body?.peerMedian ?? null)} of net sales · 90th percentile ${pct1(head ? d.peer.heads[head]?.p90_pct ?? null : d.peer.p90_pct ?? null)} · ${d.peer.n} peer stores`
+                  ? `Peer median ${pct1(body?.peerMedian ?? null)} of revenue from operations · 90th percentile ${pct1(head ? d.peer.heads[head]?.p90_pct ?? null : d.peer.p90_pct ?? null)} · ${d.peer.n} peer stores`
                   : `Median site ${cr2(d.peer.median_cr ?? null)} Cr · ${d.peer.n} sites`}
               </span>
             </div>
@@ -164,12 +164,12 @@ export function ExpSitesPanel({ q, scope, mode, s, onPick, headLabels }: { q: Ex
                       </button>
                     </th>
                     {scope === "store" && <th scope="col" className={th}>Type</th>}
-                    {scope === "store" && sortBtn("net_sales", "Net sales")}
+                    {scope === "store" && sortBtn("net_sales", "Revenue from operations")}
                     {sortBtn("value", `Expense (${mode})`, true, head ? headLabels[head] : "All heads")}
-                    {scope === "store" && sortBtn("pct", "% of net sales")}
+                    {scope === "store" && sortBtn("pct", "% of revenue")}
                     {sortBtn("vs_peer", scope === "store" ? "vs peer median" : "vs median site", true, scope === "store" ? "Percentage points above (+) or below (−) the peer median" : "Total divided by the median total of the DC sites")}
                     {sortBtn("sqft", "Per sq ft / mo", true, d.area_note)}
-                    {sortBtn("rank", "Rank", true, "1 = the highest expense " + (scope === "store" ? "as % of net sales" : "of the sites"))}
+                    {sortBtn("rank", "Rank", true, "1 = the highest expense " + (scope === "store" ? "as % of revenue" : "of the sites"))}
                     {sortBtn("mom", `MoM (${monthShort(d.to_month)})`, true, "Latest month against the month before")}
                     <th scope="col" className={th}>Flags</th>
                   </tr>
@@ -192,7 +192,7 @@ export function ExpSitesPanel({ q, scope, mode, s, onPick, headLabels }: { q: Ex
               </table>
             </div>
             <div className="border-t px-4 py-2 text-[11.5px] text-muted-foreground" data-testid="sites-footnote">
-              {d.peer.method} {scope === "store" ? "Store-level management adjustments are allocated to stores pro rata to net sales, as the store league does." : "DC and HO adjustments are not attributable to one site."} {d.area_note}
+              {d.peer.method} {scope === "store" ? "Store-level management adjustments are allocated to stores pro rata to revenue from operations, as the store league does." : "DC and HO adjustments are not attributable to one site."} {d.area_note}
             </div>
           </>
         )}

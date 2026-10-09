@@ -1,6 +1,7 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import type { ExpMode, ExpQuery, ExpScope, SiteEntity } from "@/types/expensesLive";
 import { parseEntity } from "../mgmt/mgmtEntity";
+import { lastCompleteMonth } from "../mgmt/mgmtMonths";
 
 /**
  * URL state of the Store / DC Expense pages, so a view can be shared and survives a refresh:
@@ -59,24 +60,24 @@ export function useSetExp() {
 
 export const modeOf = (s: ExpSearch): ExpMode => s.mode ?? "total";
 
-/** FY year-to-date by default: from April of the financial year of the latest month. */
-export function defaultPeriod(months: string[]): { from: string; to: string } {
-  const last = months[months.length - 1] ?? "";
+/** FY year-to-date by default: from April of the financial year, through the LAST COMPLETE month (a partial current month is selectable but never the default). */
+export function defaultPeriod(months: string[], asOf?: string | null): { from: string; to: string } {
+  const last = lastCompleteMonth(months, asOf);
   if (!last) return { from: "", to: "" };
   const y = Number(last.slice(0, 4)) - (Number(last.slice(5, 7)) < 4 ? 1 : 0);
   const start = `${y}-04`;
   return { from: months.find((m) => m >= start) ?? months[0], to: last };
 }
 
-export function resolvePeriod(months: string[], s: ExpSearch): { from: string; to: string } {
-  const d = defaultPeriod(months);
+export function resolvePeriod(months: string[], s: ExpSearch, asOf?: string | null): { from: string; to: string } {
+  const d = defaultPeriod(months, asOf);
   let from = s.from && months.includes(s.from) ? s.from : d.from;
   const to = s.to && months.includes(s.to) ? s.to : d.to;
   if (from > to) from = to;
   return { from, to };
 }
 
-export function queryOf(scope: ExpScope, entity: "consolidated" | "subco" | "holdco", months: string[], s: ExpSearch): ExpQuery {
-  const { from, to } = resolvePeriod(months, s);
+export function queryOf(scope: ExpScope, entity: "consolidated" | "subco" | "holdco", months: string[], s: ExpSearch, asOf?: string | null): ExpQuery {
+  const { from, to } = resolvePeriod(months, s, asOf);
   return { scope, entity, from_month: from, to_month: to };
 }

@@ -6,6 +6,7 @@ import { Skeleton } from "../common";
 import { LiveBoundary } from "../creditors/parts";
 import { Panel } from "../panels";
 import { cr2, monthShort } from "../mgmt/mgmtFormat";
+import { isPartialMonth } from "../mgmt/mgmtMonths";
 
 /** Colours per head: fixed order so a head keeps its colour across the two pages. */
 const COLOURS = ["oklch(0.52 0.15 265)", "oklch(0.62 0.14 200)", "oklch(0.66 0.15 155)", "oklch(0.74 0.15 85)", "oklch(0.62 0.18 40)", "oklch(0.55 0.17 330)", "oklch(0.6 0.03 260)"];
@@ -22,6 +23,7 @@ function Chart({ d, mode, height = 260 }: { d: Trend; mode: ExpMode; height?: nu
   const [ref, size] = useElementSize<HTMLDivElement>(720);
   const [hover, setHover] = useState<string | null>(null);
   const months = d.months;
+  const partial = (m: string) => isPartialMonth(m, d.as_of_date);
   const W = Math.max(360, size.width);
   const M = { l: 44, r: 12, t: 14, b: 30 };
   const iw = W - M.l - M.r;
@@ -57,14 +59,22 @@ function Chart({ d, mode, height = 260 }: { d: Trend; mode: ExpMode; height?: nu
             <text x={M.l - 6} y={y(t) + 4} textAnchor="end" fontSize={10.5} fill={INK} className="num-mono">{t.toFixed(1)}</text>
           </g>
         ))}
+        <defs>
+          <pattern id="exp-partial-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="6" height="6" fill="white" fillOpacity="0.55" />
+            <line x1="0" y1="0" x2="0" y2="6" stroke={INK} strokeWidth="2" />
+          </pattern>
+        </defs>
         {months.map((m, i) => (
-          <g key={m} data-testid={`trend-${m}`} data-exact={String(d.total[m]?.[mode] ?? "")}>
+          <g key={m} data-testid={`trend-${m}`} data-partial={partial(m)} data-exact={String(d.total[m]?.[mode] ?? "")}>
             {stacks[i].map((b) => (
               <rect key={b.key} x={x(i) - bw / 2} y={y(b.hi)} width={bw} height={Math.max(0, y(b.lo) - y(b.hi))} fill={COLOURS[b.i % COLOURS.length]} opacity={hover && hover !== b.key ? 0.4 : 1} onMouseEnter={() => setHover(b.key)} onMouseLeave={() => setHover(null)}>
                 <title>{`${monthShort(m)} · ${d.series[b.i].label}: ${cr2(b.v)} Cr`}</title>
               </rect>
             ))}
+            {partial(m) && <rect data-testid={`trend-partial-${m}`} x={x(i) - bw / 2} y={y(Math.max(0, ...stacks[i].map((b) => b.hi)))} width={bw} height={Math.max(0, y(Math.min(0, ...stacks[i].map((b) => b.lo))) - y(Math.max(0, ...stacks[i].map((b) => b.hi))))} fill="url(#exp-partial-hatch)" stroke={INK} strokeDasharray="3 2" />}
             <text x={x(i)} y={height - 12} textAnchor="middle" fontSize={10.5} fill={INK}>{monthShort(m)}</text>
+            {partial(m) && <text x={x(i)} y={height - 2} textAnchor="middle" fontSize={9} fill={INK}>partial</text>}
           </g>
         ))}
         {lyPts.length > 0 && (
@@ -99,7 +109,7 @@ export function ExpTrendPanel({ q, mode, firstMonth }: { q: ExpQuery; mode: ExpM
         {(d) => (
           <>
             <Chart d={d} mode={mode} />
-            <div className="border-t px-4 py-1.5 text-[11.5px] text-muted-foreground" data-testid="trend-note">{d.note}</div>
+            <div className="border-t px-4 py-1.5 text-[11.5px] text-muted-foreground" data-testid="trend-note">{d.note}{d.months.some((m) => isPartialMonth(m, d.as_of_date)) && " Hatched bars are partial months (data stops before month end): do not compare them with whole months."}</div>
           </>
         )}
       </LiveBoundary>

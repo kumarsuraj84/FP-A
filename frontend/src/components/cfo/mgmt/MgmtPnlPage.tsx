@@ -7,6 +7,7 @@ import type { MgmtAdjustment, MgmtLine, MgmtMode, MgmtTriple } from "@/types/mgm
 import { Skeleton } from "../common";
 import { LiveBoundary } from "../creditors/parts";
 import { Panel } from "../panels";
+import { BasisTag } from "../BasisTag";
 import { MgmtFrame, MonthRange, WarningsBanner, fyYtdRange } from "./MgmtFrame";
 import { useMgmtEntity } from "./mgmtEntity";
 import { cr2, cr2s, dashReason, downloadCsv, monthShort, pct1, toneOf } from "./mgmtFormat";
@@ -142,6 +143,7 @@ function PnlTable({ data, mode, pick, onPick }: { data: { months: string[]; line
             <button type="button" data-testid={`line-${l.key}`} onClick={() => onPick({ key: l.key, month: null })} title="Show the adjustments behind this line" className="press text-left hover:underline">
               {l.label}
             </button>
+            {l.key === "corporate_ebitda" && mode !== "adjustment" && <BasisTag basis={mode === "book" ? "mgmt_book" : "mgmt_total"} />}
           </th>
           {data.months.map((m) => (
             <Cell key={m} line={l} month={m} t={l.values[m]} mode={mode} picked={pick?.key === l.key && pick.month === m} onPick={onPick} />
@@ -215,7 +217,7 @@ function Strip({ lines }: { lines: MgmtLine[] }) {
         const t = get(i.k);
         return (
           <div key={i.id} data-testid={`strip-${i.id}`} className="px-4 py-3">
-            <div className="eyebrow">{i.label}</div>
+            <div className="eyebrow">{i.label}{i.id === "corp" && <BasisTag basis="mgmt_total" />}</div>
             <div data-testid={`strip-${i.id}-value`} data-exact={t?.total ?? ""} className={cn("num-mono text-[20px] font-semibold leading-tight", toneOf(t?.total))}>{t ? cr2(t.total) : DASH}</div>
             <div className="num text-[11.5px] text-muted-foreground" title={t?.total === null || t?.total === undefined ? dashReason("value") : undefined}>
               {i.pct !== undefined && i.pct !== null ? `${pct1(i.pct)} of income` : i.k === "total_income" ? "INR Cr, selected months" : "INR Cr"}

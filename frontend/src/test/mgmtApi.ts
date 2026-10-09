@@ -2,7 +2,7 @@ import { vi } from "vitest";
 import { fixtureResponse } from "./mgmtFixture";
 
 /** Serve the fixture through a stubbed fetch (tests only). `fail` makes every call fail with that status. */
-export function installMgmtApi(opts: { fail?: number; pnl?: (u: URL) => unknown } = {}) {
+export function installMgmtApi(opts: { fail?: number; pnl?: (u: URL) => unknown; months?: string[] } = {}) {
   const calls: string[] = [];
   vi.stubGlobal(
     "fetch",
@@ -14,6 +14,7 @@ export function installMgmtApi(opts: { fail?: number; pnl?: (u: URL) => unknown 
       if (opts.fail) return json({ detail: "boom" }, opts.fail);
       const path = url.pathname.slice("/mgmt-api/".length);
       const params = Object.fromEntries(url.searchParams.entries());
+      if (path === "current" && opts.months) return json({ ...(fixtureResponse("current") as object), months: opts.months });
       if (path === "pnl" && opts.pnl) return json(opts.pnl(url));
       try {
         return json(fixtureResponse(path, params));

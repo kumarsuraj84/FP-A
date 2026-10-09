@@ -33,30 +33,70 @@ function wrap(label: string, max = 13): string[] {
 const num = (v: number, unit: "cr" | "lakh") => (unit === "lakh" ? (v * 100).toFixed(1) : v.toFixed(2));
 const money = (v: number, unit: "cr" | "lakh") => (unit === "lakh" ? `₹${Math.abs(v * 100).toFixed(1)} L` : `₹${Math.abs(v).toFixed(2)} Cr`);
 
+/** Tolerance of the foot-check, in the unit of the values (INR Cr): the adapters round every bar to two decimals. */
+export const FOOT_TOLERANCE = 0.01;
+const FOOT_EPS = 1e-6;
+
+export interface FootFailure { id: string; label: string; expected: number; actual: number; diff: number }
+
+/**
+ * Foot-check: every closing total after the first must equal the previous total plus the steps between them, within 0.01.
+ * Two adjacent totals (no steps between) and steps before any total are not checked: there is nothing to add up.
+ */
+export function footCheck(items: BridgeItem[]): FootFailure[] {
+  const out: FootFailure[] = [];
+  let base: number | null = null;
+  let sum = 0;
+  let steps = 0;
+  for (const it of items) {
+    if (it.kind === "total") {
+      if (base !== null && steps > 0) {
+        const expected = base + sum;
+        const diff = it.value - expected;
+        if (Math.abs(diff) > FOOT_TOLERANCE + FOOT_EPS) out.push({ id: it.id, label: it.label, expected, actual: it.value, diff });
+      }
+      base = it.value;
+      sum = 0;
+      steps = 0;
+    } else {
+      sum += it.value;
+      steps += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Bar geometry in value space. Totals are measured from a TRUE ZERO baseline (negative totals hang below zero); steps float from the running level.
+ * The domain always contains zero, so nothing is truncated: `truncated` is true only if a future caller supplies a non-zero floor.
+ */
+export function waterfallGeometry(items: BridgeItem[]) {
+  let run = 0;
+  const spans = items.map((it) => {
+    if (it.kind === "total") {
+      run = it.value;
+      return { it, lo: Math.min(0, it.value), hi: Math.max(0, it.value), from: null as number | null };
+    }
+    const a = run;
+    run += it.value;
+    return { it, lo: Math.min(a, run), hi: Math.max(a, run), from: a };
+  });
+  const lo = Math.min(0, ...spans.map((s) => s.lo));
+  const hi = Math.max(0, ...spans.map((s) => s.hi));
+  const pad = (hi - lo || 1) * 0.12;
+  const domMin = lo < 0 ? lo - pad : 0;
+  const domMax = hi + pad;
+  return { spans, domMin, domMax, truncated: domMin > 0 };
+}
+
 export function WaterfallChart({ items, selectedId, onSelect, height = 340, ariaLabel, unit = "cr" }: Props) {
   const [ref, size] = useElementSize<HTMLDivElement>(900);
   const [hover, setHover] = useState<string | null>(null);
   const W = Math.max(320, size.width);
   const H = height;
 
-  const geo = useMemo(() => {
-    let run = 0;
-    const spans = items.map((it) => {
-      if (it.kind === "total") {
-        run = it.value;
-        return { it, lo: it.value, hi: it.value, from: null as number | null };
-      }
-      const a = run;
-      run += it.value;
-      return { it, lo: Math.min(a, run), hi: Math.max(a, run), from: a };
-    });
-    const lo = Math.min(...spans.map((s) => s.lo));
-    const hi = Math.max(...spans.map((s) => s.hi));
-    const pad = (hi - lo || 1) * 0.28;
-    const domMin = lo - pad;
-    const domMax = hi + pad * 0.5;
-    return { spans, domMin, domMax };
-  }, [items]);
+  const geo = useMemo(() => waterfallGeometry(items), [items]);
+  const foot = useMemo(() => footCheck(items), [items]);
 
   const plotW = W - M.l - M.r;
   const plotH = H - M.t - M.b;
@@ -84,17 +124,21 @@ export function WaterfallChart({ items, selectedId, onSelect, height = 340, aria
             </text>
           </g>
         ))}
+        <line data-testid="waterfall-zero-line" x1={M.l} x2={W - M.r} y1={y(0)} y2={y(0)} stroke="oklch(0.45 0.03 260)" strokeWidth={1} />
         {geo.spans.map((s, i) => {
           const cx = M.l + band * i + band / 2;
           const x = cx - barW / 2;
           const isTotal = s.it.kind === "total";
-          const top = isTotal ? y(s.it.value) : y(s.hi);
-          const bottom = isTotal ? y(geo.domMin) : y(s.lo);
+          // totals run from the zero line to their value (a negative total hangs below zero); steps float between the running levels
+          const top = y(s.hi);
+          const bottom = y(s.lo);
           const h = Math.max(isTotal ? 2 : 3, bottom - top);
+          const negTotal = isTotal && s.it.value < 0;
+          const footFail = foot.some((f) => f.id === s.it.id);
           const selected = selectedId === s.it.id;
           const dim = selectedId !== null && !selected;
           const isHover = hover === s.it.id;
-          const neg = !isTotal && s.it.value < 0;
+          const neg = s.it.value < 0;
           const label = isTotal ? num(s.it.value, unit) : `${s.it.value < 0 ? "−" : "+"}${num(Math.abs(s.it.value), unit)}`;
           const next = geo.spans[i + 1];
           const endLevel = isTotal ? s.it.value : (s.from ?? 0) + s.it.value;
@@ -128,7 +172,8 @@ export function WaterfallChart({ items, selectedId, onSelect, height = 340, aria
                 width={barW}
                 height={h}
                 rx={2}
-                fill={colorOf(s.it)}
+                fill={negTotal ? COLOR.bad : colorOf(s.it)}
+                data-negative-total={negTotal ? "true" : undefined}
                 stroke={selected ? "oklch(0.2 0.05 265)" : "none"}
                 strokeWidth={selected ? 2 : 0}
               />
@@ -138,10 +183,10 @@ export function WaterfallChart({ items, selectedId, onSelect, height = 340, aria
                 textAnchor="middle"
                 fontSize={12}
                 fontWeight={isTotal || selected ? 700 : 600}
-                fill={isTotal ? "oklch(0.2 0.05 265)" : s.it.value < 0 ? "oklch(0.5 0.2 25)" : "oklch(0.42 0.14 155)"}
+                fill={negTotal ? "oklch(0.5 0.2 25)" : isTotal ? "oklch(0.2 0.05 265)" : s.it.value < 0 ? "oklch(0.5 0.2 25)" : "oklch(0.42 0.14 155)"}
                 className="num"
               >
-                {label}
+                {footFail ? "! " : ""}{label}
               </text>
               {wrap(s.it.label).map((ln, li) => (
                 <text
@@ -161,9 +206,16 @@ export function WaterfallChart({ items, selectedId, onSelect, height = 340, aria
           );
         })}
       </svg>
-      <div data-testid="axis-truncated" className="pointer-events-none absolute left-14 top-1 rounded-sm bg-[oklch(0.96_0.05_85)] px-1.5 py-0.5 text-[10.5px] font-medium text-[oklch(0.42_0.1_75)]">
-        Axis truncated for variance visibility
-      </div>
+      {geo.truncated && (
+        <div data-testid="axis-truncated" className="pointer-events-none absolute left-14 top-1 rounded-sm bg-[oklch(0.96_0.05_85)] px-1.5 py-0.5 text-[10.5px] font-medium text-[oklch(0.42_0.1_75)]">
+          Axis truncated: baseline is not zero
+        </div>
+      )}
+      {foot.length > 0 && (
+        <div data-testid="foot-warning" role="alert" className="pointer-events-none absolute right-3 top-1 rounded-sm bg-[oklch(0.96_0.05_25)] px-1.5 py-0.5 text-[10.5px] font-semibold text-[oklch(0.45_0.18_25)]">
+          Does not foot: {foot.map((f) => `${f.label} ${num(f.actual, unit)} vs steps ${num(f.expected, unit)}`).join("; ")}
+        </div>
+      )}
       {hovered && (
         <div
           role="tooltip"

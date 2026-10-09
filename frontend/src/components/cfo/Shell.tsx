@@ -49,10 +49,26 @@ function Select<T extends string>({ label, value, options, onChange, testId, wid
   );
 }
 
+/** Pages that are still served by the demo service even when the app runs on real data. */
+export const isDemoOnlyPath = (p: string) => p.startsWith("/profitability/store");
+
+/** Query keys the top-bar Refresh invalidates: the page's own family plus the families it reads (the expense pages use "expenses"). */
+export const refreshKeysFor = (scope: RealMeta["scope"]): string[][] => (scope === "mgmt" ? [["mgmt"], ["expenses"]] : [[scope]]);
+
 export function DemoBanner() {
   const { state, dispatch } = useCfo();
   const path = useRouterState({ select: (r) => r.location.pathname });
   const realPage = path.startsWith("/creditors") ? "Creditors" : path.startsWith("/cash") ? "Liquidity" : path === "/profitability" ? "Profitability" : path.startsWith("/mgmt") ? "Management P&L" : path.startsWith("/entry") ? "Voucher drill" : path.startsWith("/related-party") ? "Related Party Transactions" : null;
+  if (isLiveCfo && isDemoOnlyPath(path)) {
+    return (
+      <div data-testid="demo-banner" data-real="false" data-source-mode="demo" className="flex h-6 items-center bg-[oklch(0.96_0.06_85)] px-4 text-[11px] font-medium text-[oklch(0.38_0.09_70)]">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <CircleDot className="h-3 w-3 shrink-0" />
+          <span className="truncate">Demo data - not real. This store workspace (AOP, forecast, trajectory, network comparison) is illustrative and is not read from the verified sources.</span>
+        </span>
+      </div>
+    );
+  }
   if (isLiveCfo) {
     // The Command Center and its drill pages read the same three real sources. Each figure carries its own run and as-of date.
     const text = realPage
@@ -106,7 +122,7 @@ export function DemoBanner() {
 }
 
 /** Real-data pages state their OWN as-of date and state (from the API), not the demo shell's freshness or controls. */
-interface RealMeta { asOf: string | null; state: string; stateLabel: string; updated: string | null; scope: "cash" | "cred" | "pnl" | "entry" | "mgmt"; status: "ok" | "error" | "pending" }
+export interface RealMeta { asOf: string | null; state: string; stateLabel: string; updated: string | null; scope: "cash" | "cred" | "pnl" | "entry" | "mgmt"; status: "ok" | "error" | "pending" }
 const STATE_TEXT: Record<string, string> = { verified_candidate: "Verified candidate · not live", live: "Live", superseded: "Superseded", withdrawn: "Withdrawn" };
 
 function useRealMeta(): RealMeta | null {
@@ -147,7 +163,7 @@ function RealControls({ meta }: { meta: RealMeta }) {
           {meta.stateLabel}
         </div>
         <div data-testid="real-updated" className="text-[11px] text-muted-foreground">{meta.updated ? `Source updated ${meta.updated}` : "Source timestamp not provided"}</div>
-        <button data-testid="real-refresh" onClick={() => qc.invalidateQueries({ queryKey: [meta.scope] })} className="press inline-flex items-center gap-1 rounded border bg-card px-2 py-1 text-[11px] font-semibold hover:bg-muted">
+        <button data-testid="real-refresh" onClick={() => refreshKeysFor(meta.scope).forEach((queryKey) => qc.invalidateQueries({ queryKey }))} className="press inline-flex items-center gap-1 rounded border bg-card px-2 py-1 text-[11px] font-semibold hover:bg-muted">
           <RefreshCw className="h-3 w-3" /> Refresh
         </button>
       </div>
@@ -159,6 +175,8 @@ export function TopBar() {
   const { state, dispatch } = useCfo();
   const fresh = useFreshness();
   const real = useRealMeta();
+  const path = useRouterState({ select: (r) => r.location.pathname });
+  const demoOnly = isLiveCfo && isDemoOnlyPath(path);
   const f = fresh.data;
   return (
     <header className="flex h-12 items-center gap-4 border-b bg-card px-4">
@@ -185,7 +203,13 @@ export function TopBar() {
         )}
       </div>
       )}
-      {!real && isLiveCfo && (
+      {demoOnly && (
+        <div data-testid="demo-chip" className="flex items-center gap-1.5 rounded bg-[oklch(0.96_0.06_85)] px-2 py-1 text-[11px] font-semibold text-[oklch(0.38_0.09_70)]">
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+          Demo data - not real
+        </div>
+      )}
+      {!real && isLiveCfo && !demoOnly && (
         <div data-testid="freshness" className="flex flex-wrap items-center gap-1.5">
           {(f?.sources ?? []).map((s) => (
             <span

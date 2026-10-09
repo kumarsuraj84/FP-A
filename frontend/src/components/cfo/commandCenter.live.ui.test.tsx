@@ -162,3 +162,61 @@ describe("Command Center on real data", () => {
     expect(text("demo-banner")).toMatch(/real, per-source as-of, not one synchronized CFO position/);
   });
 });
+
+describe("Quick fixes on the live app", () => {
+  it("P-01: the store workspace is labelled Demo data - not real, never real, with no real-data badge", async () => {
+    mount("/profitability/store?drill=profitability.portfolio/Store:rohini");
+    const banner = await screen.findByTestId("demo-banner", {}, T);
+    expect(banner).toHaveAttribute("data-real", "false");
+    expect(banner.textContent).toMatch(/Demo data - not real/);
+    expect(banner.textContent).not.toMatch(/Real data|REAL data/);
+    expect(await screen.findByTestId("demo-chip", {}, T)).toHaveTextContent("Demo data - not real");
+    expect(await screen.findByTestId("store-demo-chip", {}, T)).toHaveTextContent("Demo data - not real");
+    expect(screen.queryByTestId("freshness")).toBeNull();
+    expect(screen.queryByTestId("real-controls")).toBeNull();
+  });
+
+  it("P-03: no unqualified 'Current cash' or 'Cash' stat; the till figure says it excludes the bank ledger book", async () => {
+    mount();
+    await screen.findByTestId("liquidity-no-projection", {}, T);
+    expect(screen.getByTestId("liq-current").textContent).toMatch(/^Store till cash/);
+    expect(text("liq-current")).toMatch(/excludes bank ledger book \(provisional\)/);
+    expect(screen.getByTestId("pulse-cash").textContent).toMatch(/^Store till cash/);
+    expect(text("pulse-cash")).toMatch(/excludes bank ledger book \(provisional\)/);
+    await screen.findByTestId("risk-liquidity", {}, T);
+    expect(text("risk-liquidity")).toMatch(/Store till cash/);
+    expect(text("risk-liquidity")).not.toMatch(/Cash on hand/);
+    const bare = [...document.querySelectorAll("span, div, button")].filter((e) => e.children.length === 0 && /^(Current cash|Cash)$/.test((e.textContent ?? "").trim()) && !e.closest('[role="tablist"]'));
+    expect(bare.map((e) => e.textContent)).toEqual([]);
+  });
+
+  it("P-04: the Command Center bridge is tagged 'Management total' (the books fallback is tagged in liveCfoApi.test.ts)", async () => {
+    mount();
+    await screen.findByTestId("waterfall", {}, T);
+    expect(within(screen.getByTestId("hero")).getByTestId("basis-tag")).toHaveTextContent("Management total");
+  });
+
+  it("P-04: Profitability tags its Corporate EBITDA 'Books'", async () => {
+    mount("/profitability");
+    await screen.findByTestId("strip-corporate", {}, T);
+    expect(within(screen.getByTestId("strip-corporate")).getByTestId("basis-tag")).toHaveTextContent("Books");
+  });
+
+  it("P-11: Landing chips come from the run headers, not literals", async () => {
+    mount("/home");
+    await waitFor(() => expect(text("tone-profitability")).toBe("Real data · live"), T);
+    expect(text("tone-creditors")).toBe("Real data · live");
+    expect(text("tone-cash")).toBe("Real data · live");
+    // the management and related-party APIs are not served by this fixture: the chip says so instead of claiming real data
+    await waitFor(() => expect(text("tone-mgmt")).toBe("Not available"), T);
+    expect(text("tone-related")).toBe("Not available");
+  });
+
+  it("P-11: a source that cannot be read shows 'Not available'", async () => {
+    vi.unstubAllGlobals();
+    installLiveSources({ fail: { cash: 500 } });
+    mount("/home");
+    await waitFor(() => expect(text("tone-cash")).toBe("Not available"), T);
+    await waitFor(() => expect(text("tone-profitability")).toBe("Real data · live"), T);
+  });
+});

@@ -14,11 +14,12 @@ const HORIZONS: { id: Horizon; label: string }[] = [
   { id: "30d", label: "30 Days" },
 ];
 
-function Stat({ label, children, onClick, testId, tone }: { label: string; children: React.ReactNode; onClick?: () => void; testId: string; tone?: string }) {
+function Stat({ label, children, onClick, testId, tone, note }: { label: string; children: React.ReactNode; onClick?: () => void; testId: string; tone?: string; note?: string }) {
   const inner = (
     <>
       <span className="eyebrow">{label}</span>
       <span className={cn("num-mono whitespace-nowrap text-[17px] font-semibold leading-tight @max-[1000px]:text-[14px]", tone ?? "text-foreground")}>{children}</span>
+      {note && <span className="text-[10px] font-normal leading-tight text-muted-foreground">{note}</span>}
     </>
   );
   return onClick ? (
@@ -97,7 +98,7 @@ export function LiquidityTrajectory() {
   return (
     <section aria-label="Liquidity trajectory" data-testid="liquidity" className="@container flex min-w-0 flex-col rounded-md border bg-card shadow-elegant">
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-        <SectionTitle eyebrow="Cash" title="Liquidity trajectory" />
+        <SectionTitle eyebrow="Store till cash" title="Liquidity trajectory" />
         <div className="flex items-center gap-2">
           {q.data?.status === "stale" && <StaleChip reason={q.data.reason} />}
           <div role="tablist" aria-label="Horizon" className="flex rounded bg-muted p-0.5">
@@ -120,7 +121,7 @@ export function LiquidityTrajectory() {
         {(s) => (
           <>
             <div className="grid grid-cols-5 divide-x border-b px-1 max-[1900px]:[&_.eyebrow]:text-[9.5px]" data-testid="liquidity-stats">
-              <Stat testId="liq-current" label="Current cash" onClick={() => openOrigin(originFromLiquidity("current", s))}>
+              <Stat testId="liq-current" label="Store till cash" note="excludes bank ledger book (provisional)" onClick={() => openOrigin(originFromLiquidity("current", s))}>
                 <Metric m={s.currentCash} fmt={(n) => fmtCr(n)} />
               </Stat>
               <Stat testId="liq-projected" label="Projected" tone={toneClass(s.tone)} onClick={() => openOrigin(originFromLiquidity("projected", s))}>

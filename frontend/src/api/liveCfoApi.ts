@@ -246,7 +246,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       out.push({
         id: "cash", label: "Store till cash", value: { value: rupToCr(t.store_till_cash) }, unit: "cr",
         comparisonLabel: "No prior snapshot", movement: na("No prior till snapshot is served, so no movement is shown."), movementUnit: "cr",
-        status: `${t.stores_with_cash} of ${t.stores} stores hold cash · excludes bank`,
+        status: `${t.stores_with_cash} of ${t.stores} stores hold cash · excludes bank ledger book (provisional)`,
         tone: t.stores_negative > 0 ? "warn" : "neutral", family: "cash", heroTab: "cash",
         origin: { source: "pulse", scope: "pulse", id: "cash", label: "Store till cash", family: "cash", amount: rupToCr(t.store_till_cash), variance: null },
         source: cash.stamp,
@@ -403,6 +403,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       return ok(
         {
           id: "profit",
+          basis: "mgmt_total",
           title: "How does revenue from operations become Corporate EBITDA?",
           subtitle: `${first ? monthsText(first, last) : ""} · ${stampText(mgmt.stamp)}`,
           unitNote: `₹ Cr · Management P&L, consolidated (Citykart Stores and Citykart Ventures): books plus management adjustments${isAdj(adj) ? `, ${fmtCr(adj, { signed: true })} on Corporate EBITDA (provisional items are marked on the Management P&L page)` : ""}. A composition, not a variance bridge. ${T.aop}: not available.${mg.warnings.length ? ` ${mg.warnings.length} Management P&L warning${mg.warnings.length === 1 ? "" : "s"}: see the Management P&L page.` : ""}`,
@@ -437,6 +438,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
     return ok(
       {
         id: "profit",
+        basis: "books",
         title: hasCorp ? "How does revenue from operations become Corporate EBITDA?" : "How does revenue from operations become Store EBITDA?",
         subtitle: `${monthsText(s.scope.from_month, s.scope.to_month)}${s.scope.partial_last_month ? " (last month partial)" : ""} · ${stampText(pnl.stamp)}${mgmt && !mgmt.ok ? " · Management P&L not read" : ""}`,
         unitNote: `₹ Cr · real P&L, ${s.scope.basis_label.toLowerCase()}. ${BOOKS_BASIS_NOTE} A composition, not a variance bridge: ${s.flags.contribution_definition} ${T.aop}: not available.`,
@@ -461,7 +463,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
     void ctx;
     return ok(
       {
-        currentCash: { value: till, reason: "Store till cash only: it excludes bank balances and is not the company's cash." },
+        currentCash: { value: till, reason: "Store till cash only: it excludes bank ledger book (provisional) and is not the company's cash." },
         projectedCash: na(fc),
         operatingMinimum: null,
         expectedInflows: na("No inflow forecast or receivables source exists."),
@@ -518,8 +520,8 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
     if (cash.ok) {
       const t = cash.data.till;
       pillars.push({
-        id: "liquidity", label: "Liquidity", exposure: { value: rupToCr(t.store_till_cash), reason: "Store till cash only; excludes bank balances" }, movement: na("No prior till snapshot"),
-        severity: t.stores_negative > 0 ? "medium" : "unrated", exposureLabel: "Store till cash, excl. bank", diagnosticLabel: "Stores with negative till", diagnosticValue: `${t.stores_negative} of ${t.stores}`,
+        id: "liquidity", label: "Liquidity", exposure: { value: rupToCr(t.store_till_cash), reason: "Store till cash only; excludes bank ledger book (provisional)" }, movement: na("No prior till snapshot"),
+        severity: t.stores_negative > 0 ? "medium" : "unrated", exposureLabel: "Store till cash (excludes bank ledger book, provisional)", diagnosticLabel: "Stores with negative till", diagnosticValue: `${t.stores_negative} of ${t.stores}`,
         family: "cash", origin: o("liquidity", "Liquidity", "cash", rupToCr(t.store_till_cash)), source: cash.stamp,
       });
     } else pillars.push(missingRisk("liquidity", "Liquidity", "cash", cash.stamp));

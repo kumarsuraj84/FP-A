@@ -11,6 +11,7 @@ import { useHere } from "../entry/parts";
 import { MgmtFrame, MonthRange } from "../mgmt/MgmtFrame";
 import { useMgmtEntity } from "../mgmt/mgmtEntity";
 import { cr2, cr2s, dashReason, monthShort, pct1 } from "../mgmt/mgmtFormat";
+import { isPartialMonth } from "../mgmt/mgmtMonths";
 import { DrillPanel } from "./ExpDrill";
 import { ExpExceptionsPanel } from "./ExpExceptions";
 import { ExpSitesPanel } from "./ExpSites";
@@ -19,7 +20,7 @@ import { modeOf, queryOf, resolvePeriod, useExpSearch, useSetExp } from "./expen
 
 /**
  * Store Expense and DC Expense review. One component for both pages: same layout, the scope decides the heads' denominator
- * (% of net sales for stores, per-site average for DC) and the entity choices (stores are SubCo only; the DC page spans both entities).
+ * (% of revenue for stores, per-site average for DC) and the entity choices (stores are SubCo only; the DC page spans both entities).
  * Everything the finance MIS calls Rent, Employee Cost, Power and Fuel, Advertisement, Freight Forwarding and Other expenses, from the same engine as /mgmt.
  */
 
@@ -89,11 +90,14 @@ function Strip({ d, scope, mode }: { d: ExpSummary; scope: ExpScope; mode: ExpMo
   const v = t[mode];
   const ly = t.ly;
   const mom = t.mom;
+  // the headline month-on-month and vs-last-year compare whole months: they are only shown for a partial month when the user chose that month
+  const partialTo = isPartialMonth(d.to_month, d.as_of_date);
+  const partialNote = partialTo ? <span data-testid="kpi-partial-note" className="font-semibold text-[oklch(0.45_0.09_75)]">{monthShort(d.to_month)} is partial (data to {d.as_of_date.slice(8, 10)}/{d.as_of_date.slice(5, 7)}): not a like-for-like comparison. </span> : null;
   return (
     <section aria-label="Headline figures" data-testid="exp-kpis" className="grid grid-cols-4 divide-x border-b bg-card @max-[800px]:grid-cols-2 @max-[800px]:divide-y">
       <Kpi id="kpi-total" label={`${d.scope_label}, ${mode === "total" ? "total" : mode}`} value={`${cr2(v)} Cr`} exact={v} sub={`${monthShort(d.from_month)}${d.from_month !== d.to_month ? ` to ${monthShort(d.to_month)}` : ""} · book ${cr2(t.book)} + adjustment ${cr2(t.adjustment)}`} />
       {scope === "store" ? (
-        <Kpi id="kpi-pct" label="% of net sales" value={t.pct_ns ? pct1(t.pct_ns[mode]) : DASH} exact={t.pct_ns?.[mode] ?? null} sub={d.net_sales !== null ? `net sales ${cr2(d.net_sales)} Cr` : "no net sales"} />
+        <Kpi id="kpi-pct" label="% of revenue" value={t.pct_ns ? pct1(t.pct_ns[mode]) : DASH} exact={t.pct_ns?.[mode] ?? null} sub={d.net_sales !== null ? `revenue from operations ${cr2(d.net_sales)} Cr` : "no revenue from operations"} />
       ) : (
         <Kpi id="kpi-pct" label="Per DC site" value={t.per_site_avg !== null ? `${cr2(t.per_site_avg)} Cr` : DASH} exact={t.per_site_avg} sub={d.site_count !== null ? `${d.site_count} site${d.site_count === 1 ? "" : "s"} with cost in the period` : undefined} />
       )}
@@ -102,10 +106,10 @@ function Strip({ d, scope, mode }: { d: ExpSummary; scope: ExpScope; mode: ExpMo
         label="vs last year"
         value={ly ? `${cr2s(ly.delta)} Cr` : DASH}
         exact={ly?.delta ?? null}
-        tone={ly && ly.delta > 0.005 ? "bad" : ly && ly.delta < -0.005 ? "good" : undefined}
-        sub={ly ? `${ly.delta_pct === null ? DASH : pct1(ly.delta_pct)} · same months last year ${cr2(ly.total)} Cr${scope === "store" && ly.pct_ns_delta_pp !== null ? ` · ${ly.pct_ns_delta_pp > 0 ? "+" : "−"}${Math.abs(ly.pct_ns_delta_pp).toFixed(1)} pp of net sales` : ""}` : <span title={dashReason("value", "Gold has no data for the same months last year")}>no last-year months in gold</span>}
+        tone={partialTo ? undefined : ly && ly.delta > 0.005 ? "bad" : ly && ly.delta < -0.005 ? "good" : undefined}
+        sub={ly ? <>{partialNote}{`${ly.delta_pct === null ? DASH : pct1(ly.delta_pct)} · same months last year ${cr2(ly.total)} Cr${scope === "store" && ly.pct_ns_delta_pp !== null ? ` · ${ly.pct_ns_delta_pp > 0 ? "+" : "−"}${Math.abs(ly.pct_ns_delta_pp).toFixed(1)} pp of revenue from operations` : ""}`}</> : <span title={dashReason("value", "Gold has no data for the same months last year")}>no last-year months in gold</span>}
       />
-      <Kpi id="kpi-mom" label={`${mom ? monthShort(mom.last_month) : monthShort(d.to_month)} vs ${mom ? monthShort(mom.prev_month) : "previous month"}`} value={mom ? `${cr2s(mom.delta)} Cr` : DASH} exact={mom?.delta ?? null} tone={mom && mom.delta > 0.005 ? "bad" : mom && mom.delta < -0.005 ? "good" : undefined} sub={mom ? `${mom.delta_pct === null ? DASH : pct1(mom.delta_pct)} · ${cr2(mom.prev)} to ${cr2(mom.last)} Cr` : "no month before in gold"} />
+      <Kpi id="kpi-mom" label={`${mom ? monthShort(mom.last_month) : monthShort(d.to_month)} vs ${mom ? monthShort(mom.prev_month) : "previous month"}`} value={mom ? `${cr2s(mom.delta)} Cr` : DASH} exact={mom?.delta ?? null} tone={partialTo ? undefined : mom && mom.delta > 0.005 ? "bad" : mom && mom.delta < -0.005 ? "good" : undefined} sub={mom ? <>{partialNote}{`${mom.delta_pct === null ? DASH : pct1(mom.delta_pct)} · ${cr2(mom.prev)} to ${cr2(mom.last)} Cr`}</> : "no month before in gold"} />
     </section>
   );
 }
@@ -151,7 +155,7 @@ function HeadsTable({ d, scope, mode, openHead, onHead }: { d: ExpSummary; scope
         </th>
         <td data-testid={`${isTotal ? "head-total" : `head-${r.key}`}-value`} data-exact={String(v)} data-adjusted={adj} title={`Book ${cr2(r.book)} · Adjustment ${cr2(r.adjustment)} · Total ${cr2(r.total)}`} className={cn("num-mono whitespace-nowrap px-3 py-1.5 text-right", adj && !isTotal && "bg-[oklch(0.97_0.05_85)]")}>{cr2(v)}</td>
         {scope === "store" ? (
-          <td className="num-mono whitespace-nowrap px-3 py-1.5 text-right" title={r.pct_ns ? `Book ${pct1(r.pct_ns.book)} · Adjustment ${pct1(r.pct_ns.adjustment)} · Total ${pct1(r.pct_ns.total)}` : dashReason("pct", "No net sales in the period")}>{r.pct_ns ? pct1(r.pct_ns[mode]) : DASH}</td>
+          <td className="num-mono whitespace-nowrap px-3 py-1.5 text-right" title={r.pct_ns ? `Book ${pct1(r.pct_ns.book)} · Adjustment ${pct1(r.pct_ns.adjustment)} · Total ${pct1(r.pct_ns.total)}` : dashReason("pct", "No revenue from operations in the period")}>{r.pct_ns ? pct1(r.pct_ns[mode]) : DASH}</td>
         ) : (
           <td className="num-mono whitespace-nowrap px-3 py-1.5 text-right" title={r.per_site_avg === null ? dashReason("value", "No DC site has cost in the period") : "Total divided by the number of sites with cost"}>{r.per_site_avg === null ? DASH : cr2(r.per_site_avg)}</td>
         )}
@@ -172,7 +176,7 @@ function HeadsTable({ d, scope, mode, openHead, onHead }: { d: ExpSummary; scope
           <tr className="border-b text-[10.5px] uppercase tracking-wider text-muted-foreground">
             <th className="sticky left-0 z-20 border-b border-r bg-card px-3 py-2 text-left font-semibold">INR Cr</th>
             <th className={th}>{mode === "total" ? "Total" : mode === "book" ? "Book" : "Adjustment"}</th>
-            <th className={th}>{scope === "store" ? "% of net sales" : "Per DC site"}</th>
+            <th className={th}>{scope === "store" ? "% of revenue" : "Per DC site"}</th>
             <th className={th}>Share</th>
             <th className={th}>MoM</th>
             <th className={th}>vs last year</th>
@@ -187,14 +191,14 @@ function HeadsTable({ d, scope, mode, openHead, onHead }: { d: ExpSummary; scope
   );
 }
 
-function Body({ scope, months }: { scope: "store" | "dc"; months: string[] }) {
+function Body({ scope, months, asOf }: { scope: "store" | "dc"; months: string[]; asOf: string }) {
   const s = useExpSearch();
   const set = useSetExp();
   const entityUrl = useMgmtEntity();
   const entity: MgmtEntity = scope === "store" ? "subco" : entityUrl;
   const mode = modeOf(s);
-  const q = queryOf(scope, entity, months, s);
-  const { from, to } = resolvePeriod(months, s);
+  const q = queryOf(scope, entity, months, s, asOf);
+  const { from, to } = resolvePeriod(months, s, asOf);
   const summary = useExpSummary(q);
   const { next } = useHere([], `${COPY[scope].title} · ${monthShort(from)}${from !== to ? ` to ${monthShort(to)}` : ""}`);
   const headLabels: Record<string, string> = Object.fromEntries((summary.data?.heads ?? []).map((h) => [h.key, h.label]));
@@ -202,7 +206,7 @@ function Body({ scope, months }: { scope: "store" | "dc"; months: string[] }) {
   return (
     <>
       <div data-testid="exp-controls" className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b bg-card px-5 py-2 text-[12px]">
-        <MonthRange months={months} from={from} to={to} onChange={(f, t) => set({ from: f, to: t })} />
+        <MonthRange months={months} from={from} to={to} asOf={asOf} onChange={(f, t) => set({ from: f, to: t })} />
         <div className="h-5 w-px bg-border" />
         <EntityBar scope={scope} entity={entity} />
         <div className="h-5 w-px bg-border" />
@@ -237,7 +241,7 @@ function Body({ scope, months }: { scope: "store" | "dc"; months: string[] }) {
 export function ExpensesPage({ scope }: { scope: "store" | "dc" }) {
   return (
     <MgmtFrame active={scope === "store" ? "store-exp" : "dc-exp"} entitySelector={false} subtitle={COPY[scope].subtitle}>
-      {(months) => <Body scope={scope} months={months} />}
+      {(months, _w, asOf) => <Body scope={scope} months={months} asOf={asOf} />}
     </MgmtFrame>
   );
 }

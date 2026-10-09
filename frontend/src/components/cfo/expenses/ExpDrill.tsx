@@ -71,7 +71,7 @@ function Table({ d, p }: { d: ExpLedgers; p: Props }) {
             <th className="px-2 py-2 text-right font-semibold">Lines</th>
             <th className="px-2 py-2 text-right font-semibold">Book, INR Cr</th>
             <th className="px-2 py-2 text-right font-semibold">Share</th>
-            {d.rows.some((r) => r.pct_ns !== undefined && r.pct_ns !== null) && <th className="px-2 py-2 text-right font-semibold">% of net sales</th>}
+            {d.rows.some((r) => r.pct_ns !== undefined && r.pct_ns !== null) && <th className="px-2 py-2 text-right font-semibold">% of revenue</th>}
             <th className="px-4 py-2 text-right font-semibold">Drill</th>
           </tr>
         </thead>

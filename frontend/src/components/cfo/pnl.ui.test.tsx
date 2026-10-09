@@ -322,3 +322,35 @@ describe("P&L Review: tabs", () => {
     expect(text("quality-cogs")).toMatch(/Aug 26/);
   });
 });
+
+describe("No day-aligned last year (P-05)", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    calls = installPnlApi({ noLy: true });
+  });
+
+  it("MTD / QTD / YTD: no 'null', says LY is not available, and hides the empty LY and Growth columns", async () => {
+    await mountTab("comparison");
+    await screen.findByTestId("comparison-table", {}, T);
+    const panel = screen.getByTestId("comparison-panel");
+    expect(panel.textContent).not.toMatch(/null|undefined|NaN/);
+    expect(text("comparison-ly-unavailable")).toMatch(/Last-year aligned comparison is not available for this period/);
+    expect(screen.getByTestId("comparison-table").textContent).not.toMatch(/days 1 to/);
+    expect(screen.queryByTestId("cmp-revenue-mtd-ly")).toBeNull();
+    const headers = [...screen.getByTestId("comparison-table").querySelectorAll("thead th")].map((h) => h.textContent);
+    expect(headers).not.toContain("LY");
+    expect(headers).not.toContain("Growth");
+    expect(text("comparison-note")).not.toMatch(/day null/);
+    expect(exact("cmp-revenue-mtd-ty")).not.toBe("");
+  });
+
+  it("Pivot: hides the LY YTD, Var and Var % columns and states the reason", async () => {
+    await mountTab("pivot");
+    await screen.findByTestId("pivot-table", {}, T);
+    const headers = [...screen.getByTestId("pivot-table").querySelectorAll("thead th")].map((h) => h.textContent ?? "");
+    expect(headers.some((h) => /LY YTD/.test(h))).toBe(false);
+    expect(headers.some((h) => /^Var/.test(h))).toBe(false);
+    expect(text("pivot-ly-unavailable")).toMatch(/Last-year aligned comparison is not available for this period/);
+    expect(screen.getByTestId("pivot-table").textContent).not.toMatch(/null/);
+  });
+});

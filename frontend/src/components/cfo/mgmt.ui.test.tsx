@@ -254,7 +254,7 @@ describe("Management store league", () => {
     mount("/mgmt/stores");
     await screen.findByTestId("stores-table", {}, T);
     expect(cellText("stores-rate-value")).toBe("5.03%");
-    expect(screen.getByTestId("stores-rate-note")).toHaveTextContent(/pro rata to net sales/);
+    expect(screen.getByTestId("stores-rate-note")).toHaveTextContent(/pro rata to revenue from operations/);
     const d = buildStores();
     expect(screen.getByTestId("stores-reconciles")).toHaveAttribute("data-ok", "true");
     expect(Number(exact("total-net_sales"))).toBeCloseTo(127.32, 3);
@@ -303,7 +303,7 @@ describe("Management store league", () => {
     const bad = { ...d, rows: d.rows.map((r, i) => (i === 0 ? { ...r, net_sales: (r.net_sales ?? 0) + 0.5 } : r)) };
     const res = checkStores(bad);
     expect(res.ok).toBe(false);
-    expect(res.problems[0]).toMatch(/Net sales/);
+    expect(res.problems[0]).toMatch(/Revenue from operations/);
     expect(checkStores({ ...d, summary: { ...d.summary, reconciles: false } }).ok).toBe(false);
   });
 });
@@ -364,5 +364,50 @@ describe("Management ledger mapping", () => {
     fireEvent.change(screen.getByTestId("mapping-search"), { target: { value: "rent" } });
     expect(screen.getByTestId("mapping-table")).toHaveTextContent("Store rent");
     expect(screen.getByTestId("mapping-table")).not.toHaveTextContent("Salaries and wages");
+  });
+});
+
+describe("Store league: partial month and nomenclature (P-06, N-09)", () => {
+  it("opens on the last COMPLETE month, not the partial current month", async () => {
+    const calls = installMgmtApi({ months: ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"] });
+    mount("/mgmt/stores");
+    await screen.findByTestId("stores-table", {}, T);
+    const c = calls.find((x) => x.includes("/mgmt-api/stores?"))!;
+    expect(c).toContain("month=2026-09");
+    expect(c).not.toContain("2026-10");
+    expect((screen.getByTestId("mgmt-to") as HTMLSelectElement).value).toBe("2026-09");
+    expect(within(screen.getByTestId("mgmt-to")).getByRole("option", { name: /Oct.*partial/ })).toBeInTheDocument();
+    expect(screen.queryByTestId("stores-partial")).toBeNull();
+  });
+
+  it("says the partial month is partial when the user picks it", async () => {
+    installMgmtApi({ months: ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"] });
+    mount("/mgmt/stores");
+    await screen.findByTestId("stores-table", {}, T);
+    fireEvent.change(screen.getByTestId("mgmt-from"), { target: { value: "2026-10" } });
+    fireEvent.change(screen.getByTestId("mgmt-to"), { target: { value: "2026-10" } });
+    expect(await screen.findByTestId("stores-partial", {}, T)).toHaveTextContent(/partial month/);
+  });
+
+  it("uses the portal vocabulary: Gross Margin and Revenue from operations, never RGM or Net sales", async () => {
+    installMgmtApi();
+    mount("/mgmt/stores");
+    await screen.findByTestId("stores-table", {}, T);
+    const page = screen.getByTestId("mgmt-room").textContent ?? "";
+    expect(page).toMatch(/Gross Margin/);
+    expect(page).toMatch(/Revenue from operations/);
+    expect(page).not.toMatch(/\bRGM\b|Net sales|net sales|retail gross margin/);
+  });
+});
+
+describe("Corporate EBITDA basis tag (P-04)", () => {
+  it("tags the strip 'Management total' and the table row by the layer shown", async () => {
+    installMgmtApi();
+    mount("/mgmt");
+    await screen.findByTestId("mgmt-table", {}, T);
+    expect(within(screen.getByTestId("strip-corp")).getByTestId("basis-tag")).toHaveTextContent("Management total");
+    expect(within(screen.getByTestId("row-corporate_ebitda")).getByTestId("basis-tag")).toHaveTextContent("Management total");
+    fireEvent.click(screen.getByTestId("mode-book"));
+    await waitFor(() => expect(within(screen.getByTestId("row-corporate_ebitda")).getByTestId("basis-tag")).toHaveTextContent("Management: book layer"), T);
   });
 });

@@ -10,17 +10,18 @@ import { Panel } from "../panels";
 import { MgmtFrame, MonthRange } from "./MgmtFrame";
 import { useMgmtEntity } from "./mgmtEntity";
 import { cr2, dashReason, downloadCsv, monthShort, ratePct, toneOf } from "./mgmtFormat";
+import { isPartialMonth, lastCompleteMonth } from "./mgmtMonths";
 
 type NumKey = "net_sales" | "rgm" | "store_expenses" | "four_wall" | "apportioned" | "ebitda_after";
 type SortKey = NumKey | "store";
 
 const COLS: { key: NumKey; label: string; hint: string }[] = [
-  { key: "net_sales", label: "Net sales", hint: "Net sales ex-GST" },
-  { key: "rgm", label: "RGM", hint: "Retail gross margin: net sales plus other operating income less material cost" },
-  { key: "store_expenses", label: "Store exp", hint: "Rent, employee, power, advertisement, freight and other store expenses" },
-  { key: "four_wall", label: "4-wall EBITDA", hint: "RGM plus store expenses: what the store earns before DC and HO cost" },
-  { key: "apportioned", label: "DC + HO", hint: "DC and HO cost spread pro rata to net sales at one blended rate" },
-  { key: "ebitda_after", label: "EBITDA after DC & HO", hint: "4-wall EBITDA less the apportioned DC and HO cost" },
+  { key: "net_sales", label: "Revenue from operations", hint: "Revenue from operations, ex-GST" },
+  { key: "rgm", label: "Gross Margin", hint: "Revenue from operations plus other operating income less Material Cost, for one store" },
+  { key: "store_expenses", label: "Store Expenses", hint: "Rent, employee, power, advertisement, freight and other store expenses" },
+  { key: "four_wall", label: "4-Wall EBITDA", hint: "Gross Margin less Store Expenses: what the store earns before DC and HO cost" },
+  { key: "apportioned", label: "DC + HO", hint: "DC and HO cost spread pro rata to revenue from operations at one blended rate" },
+  { key: "ebitda_after", label: "EBITDA after DC & HO", hint: "4-Wall EBITDA less the apportioned DC and HO cost" },
 ];
 
 const TOL = 0.011; // INR Cr: the sheet rounds each store to two decimals
@@ -33,14 +34,15 @@ export function checkStores(d: MgmtStores): { ok: boolean; problems: string[] } 
   const pairs: [NumKey, number][] = [["net_sales", d.summary.net_sales], ["rgm", d.summary.rgm], ["store_expenses", d.summary.store_expenses], ["four_wall", d.summary.four_wall], ["apportioned", d.summary.apportioned], ["ebitda_after", d.summary.store_ebitda_after]];
   for (const [k, v] of pairs) if (Math.abs(sumOf(d.rows, k) - v) > TOL) problems.push(`${COLS.find((c) => c.key === k)!.label}: stores add to ${cr2(sumOf(d.rows, k))}, summary says ${cr2(v)}`);
   if (Math.abs(d.summary.apportioned - (d.summary.dc_total + d.summary.ho_total)) > TOL) problems.push(`Apportioned ${cr2(d.summary.apportioned)} is not DC ${cr2(d.summary.dc_total)} + HO ${cr2(d.summary.ho_total)}`);
-  if (Math.abs(d.summary.four_wall - (d.summary.rgm + d.summary.store_expenses)) > TOL) problems.push("4-wall EBITDA is not RGM + store expenses");
+  if (Math.abs(d.summary.four_wall - (d.summary.rgm + d.summary.store_expenses)) > TOL) problems.push("4-Wall EBITDA is not Gross Margin + Store Expenses");
   if (!d.summary.reconciles) problems.push("The API reports that the stores do not reconcile to the P&L");
   return { ok: problems.length === 0, problems };
 }
 
-function StoresBody({ months }: { months: string[] }) {
-  const [from, setFrom] = useState(months[months.length - 1] ?? "");
-  const [to, setTo] = useState(months[months.length - 1] ?? "");
+function StoresBody({ months, asOf }: { months: string[]; asOf: string }) {
+  // default: the last COMPLETE month; a partial month can be chosen and is labelled
+  const [from, setFrom] = useState(lastCompleteMonth(months, asOf));
+  const [to, setTo] = useState(lastCompleteMonth(months, asOf));
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "net_sales", dir: "desc" });
   const [search, setSearch] = useState("");
   const [type, setType] = useState("");
@@ -49,7 +51,7 @@ function StoresBody({ months }: { months: string[] }) {
   return (
     <>
       <div data-testid="mgmt-controls" className="flex flex-wrap items-center gap-3 border-b bg-card px-5 py-2 text-[12px]">
-        <MonthRange months={months} from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
+        <MonthRange months={months} from={from} to={to} asOf={asOf} onChange={(f, t) => { setFrom(f); setTo(t); }} />
         <div className="mx-1 h-5 w-px bg-border" />
         <label className="flex items-center gap-1">
           <span className="eyebrow">Find</span>
@@ -96,17 +98,17 @@ function StoresBody({ months }: { months: string[] }) {
                 <div>
                   <div className="eyebrow">Blended DC + HO rate</div>
                   <div data-testid="stores-rate-value" data-exact={String(d.rate)} className="num-mono text-[24px] font-semibold leading-tight">{fmtPct(pctRate, { digits: 2 })}</div>
-                  <div className="num text-[11.5px] text-muted-foreground">of every store's net sales · {monthShort(from)}{from !== to ? ` to ${monthShort(to)}` : ""}</div>
+                  <div className="num text-[11.5px] text-muted-foreground">of every store's revenue from operations · {monthShort(from)}{from !== to ? ` to ${monthShort(to)}` : ""}{isPartialMonth(to, asOf) && <span data-testid="stores-partial" className="ml-1 font-semibold text-[oklch(0.45_0.09_75)]">· {monthShort(to)} is a partial month (data to {asOf.slice(8, 10)}/{asOf.slice(5, 7)})</span>}</div>
                 </div>
                 <p data-testid="stores-rate-note" className="max-w-3xl text-[12px] text-muted-foreground">
-                  DC cost ({cr2(d.summary.dc_total)}) plus HO cost ({cr2(d.summary.ho_total)}) is spread over the stores pro rata to net sales, at this one rate, exactly as the finance MIS does. Area, footfall and actual DC usage play no part, so a small or new store carries the same share as a large one.
+                  DC cost ({cr2(d.summary.dc_total)}) plus HO cost ({cr2(d.summary.ho_total)}) is spread over the stores pro rata to revenue from operations, at this one rate, exactly as the finance MIS does. Area, footfall and actual DC usage play no part, so a small or new store carries the same share as a large one.
                 </p>
               </section>
               <div className="p-3">
                 <Panel
                   testId="stores-panel"
                   eyebrow="Real · management view"
-                  title="Store league: 4-wall and EBITDA after DC & HO (INR Cr)"
+                  title="Store league: 4-Wall EBITDA and EBITDA after DC & HO (INR Cr)"
                   right={
                     <div className="flex items-center gap-2">
                       <span data-testid="stores-reconciles" data-ok={check.ok} title={check.problems.join("\n")} className={cn("inline-flex items-center gap-1 text-[11.5px]", check.ok ? "text-[oklch(0.4_0.12_155)]" : "tone-bad")}>
@@ -173,7 +175,7 @@ function StoresBody({ months }: { months: string[] }) {
                 </Panel>
               </div>
               <div className="px-5 pb-6 text-[11.5px] text-muted-foreground" data-testid="stores-footnote">
-                Store EBITDA after DC and HO = 4-wall EBITDA less the apportioned cost. Company: DC {cr2(d.summary.dc_total)}, HO {cr2(d.summary.ho_total)}, EBITDA after both {cr2(d.summary.store_ebitda_after)}. The NSO subtotal row of the MIS sheet is not a store and is not in this list.
+                Store EBITDA after DC and HO = 4-Wall EBITDA less the apportioned cost. Company: DC {cr2(d.summary.dc_total)}, HO {cr2(d.summary.ho_total)}, EBITDA after both {cr2(d.summary.store_ebitda_after)}. The NSO subtotal row of the MIS sheet is not a store and is not in this list.
               </div>
             </>
           );
@@ -186,8 +188,8 @@ function StoresBody({ months }: { months: string[] }) {
 
 export function MgmtStoresPage() {
   return (
-    <MgmtFrame active="stores" subtitle="Per store: net sales, retail gross margin, store expenses, 4-wall EBITDA, and EBITDA after the DC and HO cost apportioned at one blended rate. INR Cr.">
-      {(months) => <StoresBody months={months} />}
+    <MgmtFrame active="stores" subtitle="Per store: revenue from operations, Gross Margin, Store Expenses, 4-Wall EBITDA, and EBITDA after the DC and HO cost apportioned at one blended rate. INR Cr.">
+      {(months, _w, asOf) => <StoresBody months={months} asOf={asOf} />}
     </MgmtFrame>
   );
 }

@@ -8,6 +8,7 @@ import { Skeleton } from "../common";
 import { NotAvailable } from "../creditors/parts";
 import { WorkspaceHeader } from "../panels";
 import { monthShort } from "./mgmtFormat";
+import { isPartialMonth, lastCompleteMonth } from "./mgmtMonths";
 import { useMgmtEntity } from "./mgmtEntity";
 import { MGMT_ENTITIES, type MgmtEntity } from "@/types/mgmtLive";
 
@@ -80,38 +81,41 @@ export function EntitySelector({ entity }: { entity: MgmtEntity }) {
 
 /** From / To month selectors over the months the run serves. */
 /** Default window for a CFO: the current financial year to date (April to the latest month on record). Falls back to the first month when April is not on record. */
-export function fyYtdRange(months: string[]): [string, string] {
+export function fyYtdRange(months: string[], asOf?: string | null): [string, string] {
   if (!months.length) return ["", ""];
-  const last = months[months.length - 1];
+  const last = asOf ? lastCompleteMonth(months, asOf) : months[months.length - 1];
   const y = Number(last.slice(0, 4)), m = Number(last.slice(5, 7));
   const start = `${m >= 4 ? y : y - 1}-04`;
   return [months.includes(start) ? start : months[0], last];
 }
 
-export function MonthRange({ months, from, to, onChange }: { months: string[]; from: string; to: string; onChange: (from: string, to: string) => void }) {
+/** With `asOf`, a partial month is labelled "partial" and the presets stop at the last complete month. */
+export function MonthRange({ months, from, to, onChange, asOf }: { months: string[]; from: string; to: string; onChange: (from: string, to: string) => void; asOf?: string | null }) {
+  const label = (m: string) => (isPartialMonth(m, asOf) ? `${monthShort(m)} (partial)` : monthShort(m));
+  const latest = asOf ? lastCompleteMonth(months, asOf) : months[months.length - 1];
   const sel = "h-7 rounded border bg-card px-1.5 text-[12px]";
   return (
     <div data-testid="mgmt-range" className="flex flex-wrap items-center gap-2">
       <label className="flex items-center gap-1">
         <span className="eyebrow">From</span>
         <select aria-label="From month" data-testid="mgmt-from" className={sel} value={from} onChange={(e) => onChange(e.target.value, e.target.value > to ? e.target.value : to)}>
-          {months.map((m) => <option key={m} value={m}>{monthShort(m)}</option>)}
+          {months.map((m) => <option key={m} value={m}>{label(m)}</option>)}
         </select>
       </label>
       <label className="flex items-center gap-1">
         <span className="eyebrow">To</span>
         <select aria-label="To month" data-testid="mgmt-to" className={sel} value={to} onChange={(e) => onChange(e.target.value < from ? e.target.value : from, e.target.value)}>
-          {months.map((m) => <option key={m} value={m}>{monthShort(m)}</option>)}
+          {months.map((m) => <option key={m} value={m}>{label(m)}</option>)}
         </select>
       </label>
-      <button className="press rounded border px-2 py-1 text-[12px] font-medium hover:bg-muted" data-testid="mgmt-preset-ytd" onClick={() => onChange(...fyYtdRange(months))}>FY YTD</button>
-      <button className="press rounded border px-2 py-1 text-[12px] font-medium hover:bg-muted" data-testid="mgmt-preset-month" onClick={() => onChange(months[months.length - 1], months[months.length - 1])}>Latest month</button>
+      <button className="press rounded border px-2 py-1 text-[12px] font-medium hover:bg-muted" data-testid="mgmt-preset-ytd" onClick={() => onChange(...fyYtdRange(months, asOf))}>FY YTD</button>
+      <button className="press rounded border px-2 py-1 text-[12px] font-medium hover:bg-muted" data-testid="mgmt-preset-month" onClick={() => onChange(latest, latest)}>{asOf ? "Last complete month" : "Latest month"}</button>
     </div>
   );
 }
 
 /** The page chrome shared by the four pages: header, the REAL DATA badge, the sub-links, and the not-available state when the API has no run. */
-export function MgmtFrame({ active, subtitle, entitySelector = true, children }: { active: MgmtTab; subtitle?: ReactNode; entitySelector?: boolean; children: (months: string[], warnings: string[]) => ReactNode }) {
+export function MgmtFrame({ active, subtitle, entitySelector = true, children }: { active: MgmtTab; subtitle?: ReactNode; entitySelector?: boolean; children: (months: string[], warnings: string[], asOf: string) => ReactNode }) {
   const run = useMgmtRun();
   const entity = useMgmtEntity();
   return (
@@ -153,7 +157,7 @@ export function MgmtFrame({ active, subtitle, entitySelector = true, children }:
       ) : (
         <>
           <WarningsBanner warnings={run.data.warnings} />
-          {children(run.data.months, run.data.warnings)}
+          {children(run.data.months, run.data.warnings, run.data.as_of_date)}
         </>
       )}
     </div>

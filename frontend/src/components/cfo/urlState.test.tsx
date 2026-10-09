@@ -163,9 +163,10 @@ describe("URL-addressable investigation state", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/"), T);
   });
 
-  it("the drawer's Axis note and exact tooltip values are present", async () => {
+  it("the bridge is zero-based (no 'Axis truncated' note) and the exact tooltip values are present", async () => {
     mount("/");
-    expect(await screen.findByTestId("axis-truncated", {}, T)).toHaveTextContent("Axis truncated for variance visibility");
+    expect(await screen.findByTestId("waterfall-zero-line", {}, T)).toBeInTheDocument();
+    expect(screen.queryByTestId("axis-truncated")).toBeNull();
     fireEvent.mouseEnter(await screen.findByTestId("bar-gm_impact"));
     expect(await screen.findByTestId("waterfall-tooltip")).toHaveTextContent("−₹1.42 Cr");
   });

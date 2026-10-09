@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useRouterState } from "@tanstack/react-router";
 import { CheckCircle2, ChevronRight, X } from "lucide-react";
 import { usePnlExpenseExceptions, usePnlHierarchy, usePnlLedgers, usePnlReconciliation, usePnlRevenueExceptions, usePnlRun, usePnlStore, usePnlStores, usePnlSummary, usePnlTrend } from "@/api/pnlLiveHooks";
@@ -10,6 +10,7 @@ import type { Basis, PnlLine, PnlMoney, PnlQuery, PnlStoreRow } from "@/types/pn
 import { Skeleton } from "../common";
 import { DataStateBadge, LiveBoundary, NotAvailable } from "../creditors/parts";
 import { Panel, WorkspaceHeader } from "../panels";
+import { BasisTag } from "../BasisTag";
 import { monthLabel, PnlTrendChart, PnlWaterfall } from "./PnlCharts";
 import { PnlComparisonTab, PnlPivotTab } from "./PnlPivotTab";
 import { ExpenseExceptionsTab, HeatMapTab, PeersTab, QualityTab, RevenueExceptionsTab } from "./PnlReviewTabs";
@@ -55,10 +56,10 @@ function monthOptions(asOf: string): string[] {
   return out;
 }
 
-function Cell({ label, value, exact, sub, testId, tone: t }: { label: string; value: string; exact?: string; sub?: string; testId: string; tone?: string }) {
+function Cell({ label, value, exact, sub, testId, tone: t, tag }: { tag?: ReactNode; label: string; value: string; exact?: string; sub?: string; testId: string; tone?: string }) {
   return (
     <div className="flex min-w-0 flex-col items-start gap-0.5 px-4 py-3" data-testid={testId}>
-      <span className="eyebrow">{label}</span>
+      <span className="eyebrow">{label}{tag}</span>
       <span data-testid={`${testId}-value`} data-exact={exact} className={cn("num-mono whitespace-nowrap text-[22px] font-semibold leading-tight", t)}>
         {value}
       </span>
@@ -84,7 +85,7 @@ function Strip({ q, filtered }: { q: PnlQuery; filtered: boolean }) {
               <Cell testId="strip-contribution" label={filtered ? T.fourWall : T.storeEbitda} value={cr(t.contribution)} exact={t.contribution} sub={`${pct(t.contribution_pct)} of revenue`} tone={tone(t.contribution)} />
               {filtered
                 ? <Cell testId="strip-corporate" label="DC and HO cost" value="Company level" sub="not apportioned to a filtered view" tone="text-muted-foreground" />
-                : <Cell testId="strip-corporate" label={T.corporateEbitda} value={cr(t.corporate_ebitda)} exact={t.corporate_ebitda} sub={`after DC cost ${cr(t.dc_cost)} and HO cost ${cr(t.ho_cost)}`} tone={tone(t.corporate_ebitda)} />}
+                : <Cell testId="strip-corporate" label={T.corporateEbitda} tag={<BasisTag basis="books" />} value={cr(t.corporate_ebitda)} exact={t.corporate_ebitda} sub={`after DC cost ${cr(t.dc_cost)} and HO cost ${cr(t.ho_cost)}`} tone={tone(t.corporate_ebitda)} />}
               <Cell testId="strip-growth" label={`${T.yoy} vs ${T.ly}`} value={g ? pct(g.revenue_pct, true) : DASH} exact={g?.revenue_pct ?? undefined} sub={c ? `${monthLabel(c.period.from_month)} to ${monthLabel(c.period.to_month)} · complete months` : `no ${T.ly} data for these months`} tone={tone(g?.revenue_pct)} />
               <Cell testId="strip-stores" label={filtered ? "Stores in this view" : "Stores trading"} value={d.stores_in_scope.toLocaleString("en-IN")} sub={filtered ? "after the filters" : "sites with sales"} />
               <Cell testId="strip-budget" label={T.aop} value="Not available" sub={`no FY26-27 ${T.aop} in the sources`} tone="text-muted-foreground" />

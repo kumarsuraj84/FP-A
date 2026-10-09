@@ -25,6 +25,8 @@ export const LEDGERS = { glcode: "77", ledger_name: "Salary", amount: String(-15
 
 interface Opts {
   fail?: number;
+  /** the live gold state today: no day-aligned last year (aligned_days null, empty ly, ly_ytd_available false) */
+  noLy?: boolean;
 }
 
 export function installPnlApi(opts: Opts = {}) {
@@ -108,14 +110,14 @@ export function installPnlApi(opts: Opts = {}) {
         const defs: [string, string, string, number, string | null][] = [["revenue", "Revenue from operations", "line", 0, null], ["cogs", "Material Cost (COGS table)", "line", 0, null], ["cogs_books", "Other material cost items (books)", "line", 0, null], ["gross_margin", mode === "company" ? "Material Margin" : "Gross Margin", "subtotal", 0, null],
           ["g:02-Employee Cost", "Employee Cost", "group", 1, "02-Employee Cost"], ["g:01-Rent", "Rent", "group", 1, "01-Rent"], ["store_opex", "Store Expenses", "subtotal", 0, null],
           ["contribution", mode === "company" ? "Store EBITDA (before DC cost, HO cost, interest income and finance cost)" : "4-Wall EBITDA (Gross Margin less store expenses)", "subtotal", 0, null], ["other_income", "Other operating income and interest income (memo)", "memo", 0, null], ["finance_cost", "Finance cost", "memo", 0, null]];
-        return json({ ...HEADER, scope: SCOPE(q), mode, stores: 3, ly_ytd_available: true, ly_ytd_note: "LY's YTD is day aligned: complete months, plus days 1 to N of the same month.", unmapped_note: "Ledgers without a finance group are Unmapped / Finance classification required: they are in no row or total.",
+        return json({ ...HEADER, scope: SCOPE(q), mode, stores: 3, ly_ytd_available: !opts.noLy, ly_ytd_note: "LY's YTD is day aligned: complete months, plus days 1 to N of the same month.", unmapped_note: "Ledgers without a finance group are Unmapped / Finance classification required: they are in no row or total.",
           columns: cols.map(([id, label, kind, partial]) => ({ id, label, kind, partial, from_month: "2026-04", to_month: "2026-10" })),
           rows: defs.map(([id, label, kind, level, group]) => { const cells = Object.fromEntries(cols.map(([c]) => [c, val(id, c)])); const ly = String(Math.round(Number(cells.ytd) * 0.8)); return { id, label, kind, level, group, cells, ly_ytd: ly, variance: String(Number(cells.ytd) - Number(ly)), variance_pct: "25.0000" }; }) });
       }
       if (rest === "comparison") {
         const mm = (r: number) => money(r * CR, r * 0.6 * CR, -r * 0.3 * CR, 0);
-        const w = (id: string, label: string, k: number, from: string, to: string) => ({ id, label, from_month: from, to_month: to, day_aligned: true, ty: mm(100 * k), ly: mm(80 * k), growth: { revenue_pct: "25.0000", gross_margin_pct: "25.0000", contribution_pct: "25.0000", gm_bps: "120.0000", opex_bps: "-35.0000", contribution_bps: "85.0000" } });
-        return json({ ...HEADER, scope: SCOPE(q), mode: q.get("mode") ?? "stores", as_of: "2026-10-07", partial_month: true, aligned_days: 7, windows: [w("mtd", "Month to date", 0.3, "2026-10", "2026-10"), w("qtd", "Quarter to date", 0.3, "2026-10", "2026-10"), w("ytd", "Year to date", 2.4, "2026-04", "2026-10")], note: "Day aligned: the current month is compared with the same days of last year, never with a whole month. Percent measures compare in basis points." });
+        const w = (id: string, label: string, k: number, from: string, to: string) => ({ id, label, from_month: from, to_month: to, day_aligned: true, ty: mm(100 * k), ly: opts.noLy ? null : mm(80 * k), growth: opts.noLy ? null : { revenue_pct: "25.0000", gross_margin_pct: "25.0000", contribution_pct: "25.0000", gm_bps: "120.0000", opex_bps: "-35.0000", contribution_bps: "85.0000" } });
+        return json({ ...HEADER, scope: SCOPE(q), mode: q.get("mode") ?? "stores", as_of: "2026-10-07", partial_month: true, aligned_days: opts.noLy ? null : 7, windows: [w("mtd", "Month to date", 0.3, "2026-10", "2026-10"), w("qtd", "Quarter to date", 0.3, "2026-10", "2026-10"), w("ytd", "Year to date", 2.4, "2026-04", "2026-10")], note: "Day aligned: the current month is compared with the same days of last year, never with a whole month. Percent measures compare in basis points." });
       }
       if (rest === "expenses") {
         const line = (group: string, label: string, cost: number, ps: number) => ({ group, label, cost: String(cost * CR), pct_of_sales: ((cost / 100) * 100).toFixed(4), ly_cost: String(cost * 0.9 * CR), ly_pct_of_sales: (cost / 100 * 90).toFixed(4), bps: "30.0000", psf: ps.toFixed(4), ly_psf: (ps * 0.9).toFixed(4), psf_stores: 2,

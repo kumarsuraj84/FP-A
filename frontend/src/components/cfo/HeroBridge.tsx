@@ -5,6 +5,7 @@ import { HERO_TABS, originFromBridgeItem } from "@/lib/origins";
 import { cn } from "@/lib/utils";
 import type { Bridge, HeroTab } from "@/types/cfo";
 import { Boundary, SourceLines, Skeleton, StaleChip } from "./common";
+import { BasisTag } from "./BasisTag";
 import { WaterfallChart } from "./WaterfallChart";
 
 export function Readout({ bridge }: { bridge: Bridge }) {
@@ -68,9 +69,12 @@ export function HeroBridge() {
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[oklch(0.22_0.06_255)] px-5 py-3 text-white">
         <div className="min-w-0">
           <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-white/60">{q.data?.data?.readout ? "Real data" : "What changed?"}</div>
-          <h2 className="truncate text-[17px] font-semibold tracking-tight" data-testid="hero-title">
-            {q.data?.data?.title ?? "Financial bridge"}
-          </h2>
+          <div className="flex min-w-0 items-center gap-1">
+            <h2 className="truncate text-[17px] font-semibold tracking-tight" data-testid="hero-title">
+              {q.data?.data?.title ?? "Financial bridge"}
+            </h2>
+            {q.data?.data?.basis && <BasisTag basis={q.data.data.basis} onDark className="shrink-0" />}
+          </div>
           <div className="text-[11.5px] text-white/60">{q.data?.data?.subtitle ?? " "}</div>
         </div>
         <div className="flex items-center gap-3">

@@ -6,6 +6,8 @@ import { routeTree } from "@/routeTree.gen";
 import { installExpensesApi } from "@/test/expensesFixture";
 import { entryHref, ledgerListHref, parseEntrySearch, parseListSearch } from "@/lib/entryLinks";
 import { defaultPeriod, resolvePeriod, validateExpSearch } from "./expenses/expensesUrl";
+import { isPartialMonth, lastCompleteMonth } from "./mgmt/mgmtMonths";
+import { refreshKeysFor } from "./Shell";
 
 /* The Store / DC Expense pages run on the real /api/v1/mgmt/expenses API. These tests serve them a SYNTHETIC API (test/expensesFixture.ts). */
 
@@ -173,7 +175,7 @@ describe("Sites table", () => {
     // a store without area shows a dash with the reason in the title, never a zero
     const cells = screen.getByTestId("site-SUBCO:401").querySelectorAll("td");
     expect([...cells].some((c) => c.textContent === "—" && (c.getAttribute("title") ?? "").length > 10)).toBe(true);
-    expect(screen.getByTestId("sites-peer")).toHaveTextContent("Peer median 19.0% of net sales");
+    expect(screen.getByTestId("sites-peer")).toHaveTextContent("Peer median 19.0% of revenue from operations");
     expect(screen.getByTestId("sites-reconciles")).toHaveAttribute("data-ok", "true");
   });
 });
@@ -258,5 +260,66 @@ describe("URL state helpers", () => {
     expect(parseEntrySearch(Object.fromEntries(new URL(e, "http://x").searchParams))).toMatchObject({ ref: "V1", entity: "VENTURES" });
     expect(entryHref("V1")).toBe("/entry?ref=V1");
     expect(parseEntrySearch({ ref: "V1", entity: "RETAIL" }).entity).toBeUndefined();
+  });
+});
+
+describe("Partial month (P-06)", () => {
+  const MONTHS = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"];
+  const AS_OF = "2026-10-09";
+
+  it("a month is partial only while the as-of date is before its last day", () => {
+    expect(isPartialMonth("2026-10", AS_OF)).toBe(true);
+    expect(isPartialMonth("2026-09", AS_OF)).toBe(false);
+    expect(isPartialMonth("2026-09", "2026-09-30")).toBe(false);
+    expect(isPartialMonth("2026-09", "2026-09-29")).toBe(true);
+    expect(isPartialMonth("2026-10", null)).toBe(false);
+    expect(lastCompleteMonth(MONTHS, AS_OF)).toBe("2026-09");
+    expect(lastCompleteMonth(MONTHS, null)).toBe("2026-10");
+  });
+
+  it("the default period is FY YTD through the LAST COMPLETE month; the partial month can still be chosen", () => {
+    expect(defaultPeriod(MONTHS, AS_OF)).toEqual({ from: "2026-04", to: "2026-09" });
+    expect(resolvePeriod(MONTHS, {}, AS_OF)).toEqual({ from: "2026-04", to: "2026-09" });
+    expect(resolvePeriod(MONTHS, { to: "2026-10" }, AS_OF)).toEqual({ from: "2026-04", to: "2026-10" });
+  });
+
+  it("the page asks the API for the last complete month and labels the partial month in the selector", async () => {
+    const calls = installExpensesApi({ months: MONTHS });
+    mount("/mgmt/store-expenses");
+    await screen.findByTestId("exp-heads-table", {}, T);
+    const sum = calls.find((c) => c.includes("expenses/summary"))!;
+    expect(sum).toContain("to_month=2026-09");
+    expect(sum).not.toContain("to_month=2026-10");
+    const to = screen.getByTestId("mgmt-to") as HTMLSelectElement;
+    expect(to.value).toBe("2026-09");
+    expect(within(to).getByRole("option", { name: /Oct.*partial/ })).toBeInTheDocument();
+    expect(screen.queryByTestId("kpi-partial-note")).toBeNull();
+  });
+
+  it("when the user selects the partial month the headline comparisons say so and are not coloured good or bad", async () => {
+    installExpensesApi({ months: MONTHS });
+    mount("/mgmt/store-expenses?to=2026-10");
+    await screen.findByTestId("exp-heads-table", {}, T);
+    await waitFor(() => expect(screen.getAllByTestId("kpi-partial-note").length).toBeGreaterThan(0), T);
+    expect(text("kpi-mom")).toMatch(/partial/);
+    expect(screen.getByTestId("kpi-mom-value").className).not.toMatch(/tone-bad|155/);
+    expect(screen.getByTestId("kpi-ly-value").className).not.toMatch(/tone-bad|155/);
+  });
+});
+
+describe("Refresh (P-09)", () => {
+  it("the management scope refreshes both the mgmt and the expenses query families", () => {
+    expect(refreshKeysFor("mgmt")).toEqual([["mgmt"], ["expenses"]]);
+    expect(refreshKeysFor("pnl")).toEqual([["pnl"]]);
+  });
+
+  it("clicking Refresh on Store Expenses refetches the expense summary", async () => {
+    const calls = installExpensesApi();
+    mount("/mgmt/store-expenses?from=2026-08&to=2026-08");
+    await screen.findByTestId("exp-heads-table", {}, T);
+    const n = () => calls.filter((c) => c.includes("expenses/summary")).length;
+    const before = n();
+    fireEvent.click(await screen.findByTestId("real-refresh", {}, T));
+    await waitFor(() => expect(n()).toBeGreaterThan(before), T);
   });
 });
