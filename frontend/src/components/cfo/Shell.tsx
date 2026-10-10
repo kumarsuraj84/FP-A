@@ -154,6 +154,8 @@ export function TopBar() {
       <div className="mx-1 h-6 w-px bg-border" />
       {real ? (
         <div className="flex flex-1 items-center justify-end gap-2" data-testid="real-controls"><DataStatus page={real} refreshKeys={refreshKeysFor(real.scope)} /></div>
+      ) : path.startsWith("/related-party") ? (
+        <div className="flex-1" /> // intercompany balances are a position as of the run: period, comparison and scenario do not apply
       ) : (
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <Select<PeriodId> label="Period" testId="select-period" value={state.period} options={PERIOD_ORDER.map((id) => ({ id, label: PERIODS[id].label }))} onChange={(v) => dispatch({ type: "setPeriod", value: v })} />

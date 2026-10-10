@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Download, X } from "lucide-react";
-import { useMgmtAdjustments, useMgmtPnl } from "@/api/mgmtLiveHooks";
+import { useMgmtAdjustments, useMgmtPnl, useMgmtRun } from "@/api/mgmtLiveHooks";
 import { DASH } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { MgmtAdjustment, MgmtLine, MgmtPnlMode as MgmtMode, MgmtTriple } from "@/types/mgmtLive";
@@ -10,6 +10,7 @@ import { Panel } from "../panels";
 import { BasisTag } from "../BasisTag";
 import { MgmtFrame, MonthRange, WarningsBanner, fyYtdRange } from "./MgmtFrame";
 import { useMgmtEntity } from "./mgmtEntity";
+import { isPartialMonth } from "./mgmtMonths";
 import { cr2, cr2s, dashReason, downloadCsv, monthShort, pct1, toneOf } from "./mgmtFormat";
 
 /**
@@ -134,6 +135,7 @@ export function StatusPill({ status }: { status: string }) {
 function PnlTable({ data, mode, pick, onPick }: { data: { months: string[]; lines: MgmtLine[] }; mode: MgmtMode; pick: Pick | null; onPick: (p: Pick) => void }) {
   const money = useMemo(() => data.lines.filter((l) => l.kind !== "pct").sort((a, b) => rank(a.key) - rank(b.key)), [data.lines]);
   const pcts = useMemo(() => data.lines.filter((l) => l.kind === "pct").sort((a, b) => rank(a.key.replace(/^pct_/, "")) - rank(b.key.replace(/^pct_/, ""))), [data.lines]);
+  const asOf = useMgmtRun().data?.as_of_date;
   const colSpan = data.months.length + 2;
   const rowsOf = (lines: MgmtLine[]) =>
     lines.map((l) => {
@@ -159,7 +161,7 @@ function PnlTable({ data, mode, pick, onPick }: { data: { months: string[]; line
         <thead>
           <tr className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
             <th className="sticky left-0 top-0 z-30 border-b border-r bg-card px-3 py-2 text-left font-semibold">INR Cr</th>
-            {data.months.map((m) => <th key={m} data-testid={`col-${m}`} className="sticky top-0 z-20 whitespace-nowrap border-b bg-card px-3 py-2 text-right font-semibold">{monthShort(m)}</th>)}
+            {data.months.map((m) => <th key={m} data-testid={`col-${m}`} className="sticky top-0 z-20 whitespace-nowrap border-b bg-card px-3 py-2 text-right font-semibold">{monthShort(m)}{isPartialMonth(m, asOf) && <span className="block text-[10px] font-medium normal-case text-[oklch(0.5_0.12_70)]" title={`Data stops at ${asOf}: this month is not complete`}>partial</span>}</th>)}
             <th className="sticky top-0 z-20 whitespace-nowrap border-b border-l bg-card px-3 py-2 text-right font-semibold">{data.months.length > 1 ? "Total" : "Period"}</th>
           </tr>
         </thead>

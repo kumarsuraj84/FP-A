@@ -124,15 +124,6 @@ export function MgmtFrame({ active, subtitle, entitySelector = true, children }:
         eyebrow="Performance"
         title="Management P&L"
         subtitle={subtitle ?? "The finance MIS view: store lines, DC and HO cost, corporate EBITDA. INR Cr. Each figure is the books plus management adjustments."}
-        right={
-          run.data ? (
-            <span data-testid="mgmt-badge" title={`Run ${run.data.run_id} · data as of ${run.data.as_of_date}. Management view: includes adjustments that are not in the books.`} className="inline-flex items-center gap-1.5 rounded-sm border bg-[oklch(0.94_0.06_155)] px-2 py-0.5 text-[11px] font-semibold text-[oklch(0.32_0.1_155)]">
-              <FlaskConical className="h-3 w-3" />
-              Management view
-              <span className="font-normal opacity-80">· As of {fmtDate(run.data.as_of_date)} · {run.data.run_id}</span>
-            </span>
-          ) : undefined
-        }
       />
       <nav aria-label="Management P&L pages" data-testid="mgmt-tabs" className="flex flex-wrap gap-0.5 border-b bg-card px-3 pt-1.5">
         {TABS.map((t) => (
