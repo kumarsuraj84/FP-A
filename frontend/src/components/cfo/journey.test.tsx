@@ -129,11 +129,11 @@ describe("CFO Command Center journey", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/"), T);
   });
 
-  it("future destinations are visibly disabled, not dead links", async () => {
+  it("the sidebar is labelled and offers no dead 'upcoming' entries", async () => {
     mount();
     const nav = await screen.findByRole("navigation", { name: "Primary" }, T);
-    const disabled = nav.querySelectorAll('[aria-disabled="true"]');
-    expect(disabled.length).toBe(4); // Profitability, Cash and Creditors are live destinations
-  });
+    expect(nav.querySelectorAll('[aria-disabled="true"]').length).toBe(0);
+    expect(nav).toHaveTextContent("Command Center");
+});
 });
 

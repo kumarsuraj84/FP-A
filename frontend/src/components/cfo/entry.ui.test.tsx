@@ -154,7 +154,10 @@ describe("Voucher page", () => {
   it("says plainly when there is no voucher in the address, and when the API fails", async () => {
     installEntryApi();
     mount("/entry");
-    expect(await screen.findByTestId("entry-no-ref", {}, T)).toHaveTextContent(/No voucher selected/);
+    expect(await screen.findByTestId("entry-no-ref", {}, T)).toHaveTextContent(/Find a voucher/);
+    expect(screen.getByTestId("finder-open")).toBeDisabled();                       // a landing the user can act on, not a dead end
+    fireEvent.change(screen.getByLabelText("Voucher key"), { target: { value: "424242" } });
+    expect(screen.getByTestId("finder-open")).toBeEnabled();
     vi.unstubAllGlobals();
     installEntryApi({ fail: 500 });
     mount(`/entry?ref=${E1.ref}`);
@@ -164,7 +167,9 @@ describe("Voucher page", () => {
   it("an unknown voucher is reported as not found", async () => {
     installEntryApi();
     mount("/entry?ref=424242");
-    expect(await screen.findByTestId("state-error", {}, T)).toHaveTextContent(/was not found/);
+    const box = await screen.findByTestId("entry-not-in-extract", {}, T);
+    expect(box).toHaveTextContent(/not in the loaded finance extract/);
+    expect(within(box).getByTestId("try-other-books")).toHaveTextContent(/HoldCo/);          // the other company's books are one click away
   });
 });
 

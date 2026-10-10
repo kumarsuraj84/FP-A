@@ -25,14 +25,16 @@ const crumbs = () => screen.getByTestId("breadcrumbs").textContent ?? "";
 const drawer = () => screen.getByTestId("investigation-drawer");
 
 describe("Navigation: one operating system", () => {
-  it("groups the live destinations and keeps the future modules visibly disabled", async () => {
+  it("groups the destinations under labelled headings and shows no disabled placeholders", async () => {
     mount(q("/"));
     const nav = await screen.findByRole("navigation", { name: "Primary" }, T);
-    for (const group of ["Command", "Performance", "Liquidity", "Exposure", "Upcoming"]) expect(nav).toHaveTextContent(group);
-    for (const id of ["nav-command-center", "nav-profitability", "nav-cash", "nav-creditors"]) expect(within(nav).getByTestId(id)).toBeInTheDocument();
-    const disabled = [...nav.querySelectorAll('[aria-disabled="true"]')].map((e) => e.textContent);
-    expect(disabled).toEqual(expect.arrayContaining([expect.stringContaining("AOP & Forecast"), expect.stringContaining("Vendor Advances"), expect.stringContaining("Reconciliation"), expect.stringContaining("Balance Sheet")]));
-    expect(disabled).toHaveLength(4);
+    for (const group of ["Executive", "Performance", "Working capital", "Control"]) expect(nav).toHaveTextContent(group);
+    for (const id of ["nav-command-center", "nav-profitability", "nav-cash", "nav-creditors", "nav-close", "nav-mapping", "nav-source-fixes"]) expect(within(nav).getByTestId(id)).toBeInTheDocument();
+    expect(nav.querySelectorAll('[aria-disabled="true"]')).toHaveLength(0);
+    fireEvent.click(within(nav).getByTestId("nav-collapse"));
+    expect(nav).toHaveAttribute("data-collapsed", "true");
+    expect(nav).not.toHaveTextContent("Working capital");
+    fireEvent.click(within(nav).getByTestId("nav-collapse"));
   });
 
   it("each destination opens its workspace and keeps period, comparison and scenario", async () => {

@@ -37,14 +37,14 @@ describe("Command Center on real data", () => {
     expect(isMockApi).toBe(false);
   });
 
-  it("the banner says real, per-source as-of, not one synchronized position, and there are no demo controls", async () => {
+  it("one data-status chip replaces the banner: per-source truth lives in its drawer, and there are no demo controls", async () => {
     mount();
     await screen.findByTestId("pulse-revenue", {}, T);
-    const banner = screen.getByTestId("demo-banner");
-    expect(banner).toHaveAttribute("data-source-mode", "live");
-    expect(text("demo-banner")).toMatch(/Real data, per-source as-of/);
-    expect(text("demo-banner")).toMatch(/not one synchronized CFO position/);
-    expect(text("demo-banner")).not.toMatch(/Demo data/);
+    expect(screen.queryByTestId("demo-banner")).toBeNull();
+    fireEvent.click(screen.getByTestId("real-state"));
+    const drawer = await screen.findByTestId("data-status-drawer", {}, T);
+    expect(within(drawer).getByTestId("data-notes")).toHaveTextContent(/not one synchronised CFO position/);
+    expect(within(drawer).getByTestId("not-yet-available")).toHaveTextContent(/AOP and forecast/);
     expect(screen.queryByTestId("select-datastate")).toBeNull();
     expect(screen.queryByTestId("select-scenario")).toBeNull();
     expect(screen.getByTestId("scenario-live-note")).toHaveTextContent(/demo only/i);
@@ -53,12 +53,14 @@ describe("Command Center on real data", () => {
     expect(within(compare).getByRole("option", { name: /Forecast.*not available/ })).toBeInTheDocument();
   });
 
-  it("the top bar names each source with its own as-of date", async () => {
+  it("the data-status drawer names each source with its own as-of date", async () => {
     mount();
+    await screen.findByTestId("pulse-revenue", {}, T);
+    fireEvent.click(screen.getByTestId("real-state"));
     await screen.findByTestId("freshness-pnl", {}, T);
-    expect(text("freshness-pnl")).toBe("P&L 09 Oct 2026");
-    expect(text("freshness-creditors")).toBe("Creditors 07 Oct 2026");
-    expect(text("freshness-cash")).toBe("Cash 08 Oct 2026");
+    expect(text("freshness-pnl")).toMatch(/^P&L 09 Oct 2026/);
+    expect(text("freshness-creditors")).toMatch(/^Creditors 07 Oct 2026/);
+    expect(text("freshness-cash")).toMatch(/^Cash 08 Oct 2026/);
   });
 
   it("each pulse figure shows its OWN run id and as-of date", async () => {
@@ -155,11 +157,12 @@ describe("Command Center on real data", () => {
     expect(drawer).toHaveTextContent(/vendor advances/i);
   });
 
-  it("the real pages' banner states the same per-source truth", async () => {
+  it("the real pages use the same data-status chip, with their own as-of", async () => {
     mount("/profitability");
-    await screen.findByTestId("demo-banner", {}, T);
-    expect(text("demo-banner")).toMatch(/Profitability shows REAL data from its own verified run/);
-    expect(text("demo-banner")).toMatch(/real, per-source as-of, not one synchronized CFO position/);
+    await screen.findByTestId("real-state", {}, T);
+    expect(screen.queryByTestId("demo-banner")).toBeNull();
+    fireEvent.click(screen.getByTestId("real-state"));
+    expect((await screen.findByTestId("data-notes", {}, T)).textContent).toMatch(/not one synchronised CFO position/);
   });
 });
 

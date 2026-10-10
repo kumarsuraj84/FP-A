@@ -1,8 +1,10 @@
-import { useRouterState } from "@tanstack/react-router";
+import { useState } from "react";
+import { useRouter, useRouterState } from "@tanstack/react-router";
 import { useBillLink, useEntry, useEntryLineDetail, useEntryRun } from "@/api/entryLiveHooks";
 import { fmtRupees, num } from "@/api/creditorsLive";
 import { DASH, fmtDate } from "@/lib/format";
-import { parseEntrySearch } from "@/lib/entryLinks";
+import { entryHref, parseEntrySearch } from "@/lib/entryLinks";
+import { EntryApiError } from "@/api/entryLive";
 import { cn } from "@/lib/utils";
 import type { Entry, EntryLine, EntryLineDetail, EntryRunHeader } from "@/types/entryLive";
 import { Skeleton } from "../common";
@@ -10,7 +12,7 @@ import { LiveBoundary, NotAvailable } from "../creditors/parts";
 import { Panel, WorkspaceHeader } from "../panels";
 import { MAKERS } from "@/api/controlApi";
 import { useMe } from "../control/ControlFrame";
-import { BalanceBadge, Crumbs, EntryRunBadge, GAP_NOTE, LINK_REASON, LinkChip, StatusChip } from "./parts";
+import { AppLink, BalanceBadge, Crumbs, EntryRunBadge, GAP_NOTE, LINK_REASON, LinkChip, StatusChip } from "./parts";
 
 /**
  * One accounting entry (voucher) from the gold source: header, ALL its lines, the balance check, and the evidence behind it.
@@ -191,6 +193,24 @@ function Body({ e, run, named, billRef, entity }: { e: Entry; run: EntryRunHeade
   );
 }
 
+/** /entry with no voucher: a landing that lets the user find one, instead of a dead end. */
+function VoucherFinder() {
+  const [ref, setRef] = useState("");
+  const [books, setBooks] = useState<"RETAIL" | "VENTURES">("RETAIL");
+  const router = useRouter();
+  return (
+    <div data-testid="entry-no-ref" className="mx-auto max-w-xl space-y-3 px-4 py-8">
+      <h2 className="text-[15px] font-semibold">Find a voucher</h2>
+      <p className="text-[12.5px] text-muted-foreground">Enter a voucher key to open its lines. You normally arrive here from a creditor bill, a P&L ledger, a store till day or the Related Party entries.</p>
+      <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); if (ref.trim()) void router.navigate({ href: entryHref(ref.trim(), [], undefined, books === "VENTURES" ? "VENTURES" : undefined) }); }}>
+        <label className="grid gap-0.5 text-[11.5px] font-semibold text-muted-foreground">Voucher key<input aria-label="Voucher key" data-testid="finder-ref" className="rounded border bg-card px-2 py-1 text-[12.5px] font-normal text-foreground" value={ref} onChange={(e) => setRef(e.target.value)} /></label>
+        <label className="grid gap-0.5 text-[11.5px] font-semibold text-muted-foreground">Books<select aria-label="Books" className="rounded border bg-card px-2 py-1 text-[12.5px] font-normal text-foreground" value={books} onChange={(e) => setBooks(e.target.value as "RETAIL" | "VENTURES")}><option value="RETAIL">SubCo (Citykart Stores)</option><option value="VENTURES">HoldCo (Citykart Ventures)</option></select></label>
+        <button type="submit" data-testid="finder-open" disabled={!ref.trim()} className="press rounded border bg-primary px-3 py-1 text-[12px] font-semibold text-primary-foreground disabled:opacity-50">Open</button>
+      </form>
+    </div>
+  );
+}
+
 export function EntryPage() {
   const raw = useRouterState({ select: (s) => s.location.search as Record<string, unknown> });
   const p = parseEntrySearch(raw);
@@ -221,7 +241,17 @@ export function EntryPage() {
         </>}
       />
       {!p.ref ? (
-        <NotAvailable testId="entry-no-ref" title="No voucher selected" reason="Open a voucher from a creditor bill, a P&L ledger or a store till day. A voucher link carries its key in the address." />
+        <VoucherFinder />
+      ) : q.error instanceof EntryApiError && q.error.status === 404 ? (
+        <div data-testid="entry-not-in-extract" className="space-y-3 px-4 py-5 text-[12.5px]">
+          <NotAvailable title="This voucher is not in the loaded finance extract" reason="The extract carries the cost-tagged lines of each voucher. This entry has no line in it: it may be a balance-sheet or bank movement, or it may sit in the other company's books." />
+          <div className="flex flex-wrap gap-2 pl-7">
+            <AppLink testId="try-other-books" href={entryHref(p.ref, p.trail, p.bill, p.entity === "VENTURES" ? undefined : "VENTURES")} className="press rounded border px-2.5 py-1 text-[12px] font-semibold text-primary hover:bg-muted">
+              Look in {p.entity === "VENTURES" ? "SubCo (Citykart Stores)" : "HoldCo (Citykart Ventures)"} books
+            </AppLink>
+            <button type="button" onClick={() => window.history.back()} className="press rounded border px-2.5 py-1 text-[12px] font-semibold hover:bg-muted">Back to where you came from</button>
+          </div>
+        </div>
       ) : (
         <LiveBoundary query={q} skeleton={<div className="space-y-4 p-4"><Skeleton className="h-16 w-full" /><Skeleton className="h-[260px] w-full" /></div>}>
           {(d) => (run.data ? <Body e={d.entry} run={run.data} named={d.named} billRef={p.bill} entity={p.entity} /> : null)}

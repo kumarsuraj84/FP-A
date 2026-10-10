@@ -63,13 +63,14 @@ export function PnlWaterfall({ t, height = 300, store = false }: { t: PnlMoney; 
     <div ref={ref} className="w-full" data-testid="pnl-waterfall">
       <svg role="img" aria-label="P&L bridge from revenue from operations to Corporate EBITDA" width={W} height={height} className="block">
         <line x1={M.l} x2={W - M.r} y1={y(0)} y2={y(0)} stroke={GRID} />
+        {iw / steps.length < 84 && <text x={M.l} y={12} fontSize={10.5} fill={INK}>₹ Cr</text>}
         {bars.map((b) => {
           const colour = b.kind === "total" ? NAVY : b.value < 0 ? BAD : GOOD;
           return (
             <g key={b.id} onMouseEnter={() => setHover(b.id)} onMouseLeave={() => setHover(null)} data-testid={`wf-${b.id}`} data-exact={String(b.value)}>
               <rect x={x(b.i) - bw / 2} y={y(b.hi)} width={bw} height={Math.max(2, y(b.lo) - y(b.hi))} rx={2} fill={colour} opacity={hover && hover !== b.id ? 0.55 : 1} />
               <text x={x(b.i)} y={y(b.hi) - 8} textAnchor="middle" fontSize={11.5} fontWeight={600} fill={INK} className="num-mono">
-                {fmtCr(b.value, { plain: false })}
+                {fmtCr(b.value, { plain: iw / steps.length < 84 })}
               </text>
               {b.id === "gross_margin" && rev !== 0 && (
                 <text x={x(b.i)} y={y(b.hi) - 22} textAnchor="middle" fontSize={10.5} fill={INK}>{`${((b.value / rev) * 100).toFixed(1)}% of sales`}</text>

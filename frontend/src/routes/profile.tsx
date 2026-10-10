@@ -1,7 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { ProfilePage } from "@/components/cfo/DeepPages";
 
 export const Route = createFileRoute("/profile")({
+  // these workspaces exist only inside a drill (the context is in the address): without one there is nothing to show, so go home at once instead of rendering the Command Center under this address
+  beforeLoad: ({ search }) => {
+    if (!(search as { drill?: string }).drill) throw redirect({ to: "/" });
+  },
   head: () => ({
     meta: [
       { title: "Entity Profile · CityKart FP&A" },

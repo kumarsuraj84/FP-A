@@ -1,7 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { VoucherPage } from "@/components/cfo/DeepPages";
 
 export const Route = createFileRoute("/voucher")({
+  // these workspaces exist only inside a drill (the context is in the address): without one there is nothing to show, so go home at once instead of rendering the Command Center under this address
+  beforeLoad: ({ search }) => {
+    if (!(search as { drill?: string }).drill) throw redirect({ to: "/" });
+  },
   head: () => ({
     meta: [
       { title: "Voucher Evidence · CityKart FP&A" },

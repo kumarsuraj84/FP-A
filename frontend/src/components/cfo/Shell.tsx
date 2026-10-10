@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import { Banknote, ClipboardCheck, Inbox, Shuffle, ChevronRight, CircleDot, FileSpreadsheet, Handshake, Landmark, LayoutDashboard, LayoutGrid, Lock, PiggyBank, Receipt, RefreshCw, Scale, Store, Truck, Wallet, Warehouse } from "lucide-react";
+import { useState } from "react";
+import { Banknote, CalendarCheck, ClipboardCheck, Inbox, Shuffle, ChevronRight, ChevronsLeft, ChevronsRight, CircleDot, FileSpreadsheet, Handshake, LayoutDashboard, LayoutGrid, Receipt, Route, Store, Truck, Warehouse, Wrench } from "lucide-react";
 import { useCfo } from "@/context/CfoContext";
 import { searchFromState } from "@/context/drillUrl";
 import { CREDITORS_ORIGIN } from "@/lib/creditorNodes";
@@ -14,7 +14,7 @@ import { usePnlRun } from "@/api/pnlLiveHooks";
 import { useEntryRun } from "@/api/entryLiveHooks";
 import { useMgmtRun } from "@/api/mgmtLiveHooks";
 import { useLiveRun } from "@/api/creditorsLiveHooks";
-import { fmtDate, stampText } from "@/lib/format";
+import { DataStatus } from "./DataStatus";
 import { COMPARISON_ORDER, COMPARISONS, PERIOD_ORDER, PERIODS, SCENARIOS, SCENARIO_ORDER } from "@/mocks/scenarios";
 import type { ComparisonId, DataStateId, PeriodId, ScenarioId } from "@/types/cfo";
 import { cn } from "@/lib/utils";
@@ -69,20 +69,7 @@ export function DemoBanner() {
       </div>
     );
   }
-  if (isLiveCfo) {
-    // The Command Center and its drill pages read the same three real sources. Each figure carries its own run and as-of date.
-    const text = realPage
-      ? `${realPage} shows REAL data from its own verified run. The Command Center reads the same real sources, each figure with its own run and as-of date: real, per-source as-of, not one synchronized CFO position.`
-      : "Real data, per-source as-of: P&L, Management P&L, Creditors and Cash are separate runs and each figure shows its own run and date. This is not one synchronized CFO position. AOP, forecast, bank, receivables, inventory and vendor advances are unavailable.";
-    return (
-      <div data-testid="demo-banner" data-real="true" data-source-mode="live" className="flex h-6 items-center bg-[oklch(0.94_0.06_155)] px-4 text-[11px] font-medium text-[oklch(0.32_0.1_155)]">
-        <span className="flex min-w-0 items-center gap-1.5" title={text}>
-          <CircleDot className="h-3 w-3 shrink-0" />
-          <span className="truncate">{text}</span>
-        </span>
-      </div>
-    );
-  }
+  if (isLiveCfo) return null; // real data: the status chip + drawer in the top bar carries what this banner used to say
   if (realPage) {
     // this page runs on a verified mart; every module not yet connected is still demo data and the banner says so
     return (
@@ -148,29 +135,6 @@ function useRealMeta(): RealMeta | null {
   return { asOf: d.as_of_date, state: d.data_state, stateLabel: STATE_TEXT[d.data_state] ?? d.data_state, updated, scope, status: "ok" };
 }
 
-function RealControls({ meta }: { meta: RealMeta }) {
-  const qc = useQueryClient();
-  const chip = "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium";
-  return (
-    <>
-      <div className="flex flex-1 flex-wrap items-center gap-2" data-testid="real-controls">
-        <div data-testid="real-asof" className={cn(chip, "bg-secondary text-secondary-foreground")}>
-          <span className="eyebrow !text-[10px]">As of</span>
-          <span className="font-semibold">{meta.asOf ? fmtDate(meta.asOf) : "—"}</span>
-        </div>
-        <div data-testid="real-state" data-state={meta.state} className={cn(chip, meta.state === "live" ? "bg-[oklch(0.96_0.04_155)] text-[oklch(0.4_0.12_155)]" : "bg-[oklch(0.985_0.03_90)] text-[oklch(0.45_0.09_75)]")}>
-          <span className="h-1.5 w-1.5 rounded-full bg-current" />
-          {meta.stateLabel}
-        </div>
-        <div data-testid="real-updated" className="text-[11px] text-muted-foreground">{meta.updated ? `Source updated ${meta.updated}` : "Source timestamp not provided"}</div>
-        <button data-testid="real-refresh" onClick={() => refreshKeysFor(meta.scope).forEach((queryKey) => qc.invalidateQueries({ queryKey }))} className="press inline-flex items-center gap-1 rounded border bg-card px-2 py-1 text-[11px] font-semibold hover:bg-muted">
-          <RefreshCw className="h-3 w-3" /> Refresh
-        </button>
-      </div>
-    </>
-  );
-}
-
 export function TopBar() {
   const { state, dispatch } = useCfo();
   const fresh = useFreshness();
@@ -189,7 +153,7 @@ export function TopBar() {
       </Link>
       <div className="mx-1 h-6 w-px bg-border" />
       {real ? (
-        <RealControls meta={real} />
+        <div className="flex flex-1 items-center justify-end gap-2" data-testid="real-controls"><DataStatus page={real} refreshKeys={refreshKeysFor(real.scope)} /></div>
       ) : (
       <div className="flex flex-1 flex-wrap items-center gap-3">
         <Select<PeriodId> label="Period" testId="select-period" value={state.period} options={PERIOD_ORDER.map((id) => ({ id, label: PERIODS[id].label }))} onChange={(v) => dispatch({ type: "setPeriod", value: v })} />
@@ -209,23 +173,7 @@ export function TopBar() {
           Demo data - not real
         </div>
       )}
-      {!real && isLiveCfo && !demoOnly && (
-        <div data-testid="freshness" className="flex flex-wrap items-center gap-1.5">
-          {(f?.sources ?? []).map((s) => (
-            <span
-              key={s.id}
-              data-testid={`freshness-${s.id}`}
-              data-ok={s.ok}
-              title={stampText(s)}
-              className={cn("flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium", s.ok ? "bg-[oklch(0.96_0.03_155)] text-[oklch(0.38_0.1_155)]" : "bg-[oklch(0.96_0.05_85)] text-[oklch(0.42_0.1_75)]")}
-            >
-              <span className={cn("h-1.5 w-1.5 rounded-full", s.ok ? "bg-[oklch(0.62_0.16_155)]" : "bg-[oklch(0.7_0.15_75)]")} />
-              {s.label} {s.ok && s.asOf ? fmtDate(s.asOf) : "not read"}
-            </span>
-          ))}
-          {!f && <span className="text-[11px] text-muted-foreground">Checking sources…</span>}
-        </div>
-      )}
+      {!real && isLiveCfo && !demoOnly && <DataStatus />}
       {!real && !isLiveCfo && (      <div
         data-testid="freshness"
         className={cn("flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium", f?.stale ? "bg-[oklch(0.96_0.05_85)] text-[oklch(0.42_0.1_75)]" : "bg-[oklch(0.96_0.03_155)] text-[oklch(0.38_0.1_155)]")}
@@ -244,36 +192,33 @@ export function TopBar() {
   );
 }
 
-const FUTURE = [
-  { label: "AOP & Forecast", icon: PiggyBank },
-  { label: "Vendor Advances", icon: Wallet },
-  { label: "Reconciliation", icon: Scale },
-  { label: "Balance Sheet", icon: Landmark },
-];
+type NavTo = "/" | "/profitability" | "/mgmt" | "/mgmt/store-expenses" | "/mgmt/dc-expenses" | "/cash" | "/creditors" | "/related-party" | "/control/adjustments" | "/control/corrections" | "/control/inbox" | "/control/close" | "/control/mapping" | "/control/source-fixes";
+type NavId = "command" | "profitability" | "mgmt" | "storeExp" | "dcExp" | "cash" | "creditors" | "related" | "adjust" | "corrections" | "inbox" | "close" | "mapping" | "sourcefix";
 
-type NavId = "command" | "profitability" | "mgmt" | "storeExp" | "dcExp" | "cash" | "creditors" | "related" | "adjust" | "corrections" | "inbox";
-
-const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: "/" | "/profitability" | "/mgmt" | "/mgmt/store-expenses" | "/mgmt/dc-expenses" | "/cash" | "/creditors" | "/related-party" | "/control/adjustments" | "/control/corrections" | "/control/inbox"; testId: string; icon: typeof Truck }[] }[] = [
-  { group: "Command", items: [{ id: "command", label: "CFO Command Center", title: "CFO Command Center", to: "/", testId: "nav-command-center", icon: LayoutDashboard }] },
+const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: NavTo; testId: string; icon: typeof Truck }[] }[] = [
+  { group: "Executive", items: [{ id: "command", label: "Command Center", title: "CFO Command Center", to: "/", testId: "nav-command-center", icon: LayoutDashboard }] },
   { group: "Performance", items: [
-    { id: "profitability", label: "Profitability", title: "Store Profitability (verified data)", to: "/profitability", testId: "nav-profitability", icon: Store },
     { id: "mgmt", label: "Management P&L", title: "Management P&L: the finance MIS view (books + adjustments)", to: "/mgmt", testId: "nav-mgmt", icon: FileSpreadsheet },
+    { id: "profitability", label: "Profitability", title: "Store Profitability (verified data)", to: "/profitability", testId: "nav-profitability", icon: Store },
     { id: "storeExp", label: "Store Expenses", title: "Store Expenses: rent, employee, power, advertisement, freight and other, down to the voucher", to: "/mgmt/store-expenses", testId: "nav-store-expenses", icon: Receipt },
     { id: "dcExp", label: "DC Expenses", title: "DC Expenses: SubCo and HoldCo warehouse cost, down to the voucher", to: "/mgmt/dc-expenses", testId: "nav-dc-expenses", icon: Warehouse },
   ] },
-  { group: "Liquidity", items: [{ id: "cash", label: "Liquidity & Working Capital", title: "Liquidity & Working Capital Control", to: "/cash", testId: "nav-cash", icon: Banknote }] },
-  { group: "Exposure", items: [
+  { group: "Working capital", items: [
+    { id: "cash", label: "Liquidity", title: "Liquidity & Working Capital Control", to: "/cash", testId: "nav-cash", icon: Banknote },
     { id: "creditors", label: "Creditors", title: "Creditors Control", to: "/creditors", testId: "nav-creditors", icon: Truck },
     { id: "related", label: "Related Party", title: "Related Party Transactions: intercompany balances, kept out of Creditors, Cash and the Command Center", to: "/related-party", testId: "nav-related", icon: Handshake },
   ] },
   { group: "Control", items: [
+    { id: "inbox", label: "Exception Inbox", title: "Exception Inbox: what needs attention now, with owner and due date (sign-in required)", to: "/control/inbox", testId: "nav-inbox", icon: Inbox },
+    { id: "close", label: "Month-end close", title: "Month-end close readiness: every gate for the period (sign-in required)", to: "/control/close", testId: "nav-close", icon: CalendarCheck },
     { id: "adjust", label: "Adjustments", title: "Adjustments and Provisions: governed management amounts (sign-in required)", to: "/control/adjustments", testId: "nav-adjustments", icon: ClipboardCheck },
     { id: "corrections", label: "Corrections", title: "Corrections: reclassify a booked line to another group or month (sign-in required)", to: "/control/corrections", testId: "nav-corrections", icon: Shuffle },
-    { id: "inbox", label: "Exception Inbox", title: "Exception Inbox: what needs attention now, with owner and due date (sign-in required)", to: "/control/inbox", testId: "nav-inbox", icon: Inbox },
+    { id: "mapping", label: "Mapping", title: "Mapping governance: how ledgers map to management groups (sign-in required)", to: "/control/mapping", testId: "nav-mapping", icon: Route },
+    { id: "sourcefix", label: "Source fixes", title: "Source-fix queue: errors to be corrected at the source system (sign-in required)", to: "/control/source-fixes", testId: "nav-source-fixes", icon: Wrench },
   ] },
 ];
 
-const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, mgmt: null, storeExp: null, dcExp: null, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN, related: null, adjust: null, corrections: null, inbox: null };
+const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, mgmt: null, storeExp: null, dcExp: null, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN, related: null, adjust: null, corrections: null, inbox: null, close: null, mapping: null, sourcefix: null };
 
 /** The destination the current investigation belongs to, so a ledger or voucher still highlights its own area. */
 function activeNav(scope: string | undefined, path: string, trail?: unknown): NavId {
@@ -283,6 +228,9 @@ function activeNav(scope: string | undefined, path: string, trail?: unknown): Na
   if (path.startsWith("/related-party")) return "related";
   if (path.startsWith("/control/adjustments")) return "adjust";
   if (path.startsWith("/control/corrections")) return "corrections";
+  if (path.startsWith("/control/close")) return "close";
+  if (path.startsWith("/control/mapping")) return "mapping";
+  if (path.startsWith("/control/source-fixes")) return "sourcefix";
   if (path.startsWith("/control/")) return "inbox";
   if (path.startsWith("/entry")) {
     // the voucher drill highlights the area it was reached from: the first step of its trail
@@ -296,8 +244,12 @@ function activeNav(scope: string | undefined, path: string, trail?: unknown): Na
   return "command";
 }
 
+const NAV_KEY = "fpa.nav.collapsed";
+const readCollapsed = (): boolean => { try { return window.localStorage.getItem(NAV_KEY) === "1"; } catch { return false; } };
+
 export function SideNav() {
   const { state, dispatch, enterCreditors, enterRoom } = useCfo();
+  const [collapsed, setCollapsed] = useState(readCollapsed);
   const path = useRouterState({ select: (x) => x.location.pathname });
   const trail = useRouterState({ select: (x) => (x.location.search as { trail?: unknown }).trail });
   const active = activeNav(state.origin?.scope, path, trail);
@@ -313,12 +265,16 @@ export function SideNav() {
     adjust: () => undefined,
     corrections: () => undefined,
     inbox: () => undefined,
+    close: () => undefined,
+    mapping: () => undefined,
+    sourcefix: () => undefined,
   };
+  const toggle = () => { const v = !collapsed; setCollapsed(v); try { window.localStorage.setItem(NAV_KEY, v ? "1" : "0"); } catch { /* per-viewer convenience only */ } };
   return (
-    <nav aria-label="Primary" className="hidden w-14 shrink-0 flex-col border-r bg-card py-3 md:flex min-[1700px]:w-[204px]">
+    <nav aria-label="Primary" data-collapsed={collapsed} className={cn("hidden shrink-0 flex-col border-r bg-card py-3 md:flex", collapsed ? "w-14" : "w-[208px]")}>
       {NAV_GROUPS.map(({ group, items }) => (
-        <div key={group} className="mb-1 border-t pt-1 first:border-t-0 first:pt-0 min-[1700px]:border-t-0 min-[1700px]:pt-0">
-          <div className="eyebrow mt-3 hidden px-4 first:mt-0 min-[1700px]:block" aria-hidden>{group}</div>
+        <div key={group} className={cn("mb-1", collapsed && "border-t pt-1 first:border-t-0 first:pt-0")}>
+          {!collapsed && <div className="eyebrow mt-3 px-4 first:mt-0">{group}</div>}
           {items.map(({ id, label, title, to, testId, icon: Icon }) => (
             <Link
               key={id}
@@ -328,29 +284,22 @@ export function SideNav() {
               onClick={go[id]}
               data-testid={testId}
               title={title}
+              aria-label={label}
               aria-current={active === id ? "page" : undefined}
               className={cn(
-                "press mx-2 mt-1 flex items-center justify-center gap-2 rounded px-2.5 py-2 text-[13px] font-semibold min-[1700px]:justify-start",
+                "press mx-2 mt-1 flex items-center gap-2 rounded px-2.5 py-2 text-[13px] font-semibold",
+                collapsed && "justify-center",
                 active === id ? "bg-[oklch(0.95_0.025_265)] text-[oklch(0.28_0.09_265)]" : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >
-              <Icon className="h-4 w-4 shrink-0" /> <span className="hidden whitespace-nowrap min-[1700px]:inline">{label}</span>
+              <Icon className="h-4 w-4 shrink-0" /> {!collapsed && <span className="whitespace-nowrap">{label}</span>}
             </Link>
           ))}
         </div>
       ))}
-      <div className="eyebrow mt-4 hidden px-4 min-[1700px]:block">Upcoming</div>
-      <ul className="mt-3 space-y-0.5 px-2 min-[1700px]:mt-1.5">
-        {FUTURE.map(({ label, icon: Icon }) => (
-          <li key={label}>
-            <div aria-disabled="true" title={`${label} — planned for a later stage`} className="flex cursor-not-allowed items-center justify-center gap-2 rounded px-2.5 py-1.5 text-[12.5px] text-muted-foreground/70 min-[1700px]:justify-start">
-              <Icon className="h-4 w-4 shrink-0" />
-              <span className="hidden flex-1 whitespace-nowrap min-[1700px]:inline">{label}</span>
-              <Lock className="hidden h-3 w-3 opacity-60 min-[1700px]:block" />
-            </div>
-          </li>
-        ))}
-      </ul>
+      <button type="button" data-testid="nav-collapse" onClick={toggle} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} title={collapsed ? "Expand navigation" : "Collapse navigation"} className="press mx-2 mt-auto flex items-center justify-center gap-2 rounded px-2.5 py-2 text-[12px] font-medium text-muted-foreground hover:bg-muted">
+        {collapsed ? <ChevronsRight className="h-4 w-4" /> : <><ChevronsLeft className="h-4 w-4" /> Collapse</>}
+      </button>
     </nav>
   );
 }

@@ -24,6 +24,7 @@ function Cell({ m, active, onClick }: { m: PulseMetric; active: boolean; onClick
     <button
       data-testid={`pulse-${m.id}`}
       aria-pressed={active}
+      aria-label={`${m.label}: ${val}${mv === null ? "" : `, ${mvText} ${m.comparisonLabel ?? ""}`}. ${m.status ?? ""} Open the detail.`.replace(/\s+/g, " ")}
       onClick={onClick}
       className={cn("press relative flex min-w-0 flex-col items-start gap-0.5 px-4 pb-2.5 pt-3 text-left hover:bg-[oklch(0.975_0.01_265)] @max-[1000px]:px-3", active && "bg-[oklch(0.95_0.025_265)] shadow-[inset_0_-2px_0_oklch(0.42_0.18_265)]")}
     >
@@ -35,11 +36,11 @@ function Cell({ m, active, onClick }: { m: PulseMetric; active: boolean; onClick
         {mvText}
         <span className="font-normal text-muted-foreground @max-[1500px]:hidden">{m.comparisonLabel}</span>
       </span>
-      <span className="w-full truncate text-[11px] text-muted-foreground @max-[1000px]:hidden" title={m.status}>
+      <span className="line-clamp-3 w-full text-[11px] leading-snug text-muted-foreground @max-[1000px]:hidden" title={m.status}>
         {m.status}
       </span>
       {m.source && (
-        <span data-testid={`pulse-source-${m.id}`} data-source={m.source.id} className="w-full truncate text-[10px] text-muted-foreground/80 @max-[1000px]:hidden" title={stampText(m.source)}>
+        <span data-testid={`pulse-source-${m.id}`} data-source={m.source.id} className="line-clamp-2 w-full text-[10px] leading-snug text-muted-foreground/80 @max-[1000px]:hidden" title={stampText(m.source)}>
           {m.source.label} · {m.source.runId ?? "not read"} · {m.source.asOf ? fmtDate(m.source.asOf) : DASH}
         </span>
       )}
