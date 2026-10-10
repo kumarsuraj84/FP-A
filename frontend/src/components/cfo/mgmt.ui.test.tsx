@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
 import { routeTree } from "@/routeTree.gen";
@@ -81,6 +81,33 @@ describe("Management P&L: the MIS table", () => {
     // book + adjustment = total, to the exact value
     const c = screen.getByTestId("cell-material_cost-2026-08");
     expect(Number(c.getAttribute("data-exact"))).toBeCloseTo(-92.32, 4);
+  });
+
+  it("offers a Reclass layer only when approved corrections move something, and Total = book + reclass + adjustment", async () => {
+    installMgmtApi();
+    mount("/mgmt");
+    await screen.findByTestId("mgmt-table", {}, T);
+    expect(screen.queryByTestId("mode-reclass")).toBeNull();                       // no correction in the fixture: no extra layer
+    cleanup();
+    vi.unstubAllGlobals();
+    installMgmtApi({
+      pnl: (u) => {
+        const r = buildPnl(u.searchParams.get("from_month") ?? undefined, u.searchParams.get("to_month") ?? undefined);
+        for (const l of r.lines) {
+          const add = (t: { book: number | null; reclass?: number | null; adjustment: number | null; total: number | null }, rc: number) => { t.reclass = rc; t.total = (t.book ?? 0) + rc + (t.adjustment ?? 0); };
+          if (l.kind === "pct") continue;
+          for (const m of Object.keys(l.values)) add(l.values[m], l.key === "rent" ? 0.2 : l.key === "other_expenses" ? -0.2 : 0);
+          add(l.total, l.key === "rent" ? 0.2 : l.key === "other_expenses" ? -0.2 : 0);
+        }
+        return r;
+      },
+    });
+    mount("/mgmt");
+    await screen.findByTestId("mode-reclass", {}, T);
+    fireEvent.click(screen.getByTestId("mode-reclass"));
+    expect(cellText("cell-rent-2026-08")).toBe("0.20");
+    expect(cellText("cell-other_expenses-2026-08")).toBe("−0.20");
+    expect(screen.getByTestId("mgmt-table")).toHaveAttribute("data-mode", "reclass");
   });
 
   it("clicking a line shows the adjustments behind it", async () => {

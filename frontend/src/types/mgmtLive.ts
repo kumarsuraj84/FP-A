@@ -4,6 +4,8 @@
  */
 export type MgmtLineKind = "value" | "subtotal" | "pct";
 export type MgmtMode = "book" | "adjustment" | "total";
+/** The layers of the Management P&L page: the expense pages do not carry a reclass layer yet. */
+export type MgmtPnlMode = MgmtMode | "reclass";
 /** Which legal entity the figures are for. Consolidated is what the finance MIS shows; HoldCo is Citykart Ventures, SubCo is Citykart Stores (CKSPL). */
 export type MgmtEntity = "consolidated" | "subco" | "holdco";
 export const MGMT_ENTITIES: { id: MgmtEntity; label: string; short: string }[] = [
@@ -15,6 +17,8 @@ export const MGMT_ENTITIES: { id: MgmtEntity; label: string; short: string }[] =
 /** One figure in three layers: what the books say, what management adjusts, and the sum (the MIS number). */
 export interface MgmtTriple {
   book: number | null;
+  /** Net-zero movement of active line corrections (group and expense month). Absent on older servers. Total = book + reclass + adjustment. */
+  reclass?: number | null;
   adjustment: number | null;
   total: number | null;
 }

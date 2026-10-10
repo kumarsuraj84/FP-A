@@ -3,7 +3,7 @@ import { Download, X } from "lucide-react";
 import { useMgmtAdjustments, useMgmtPnl } from "@/api/mgmtLiveHooks";
 import { DASH } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { MgmtAdjustment, MgmtLine, MgmtMode, MgmtTriple } from "@/types/mgmtLive";
+import type { MgmtAdjustment, MgmtLine, MgmtPnlMode as MgmtMode, MgmtTriple } from "@/types/mgmtLive";
 import { Skeleton } from "../common";
 import { LiveBoundary } from "../creditors/parts";
 import { Panel } from "../panels";
@@ -21,6 +21,7 @@ import { cr2, cr2s, dashReason, downloadCsv, monthShort, pct1, toneOf } from "./
 const MODES: { id: MgmtMode; label: string; hint: string }[] = [
   { id: "total", label: "Total", hint: "The MIS number: book plus adjustment" },
   { id: "book", label: "Book", hint: "What the ledger says, before any management adjustment" },
+  { id: "reclass", label: "Reclass", hint: "Only the net-zero movement of approved corrections between groups and months" },
   { id: "adjustment", label: "Adjustment", hint: "Only the management adjustments" },
 ];
 
@@ -44,11 +45,11 @@ interface Pick {
 }
 
 function Cell({ line, month, t, mode, picked, onPick }: { line: MgmtLine; month: string | null; t: MgmtTriple | undefined; mode: MgmtMode; picked: boolean; onPick: (p: Pick) => void }) {
-  const v = t ? t[mode] : null;
+  const v = t ? (t[mode] ?? null) : null;
   const isPct = line.kind === "pct";
   const shown = isPct ? pct1(v) : cr2(v);
   const adj = adjusted(t);
-  const title = t ? `Book ${isPct ? pct1(t.book) : cr2(t.book)} · Adjustment ${isPct ? pct1(t.adjustment) : cr2(t.adjustment)} · Total ${isPct ? pct1(t.total) : cr2(t.total)}` : dashReason(isPct ? "pct" : "value");
+  const title = t ? `Book ${isPct ? pct1(t.book) : cr2(t.book)}${t.reclass ? ` · Reclass ${isPct ? pct1(t.reclass) : cr2(t.reclass)}` : ""} · Adjustment ${isPct ? pct1(t.adjustment) : cr2(t.adjustment)} · Total ${isPct ? pct1(t.total) : cr2(t.total)}` : dashReason(isPct ? "pct" : "value");
   return (
     <td
       data-testid={`cell-${line.key}-${month ?? "total"}`}
@@ -62,7 +63,7 @@ function Cell({ line, month, t, mode, picked, onPick }: { line: MgmtLine; month:
         type="button"
         onClick={() => onPick({ key: line.key, month })}
         aria-label={`${line.label} ${month ? monthShort(month) : "total"}: adjustments`}
-        className={cn("block w-full px-3 py-1.5 text-right hover:bg-muted/60", v !== null && v !== undefined && !isPct && toneOf(v), mode === "adjustment" && v === 0 && "text-muted-foreground")}
+        className={cn("block w-full px-3 py-1.5 text-right hover:bg-muted/60", v !== null && v !== undefined && !isPct && toneOf(v), (mode === "adjustment" || mode === "reclass") && v === 0 && "text-muted-foreground")}
       >
         {v === null || v === undefined ? <span className="text-muted-foreground">{DASH}</span> : shown}
       </button>
@@ -237,13 +238,14 @@ function PnlBody({ months, runWarnings }: { months: string[]; runWarnings: strin
   const [pick, setPick] = useState<Pick | null>(null);
   const entity = useMgmtEntity();
   const pnl = useMgmtPnl({ from_month: from || undefined, to_month: to || undefined, include_proposed: includeProposed, entity });
+  const hasReclass = (pnl.data?.lines ?? []).some((l) => Math.abs(l.total?.reclass ?? 0) >= 0.00005 || Object.values(l.values).some((c) => Math.abs(c?.reclass ?? 0) >= 0.00005));
   return (
     <>
       <div data-testid="mgmt-controls" className="flex flex-wrap items-center gap-3 border-b bg-card px-5 py-2 text-[12px]">
         <MonthRange months={months} from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
         <div className="mx-1 h-5 w-px bg-border" />
         <div role="group" aria-label="Figure layer" data-testid="mgmt-mode" className="flex overflow-hidden rounded border">
-          {MODES.map((m) => (
+          {MODES.filter((m) => m.id !== "reclass" || hasReclass).map((m) => (
             <button key={m.id} type="button" data-testid={`mode-${m.id}`} aria-pressed={mode === m.id} title={m.hint} onClick={() => setMode(m.id)} className={cn("press px-2.5 py-1 font-medium", mode === m.id ? "bg-foreground text-background" : "hover:bg-muted")}>
               {m.label}
             </button>
@@ -281,7 +283,7 @@ function PnlBody({ months, runWarnings }: { months: string[]; runWarnings: strin
               <div className="p-3">
                 <Panel
                   testId="mgmt-pnl-panel"
-                  eyebrow={mode === "total" ? "Total = book + adjustment" : mode === "book" ? "Book layer only" : "Adjustment layer only"}
+                  eyebrow={mode === "total" ? (hasReclass ? "Total = book + reclass + adjustment" : "Total = book + adjustment") : mode === "book" ? "Book layer only" : mode === "reclass" ? "Reclass layer only (nets to zero)" : "Adjustment layer only"}
                   title="Management P&L, INR Cr"
                   right={<span className="num text-[11.5px] text-muted-foreground">{d.store_count !== null ? `${d.store_count.toLocaleString("en-IN")} stores · ` : ""}{monthShort(d.months[0] ?? from)} to {monthShort(d.months[d.months.length - 1] ?? to)}</span>}
                 >
