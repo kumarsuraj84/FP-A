@@ -73,7 +73,7 @@ describe("Store P&L: the verified strip", () => {
     expect(screen.getByTestId("real-state")).toHaveAttribute("data-state", "verified_candidate");
     expect(screen.getByTestId("real-refresh")).toBeInTheDocument();
     for (const id of ["select-period", "select-comparison", "select-scenario"]) expect(screen.queryByTestId(id)).toBeNull();
-    expect(screen.getByTestId("data-state")).toHaveTextContent("REAL DATA");
+    expect(screen.getByTestId("data-state")).toHaveTextContent(/Verified candidate/);
   });
 
   it("never invents a budget: the budget is a stated gap, not a figure or a variance", async () => {

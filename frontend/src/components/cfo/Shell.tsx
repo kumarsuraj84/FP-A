@@ -155,11 +155,11 @@ export function TopBar() {
       {real ? (
         <div className="flex flex-1 items-center justify-end gap-2" data-testid="real-controls"><DataStatus page={real} refreshKeys={refreshKeysFor(real.scope)} /></div>
       ) : (
-      <div className="flex flex-1 flex-wrap items-center gap-3">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         <Select<PeriodId> label="Period" testId="select-period" value={state.period} options={PERIOD_ORDER.map((id) => ({ id, label: PERIODS[id].label }))} onChange={(v) => dispatch({ type: "setPeriod", value: v })} />
         <Select<ComparisonId> label="Compare" testId="select-comparison" value={state.comparison} options={COMPARISON_ORDER.map((id) => ({ id, label: isLiveCfo && id !== "ly" ? `${COMPARISONS[id].label} (not available)` : COMPARISONS[id].label }))} onChange={(v) => dispatch({ type: "setComparison", value: v })} />
         {isLiveCfo ? (
-          <span data-testid="scenario-live-note" title="Scenarios are demo-only controls. They do not apply to real data." className="rounded bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+          <span data-testid="scenario-live-note" title="Scenarios are demo-only controls. They do not apply to real data." className="hidden whitespace-nowrap rounded bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground 2xl:inline">
             Scenarios: demo only
           </span>
         ) : (

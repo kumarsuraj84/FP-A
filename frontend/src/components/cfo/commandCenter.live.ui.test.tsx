@@ -72,10 +72,10 @@ describe("Command Center on real data", () => {
     expect(text("pulse-source-cash")).toBe(`Cash · ${CASH.run} · 08 Oct 2026`);
     expect(text("pulse-cash")).toMatch(/Store till cash/);
     expect(text("pulse-creditors")).toMatch(/₹400\.00 Cr/);
-    // no source: an em dash with its reason, never zero
-    expect(text("pulse-advances")).toMatch(/—/);
-    expect(text("pulse-advances")).toMatch(/No source has been identified/);
-    expect(text("pulse-advances")).not.toMatch(/₹0/);
+    // what has no source is not an empty tile: it is listed once in the data-status drawer
+    expect(screen.queryByTestId("pulse-advances")).toBeNull();
+    expect(screen.queryByTestId("pulse-unreconciled")).toBeNull();
+    expect(text("pulse-corp")).toMatch(/^Corporate EBITDA/);
   });
 
   it("live data defaults to the Last Year comparison, so movements are shown", async () => {
@@ -148,13 +148,11 @@ describe("Command Center on real data", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/profitability"));
   });
 
-  it("vendor advances open an honest unavailable drawer, not a made-up breakdown", async () => {
+  it("vendor advances are not a tile: the data-status drawer says there is no source", async () => {
     mount();
-    await screen.findByTestId("pulse-advances", {}, T);
-    fireEvent.click(screen.getByTestId("pulse-advances"));
-    const drawer = await screen.findByTestId("investigation-drawer", {}, T);
-    await within(drawer).findByTestId("state-unavailable", {}, T);
-    expect(drawer).toHaveTextContent(/vendor advances/i);
+    await screen.findByTestId("pulse-revenue", {}, T);
+    fireEvent.click(screen.getByTestId("real-state"));
+    expect(await screen.findByTestId("not-yet-available", {}, T)).toHaveTextContent(/Vendor advances.*No source has been identified/);
   });
 
   it("the real pages use the same data-status chip, with their own as-of", async () => {

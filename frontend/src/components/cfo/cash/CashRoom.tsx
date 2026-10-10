@@ -67,15 +67,23 @@ function TillPanel({ till }: { till: CashTill }) {
       <div data-exact={exact} className="num-mono text-[16px] font-semibold">{value}</div>
     </div>
   );
+  // A month with no till movement at all is a source gap (extraction cut-off), not zero trading: say so instead of showing ₹0.00.
+  const noMtd = Number(till.mtd_debit) === 0 && Number(till.mtd_credit) === 0;
+  const latest = (q.data?.stores ?? []).reduce<string | null>((m, r) => (r.last_activity_date && (!m || r.last_activity_date > m) ? r.last_activity_date : m), null);
   return (
     <Panel testId="till-panel" eyebrow="Real · verified" title="Store Till Cash: cash held in store tills (excludes bank balances)">
       <div className="grid grid-cols-5 divide-x border-b @max-[900px]:grid-cols-3 @max-[900px]:divide-y">
-        {stat("Month to date in", cr(till.mtd_debit), till.mtd_debit)}
-        {stat("Month to date out", cr(till.mtd_credit), till.mtd_credit)}
+        {stat("Month to date in", noMtd ? DASH : cr(till.mtd_debit), till.mtd_debit)}
+        {stat("Month to date out", noMtd ? DASH : cr(till.mtd_credit), till.mtd_credit)}
         {stat("Year to date in", cr(till.fytd_debit), till.fytd_debit)}
         {stat("Stores holding cash", `${till.stores_with_cash} of ${till.stores}`)}
         {stat("Stores below zero", String(till.stores_negative))}
       </div>
+      {noMtd && (
+        <p data-testid="till-no-mtd" className="border-b bg-[oklch(0.985_0.03_90)] px-4 py-2 text-[11.5px] text-[oklch(0.42_0.09_75)]">
+          No till movement is recorded for the current month in the source{latest ? ` (latest store activity ${fmtDate(latest)})` : ""}. This is shown as not available, not as zero: it may be an extraction cut-off rather than no trading.
+        </p>
+      )}
       <LiveBoundary query={q} skeleton={<Skeleton className="m-4 h-[220px]" />}>
         {(p) => (
           <div className="overflow-x-auto">
@@ -94,7 +102,7 @@ function TillPanel({ till }: { till: CashTill }) {
                   <tr key={r.site_code} className="border-b last:border-b-0">
                     <td className="px-4 py-1.5"><span className="font-medium text-foreground">{r.store_name ?? `Site ${r.site_code}`}</span> <span className="text-muted-foreground">· {r.site_code}</span></td>
                     <td data-exact={r.cumulative_balance} className={cn("num px-2 py-1.5 text-right font-semibold", signedClass(r.cumulative_balance))} title={fmtRupees(r.cumulative_balance)}>{cr(r.cumulative_balance)}</td>
-                    <td className="num px-2 py-1.5 text-right text-muted-foreground">{cr(r.mtd_debit)} / {cr(r.mtd_credit)}</td>
+                    <td className="num px-2 py-1.5 text-right text-muted-foreground">{noMtd ? DASH : `${cr(r.mtd_debit)} / ${cr(r.mtd_credit)}`}</td>
                     <td className="num px-2 py-1.5 text-right text-muted-foreground">{r.last_activity_date ? fmtDate(r.last_activity_date) : DASH}</td>
                     <td className="px-4 py-1.5 text-right">
                       <AppLink href={tillHref(r.site_code, next, r.store_name)} testId={`till-drill-${r.site_code}`} className="press whitespace-nowrap rounded border px-1.5 py-0.5 text-[11px] font-semibold text-primary hover:bg-muted">Days and vouchers</AppLink>

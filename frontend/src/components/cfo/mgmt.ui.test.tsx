@@ -58,7 +58,7 @@ describe("Management P&L: the MIS table", () => {
     expect(cellText("cell-corporate_ebitda-2026-08".replace("2026-08", "2026-04"))).not.toBe("—");
     expect(screen.getByTestId("strip-corp-value")).toHaveTextContent("63.63");
     expect(cellText("cell-pct_corporate_ebitda-2026-08")).toBe("2.6%");
-    expect(screen.getByTestId("mgmt-badge")).toHaveTextContent(/REAL DATA/);
+    expect(screen.getByTestId("mgmt-badge")).toHaveTextContent(/Management view/);
   });
 
   it("toggles Book / Adjustment / Total and highlights the cells that carry an adjustment", async () => {

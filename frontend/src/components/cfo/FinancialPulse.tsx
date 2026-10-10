@@ -98,7 +98,7 @@ export function FinancialPulse() {
   } else {
     stale = q.data.status === "stale";
     body = (
-      <div className={grid}>
+      <div className="grid divide-x" style={{ gridTemplateColumns: `repeat(${q.data.data.length},minmax(0,1fr))` }}>
         {q.data.data.map((m) => (
           <Cell key={m.id} m={m} active={state.origin?.source === "pulse" && state.origin.id === m.origin.id} onClick={() => (m.target ? enterCreditors(m.target) : openOrigin(m.origin, m.heroTab))} />
         ))}

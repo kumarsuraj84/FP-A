@@ -214,7 +214,7 @@ export interface EntityProfile {
 
 /* ───────────── command-center sections ───────────── */
 
-export type PulseId = "cash" | "revenue" | "gm" | "profit" | "creditors" | "advances" | "unreconciled";
+export type PulseId = "cash" | "revenue" | "gm" | "profit" | "corp" | "creditors" | "advances" | "unreconciled";
 
 export interface PulseMetric {
   id: PulseId;

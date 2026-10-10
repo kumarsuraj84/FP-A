@@ -65,7 +65,7 @@ export function DataStatus({ page, refreshKeys }: StatusInput) {
         className={cn("press inline-flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-semibold", CHIP[tone])}
       >
         <span className={cn("h-1.5 w-1.5 rounded-full", DOT[tone])} />
-        <span data-testid="real-asof" data-asof={page?.asOf ?? ""}>{page?.asOf ? fmtDate(page.asOf) : ""}</span>
+        <span data-testid="real-asof" data-asof={page?.asOf ?? ""} className="sr-only" aria-hidden>{page?.asOf ? fmtDate(page.asOf) : ""}</span>
         <span data-testid="data-status-text">{label}</span>
         <ChevronDown className="h-3 w-3 opacity-70" />
       </button>

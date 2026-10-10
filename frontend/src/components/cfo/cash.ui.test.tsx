@@ -61,7 +61,7 @@ describe("Liquidity & Working Capital Control: the verified strip", () => {
     mount(q("/cash"));
     const badge = await screen.findByTestId("data-state", {}, T);
     expect(badge).toHaveAttribute("data-state", "verified_candidate");
-    expect(badge).toHaveTextContent(/REAL DATA/);
+    expect(badge).toHaveTextContent(/Verified candidate/);
     expect(screen.getByTestId("demo-banner")).toHaveTextContent(/Liquidity shows REAL data/);
     expect(screen.getByTestId("demo-banner")).toHaveTextContent(/Command Center is still demo data and waits for a synchronized run/);
   });

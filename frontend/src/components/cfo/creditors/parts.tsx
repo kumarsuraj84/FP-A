@@ -44,7 +44,6 @@ export function DataStateBadge({ state, run, asOf, className }: { state: DataSta
       className={cn("inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[11px] font-semibold", STATE_STYLE[state], className)}
     >
       <FlaskConical className="h-3 w-3" />
-      <span className="rounded-sm bg-foreground px-1 text-[10px] font-bold tracking-wider text-background">REAL DATA</span>
       {STATE_TEXT[state]}
       <span className="font-normal opacity-80">· As of {longDate(asOf)} · {run}</span>
     </span>

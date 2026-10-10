@@ -56,7 +56,7 @@ describe("live adapter: pulse", () => {
     installLiveSources();
     const p = (await api().getPulse(ctx())).data!;
     const m = (id: string) => p.find((x) => x.id === id)!;
-    expect(p.map((x) => x.id)).toEqual(["cash", "revenue", "gm", "profit", "creditors", "advances", "unreconciled"]);
+    expect(p.map((x) => x.id)).toEqual(["cash", "revenue", "gm", "profit", "corp", "creditors"]);
     // the P&L tiles are the MIS chain from the Management P&L: book + management adjustments
     expect(m("revenue").value.value).toBeCloseTo(1000, 6);
     expect(m("gm").value.value).toBeCloseTo(40.3, 6);
@@ -115,15 +115,12 @@ describe("live adapter: pulse", () => {
     expect(f.label).toMatch(/not read: Management P&L/);
   });
 
-  it("never shows zero for what no source supplies: vendor advances and unreconciled", async () => {
+  it("has no tile for what no source supplies (vendor advances, bank reconciliation) rather than a zero or an empty tile", async () => {
     installLiveSources();
     const p = (await api().getPulse(ctx())).data!;
-    for (const id of ["advances", "unreconciled"]) {
-      const x = p.find((y) => y.id === id)!;
-      expect(x.value.value).toBeNull();
-      expect(x.value.reason).toMatch(/\S/);
-    }
-    expect(p.find((x) => x.id === "advances")!.value.reason).toBe("No source has been identified.");
+    expect(p.find((x) => x.id === "advances")).toBeUndefined();
+    expect(p.find((x) => x.id === "unreconciled")).toBeUndefined();
+    expect(p.find((x) => x.id === "corp")!.label).toBe("Corporate EBITDA");
   });
 
   it("the period control reaches the P&L only", async () => {

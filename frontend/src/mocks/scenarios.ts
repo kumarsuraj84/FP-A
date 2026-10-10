@@ -188,7 +188,7 @@ export const SCENARIO_ORDER: ScenarioId[] = ["normal", "cash_pressure", "aged_cr
 export const PERIODS: Record<PeriodId, { label: string; short: string; k: number }> = {
   sep26: { label: "Sep 2026 (month)", short: "Sep 26", k: 0.16 },
   q2fy27: { label: "Q2 FY27 (Jul–Sep)", short: "Q2 FY27", k: 0.46 },
-  ytdfy27: { label: "YTD FY27 (Apr – 3 Oct)", short: "YTD FY27", k: 1 },
+  ytdfy27: { label: "YTD FY27 (Apr – Oct, month to date)", short: "YTD FY27", k: 1 },
 };
 
 export const COMPARISONS: Record<ComparisonId, { label: string; short: string; c: number; startLabel: string }> = {

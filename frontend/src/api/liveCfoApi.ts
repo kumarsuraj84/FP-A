@@ -297,6 +297,18 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
         origin: { source: "pulse", scope: "pulse", id: "profit", label: T.storeEbitda, family: "margin", amount: cont, variance: profMove },
         source: src,
       });
+      if (mg) {
+        const corp = mv(mg, "corporate_ebitda");
+        const corpPct = mv(mg, "pct_corporate_ebitda");
+        const corpAdj = isAdj(adjOf(mg, "corporate_ebitda"));
+        out.push({
+          id: "corp", label: T.corporateEbitda, value: { value: corp }, unit: "cr", comparisonLabel: "",
+          movement: na("The Management P&L has no last-year basis, so no movement is shown."), movementUnit: "cr",
+          status: `${corpPct === null ? DASH : pct1(corpPct)} of total income · after DC and HO cost${corpAdj ? " · includes management adjustments" : ""}`, tone: "neutral", family: "margin", heroTab: "profit",
+          origin: { source: "pulse", scope: "pulse", id: "corp", label: T.corporateEbitda, family: "margin", amount: corp, variance: null },
+          source: src,
+        });
+      }
     } else {
       const bad = mgmt && !mgmt.ok ? mgmt.stamp : pnl.stamp;
       out.push(missing("revenue", T.revenue, "volume", "profit", bad), missing("gm", T.materialMargin, "margin", "profit", bad, "pct", "bps"), missing("profit", T.storeEbitda, "margin", "profit", bad));
@@ -316,21 +328,9 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       });
     } else out.push(missing("creditors", "Creditors", "payables", "workingCapital", cred.stamp));
 
-    /* No source: honest placeholders */
-    const advances = cash.ok ? cash.data.unavailable.find((u) => u.id === "vendor_advances")?.reason : undefined;
-    out.push({
-      id: "advances", label: "Vendor advances", value: na(advances ?? "No source has been identified for vendor advances."), unit: "cr", comparisonLabel: "",
-      movement: na("Not available"), movementUnit: "cr", status: advances ?? "No source has been identified", tone: "neutral", family: "advances", heroTab: "workingCapital",
-      origin: { source: "pulse", scope: "pulse", id: "advances", label: "Vendor advances", family: "advances", amount: null, variance: null },
-    });
-    out.push({
-      id: "unreconciled", label: "Unreconciled", value: na(NO_RECON), unit: "cr", comparisonLabel: "",
-      movement: na("Not available"), movementUnit: "cr", status: NO_RECON, tone: "neutral", family: "recon", heroTab: "profit",
-      origin: { source: "pulse", scope: "pulse", id: "unreconciled", label: "Unreconciled", family: "recon", amount: null, variance: null },
-    });
-
+    /* Vendor advances and the bank reconciliation have no source: they are listed once in the data-status drawer, not as empty tiles here. */
     // keep the page's fixed order
-    const order = ["cash", "revenue", "gm", "profit", "creditors", "advances", "unreconciled"];
+    const order = ["cash", "revenue", "gm", "profit", "corp", "creditors"];
     out.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
     return ok(out, oldest(stamps));
   }
