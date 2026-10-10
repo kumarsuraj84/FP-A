@@ -61,7 +61,7 @@ def fetch_book(conn, lo: str, hi: str) -> eng.Book:
         ent = HOLDCO_COL_SQL if det["pnl_has_entity"] else HOLDCO_SQL
         rows = conn.execute(
             f"SELECT to_char(p.month, 'YYYY-MM') AS month, p.site_kind, CASE WHEN p.site_code = ANY(%s::int[]) THEN p.site_code END AS site_code, {ent} AS entity, "
-            "p.glname, p.fin_group, p.is_mapped, sum(p.profit_effect) AS pe FROM gold_fpa.pnl_store_month p LEFT JOIN gold_fpa.dim_site d ON d.site_code = p.site_code AND d.entity = p.entity "
+            "p.glname, p.fin_group, p.is_mapped, sum(p.profit_effect) AS pe FROM gold_fpa.pnl_store_month p LEFT JOIN gold_fpa.dim_site d ON d.site_code = p.site_code AND d.entity = " + ("p.entity" if det["pnl_has_entity"] else "'RETAIL'") + " "
             "WHERE p.month >= %s AND p.month <= %s GROUP BY 1, 2, 3, 4, 5, 6, 7", (list(sl), mdate(lo), mdate(hi))).fetchall()
         cg = conn.execute("SELECT to_char(month, 'YYYY-MM') AS month, sum(net_sales_ex_gst) AS ns, sum(cogs_v) AS cogs FROM gold_fpa.cogs_store_month "
                           "WHERE site_kind = 'STORE' AND month >= %s AND month <= %s GROUP BY 1", (mdate(lo), mdate(hi))).fetchall()

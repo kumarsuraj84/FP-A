@@ -14,6 +14,7 @@ import csv
 import logging
 import os
 import re
+import threading
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -28,10 +29,22 @@ COUNTERPARTIES = ("HOLDCO", "SUBCO", "SAME_COMPANY")
 TTL = 300
 _names: list[dict] | None = None
 _cache: dict = {}
+_lock = threading.Lock()
 
 
 def path() -> Path:
     return Path(os.environ.get("FPA_RELATED_PARTY_NAMES") or ROOT / "config" / "mgmt" / "related_party_names.csv")
+
+
+def pg_pattern(pat: str) -> str:
+    r"""Translate a register pattern (Python regex) to Postgres ARE for the SQL prefilter, or raise ValueError when it has no equivalent.
+    Postgres reads \b as a backspace (word boundary is \y), accepts embedded options only at the very start, and has no (?P<name>..) groups.
+    Matching is case-insensitive anyway (~*), so a leading (?i) is dropped."""
+    if "(?P" in pat or re.search(r"\(\?[aiLmsux]+[:)]", pat[1:]):
+        raise ValueError(f"pattern {pat!r} uses Python-only regex syntax")
+    pat = re.sub(r"^\(\?i\)", "", pat)
+    return re.sub(r"\\(.)", lambda m: {"b": "\\y", "B": "\\Y"}.get(m.group(1), m.group(0)), pat)
+
 
 
 def parse(text: str) -> list[dict]:
@@ -44,7 +57,8 @@ def parse(text: str) -> list[dict]:
             continue
         try:
             re.compile(pat)
-        except re.error:
+            pg_pattern(pat)
+        except (re.error, ValueError):
             log.warning("related_party_names: bad pattern %r skipped", pat)
             continue
         st = row.get("status", "").lower()
@@ -109,7 +123,7 @@ def fetch_lines(conn, names: list[dict], ledgers: list[dict]) -> list[dict]:
     """Related-party lines of both books. One scan finds the party codes per entity; the lines then come from the slcode / glcode indexes."""
     sl: dict[str, set] = {e: set() for e in ENTITIES}
     if names:
-        rx = "|".join(f"(?:{n['party_pattern']})" for n in names)
+        rx = "|".join(f"(?:{pg_pattern(n['party_pattern'])})" for n in names)
         for r in conn.execute("SELECT entity, slcode, vendor_name FROM gold_fpa.voucher_lines WHERE vendor_name ~* %s GROUP BY 1, 2, 3", (rx,)).fetchall():
             if match_party(names, r["entity"], r["vendor_name"]) and r["slcode"] is not None:
                 sl[r["entity"]].add(r["slcode"])
@@ -125,7 +139,7 @@ def fetch_lines(conn, names: list[dict], ledgers: list[dict]) -> list[dict]:
 TABLE_REASONS = {"party_holdco": "HOLDCO", "party_subco": "SUBCO", "same_company_isd": "SAME_COMPANY"}
 
 
-def classify_table(ledgers: list[dict], raw: list[dict]) -> list[dict]:
+def classify_table(ledgers: list[dict], raw: list[dict], names: list[dict] | None = None) -> list[dict]:
     """Pure: tag rows of gold_fpa.related_party_gl_lines. The table's own `reason` decides (precedence ISD, then party, then ledger list)."""
     led = {(l["entity"], l["glcode"]): l for l in ledgers}
     out = []
@@ -133,7 +147,8 @@ def classify_table(ledgers: list[dict], raw: list[dict]) -> list[dict]:
         cp = TABLE_REASONS.get(r["reason"])
         l = led.get((r["entity"], r["glcode"]))
         if cp:
-            reason, status = ("party" if cp != "SAME_COMPANY" else "same_company"), "proposed"
+            n = match_party(names or [], r["entity"], r.get("vendor_name"))
+            reason, status = ("party" if cp != "SAME_COMPANY" else "same_company"), (n["status"] if n else "proposed")
         else:
             cp = "SUBCO" if r["entity"] == "VENTURES" else "HOLDCO"
             reason, status = "ledger:" + (l["role"] if l else "ledger_list"), (l["status"] if l else "proposed")
@@ -141,23 +156,29 @@ def classify_table(ledgers: list[dict], raw: list[dict]) -> list[dict]:
     return out
 
 
-def fetch_table_lines(conn, ledgers: list[dict]) -> list[dict]:
+def fetch_table_lines(conn, ledgers: list[dict], names: list[dict] | None = None) -> list[dict]:
     raw = conn.execute(f"""SELECT entity, entcode, entno, entry_date AS entdt, entry_type, enttype, glcode, glname, slcode, party_name AS vendor_name, debit AS damount, credit AS camount,
         running_balance, release_status, narration, reason FROM {ic.TABLE} ORDER BY entity, glcode, slcode, entry_date, postcode""").fetchall()
-    return classify_table(ledgers, raw)
+    return classify_table(ledgers, raw, names)
 
 
 def lines(conn, force: bool = False) -> tuple[list[dict], str]:
-    """(lines, source). The full-ledger table is used when it exists at request time; voucher_lines otherwise. Cached for 5 minutes per source."""
+    """(lines, source). The full-ledger table is used when it exists at request time; voucher_lines otherwise. Cached for 5 minutes per source, one fetch at a time;
+    the key carries the table's row count and last entry date so a re-extraction is seen at once."""
     use_table = ic.table_present(conn)
-    key = (use_table, tuple((n["books_of_entity"], n["party_pattern"], n["counterparty_entity"]) for n in load()), tuple((l["entity"], l["glcode"], l["role"]) for l in ic.load()))
-    hit = _cache.get("v")
-    if not force and hit and hit["key"] == key and time.time() - hit["t"] < TTL:
-        return hit["lines"], hit["source"]
-    src = "related_party_gl_lines" if use_table else "voucher_lines"
-    data = fetch_table_lines(conn, ic.load()) if use_table else fetch_lines(conn, load(), ic.load())
-    _cache["v"] = {"key": key, "t": time.time(), "lines": data, "source": src}
-    return data, src
+    mark = None
+    if use_table:
+        w = conn.execute(f"SELECT count(*) AS n, max(entry_date) AS d FROM {ic.TABLE}").fetchone()
+        mark = (w["n"], w["d"])
+    key = (use_table, mark, tuple((n["books_of_entity"], n["party_pattern"], n["counterparty_entity"], n["status"]) for n in load()), tuple((l["entity"], l["glcode"], l["role"]) for l in ic.load()))
+    with _lock:
+        hit = _cache.get("v")
+        if not force and hit and hit["key"] == key and time.time() - hit["t"] < TTL:
+            return hit["lines"], hit["source"]
+        src = "related_party_gl_lines" if use_table else "voucher_lines"
+        data = fetch_table_lines(conn, ic.load(), load()) if use_table else fetch_lines(conn, load(), ic.load())
+        _cache["v"] = {"key": key, "t": time.time(), "lines": data, "source": src}
+        return data, src
 
 
 def table_control(conn) -> dict | None:

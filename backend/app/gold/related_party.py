@@ -126,7 +126,8 @@ def gl_entries(request: Request, entity: str | None = Query(None, pattern="^(RET
     """Every GL entry with a group company: party match (related_party_names.csv) OR ledger in intercompany_ledgers.csv. Entry-level rows, summary and mirror check."""
     with _session(request) as conn:
         d = rgl.compute(conn, entity=entity, from_month=from_month, to_month=to_month, basis=basis, limit=limit, offset=offset)
-        d["as_of_date"] = conn.execute("SELECT max(entdt) AS d FROM gold_fpa.voucher_lines").fetchone()["d"]
+        d["as_of_date"] = conn.execute(f"SELECT max({'entry_date' if d['source']['entries'] == 'related_party_gl_lines' else 'entdt'}) AS d FROM "
+                                       f"{ic.TABLE if d['source']['entries'] == 'related_party_gl_lines' else 'gold_fpa.voucher_lines'}").fetchone()["d"]
         return ok(d)
 
 

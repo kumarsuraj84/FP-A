@@ -237,3 +237,16 @@ def test_live_smoke():
         assert D(g["same_company"]["credit"]) == D("47965737.08")
     s = c.get("/api/v1/related-party/summary", headers=h).json()
     assert s["loans"]["available"] is True and s["loans"]["source"] == "ledger" and s["related_party_gl"]["entries"] == g["total_entries"]
+
+
+def test_pg_pattern_translates_python_regex():
+    from app.gold import related_gl as rg
+    assert rg.pg_pattern(chr(92) + "bacme" + chr(92) + "b") == chr(92) + "yacme" + chr(92) + "y"
+    assert rg.pg_pattern("(?i)acme") == "acme"
+    for bad in ("x(?P<n>y)", "a(?i:b)"):
+        try:
+            rg.pg_pattern(bad)
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+    assert rg.parse("books_of_entity,party_pattern,counterparty_entity\nRETAIL,x(?P<n>y),HOLDCO\n") == []

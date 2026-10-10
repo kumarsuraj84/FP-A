@@ -155,7 +155,7 @@ function IcBody({ d }: { d: Intercompany }) {
           <div className="px-4 pb-3"><Check testId="ic-interest-mirror" ok={ln.interest.mirrors} yes="HoldCo accrual mirrors SubCo payable" no="Accrual and payable differ" /></div>
         </div>
         <div data-testid="ic-service">
-          <Card testId="ic-service-net" label="Service charges: HoldCo billed vs SubCo charged" value={c(sv.billed_holdco_cr)} sub={`SubCo charged ${c(sv.charged_subco_cr)} · unmatched ${c(sv.unmatched_cr, true)} over ${sv.billings} billings`} tone={sv.unmatched_cr !== "0.0000" ? "bad" : undefined} />
+          <Card testId="ic-service-net" label="Service charges: HoldCo billed vs SubCo charged" value={c(sv.billed_holdco_cr)} sub={`SubCo charged ${c(sv.charged_subco_cr)} · unmatched ${c(sv.unmatched_cr, true)} over ${sv.billings} billings`} tone={Math.abs(Number(sv.unmatched_cr)) >= 0.0005 ? "bad" : undefined} />
           <div className="px-4 pb-3 text-[11.5px] text-muted-foreground">
             {sv.constant_difference && sv.by_quarter[0] ? <span data-testid="ic-service-flag" className="tone-warn font-semibold">HoldCo is higher by {c(sv.by_quarter[0].difference_cr)} every quarter: unexplained, not netted.</span> : "Compare each billing below."}
           </div>

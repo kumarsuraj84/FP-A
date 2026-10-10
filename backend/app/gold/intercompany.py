@@ -16,6 +16,8 @@ import csv
 import logging
 import os
 import re
+import threading
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -44,6 +46,9 @@ PAIRS = {
     "SERVICE": {"label": "Quarterly service charges (HoldCo bills SubCo)", "holdco": ("service_income",), "subco": ("service_charge",), "memo": ()},
 }
 _cache: list[dict] | None = None
+TTL = 60
+_memo: dict = {}
+_memo_lock = threading.Lock()
 
 
 def path() -> Path:
@@ -78,6 +83,7 @@ def load(force: bool = False) -> list[dict]:
 
 
 def reload() -> list[dict]:
+    clear_cache()
     return load(force=True)
 
 
@@ -102,11 +108,16 @@ def load_reported() -> list[dict]:
     return out
 
 
-def reported_block(rep: list[dict]) -> dict:
-    """The 'Reported by the ledger (silver)' block with the live difference between the two full loan ledgers."""
-    hold = next((r for r in rep if r["entity"] == "VENTURES" and r["glcode"] == 1140 and r["amount"] is not None), None)
-    sub = next((r for r in rep if r["entity"] == "RETAIL" and r["glcode"] == 1000000169 and r["amount"] is not None and r["lines"] and r["lines"] > 100), None)
-    old = next((r for r in rep if r["entity"] == "RETAIL" and r["glcode"] == 1114925831 and r["amount"] is not None), None)
+def reported_block(rep: list[dict], ledgers: list[dict] | None = None) -> dict:
+    """The 'Reported by the ledger (silver)' block with the live difference between the two full loan ledgers.
+    The ledgers are found by their role in the intercompany ledger list (loan on each side, loan_uncarried at SubCo), never by glcode; when a ledger has several
+    reported rows (the whole ledger and a per-party subset) the one with the most lines is the whole ledger."""
+    roles = {(l["entity"], l["glcode"]): l["role"] for l in (load() if ledgers is None else ledgers)}
+
+    def pick(entity: str, role: str):
+        rows = [r for r in rep if r["entity"] == entity and roles.get((r["entity"], r["glcode"])) == role and r["amount"] is not None]
+        return max(rows, key=lambda r: r["lines"] or 0, default=None)
+    hold, sub, old = pick("VENTURES", "loan"), pick("RETAIL", "loan"), pick("RETAIL", "loan_uncarried")
     blk = {"source": "silver", "ledgers": rep, "note": RECONCILE_NOTE + ". These are reported figures, not computed from voucher_lines.", "loan_difference": None, "loan_difference_cr": None, "after_old_debit_cr": None}
     if hold and sub:
         d = sub["amount"] - hold["amount"]
@@ -169,7 +180,24 @@ def fy_of(month: str) -> str:
     return f"FY{y if m >= 4 else y - 1}"
 
 
+def _ledger_key(ledgers: list[dict]) -> tuple:
+    return tuple(sorted((l["entity"], l["glcode"], l["role"]) for l in ledgers))
+
+
 def fetch_candidates(conn, ledgers: list[dict]) -> list[dict]:
+    """Cached for TTL seconds per ledger list: the distinct-name scan of voucher_lines changes only on re-extraction."""
+    key = ("cand", _ledger_key(ledgers))
+    with _memo_lock:
+        hit = _memo.get(key)
+        if hit and time.time() - hit[0] < TTL * 5:
+            return hit[1]
+    out = _fetch_candidates(conn, ledgers)
+    with _memo_lock:
+        _memo[key] = (time.time(), out)
+    return out
+
+
+def _fetch_candidates(conn, ledgers: list[dict]) -> list[dict]:
     """Ledgers whose NAME looks intercompany but that are not in the config list. Names are per entity (dim_ledger is SubCo only), so the distinct
     (entity, glcode, glname) set is read from voucher_lines (about 450 rows, 0.4 s) and amounts then come from the glcode index."""
     have = {(l["entity"], l["glcode"]) for l in ledgers}
@@ -364,8 +392,26 @@ def build(ledgers: list[dict], rows: list[dict], candidates: list[dict], coverag
             "register": {"path_exists": path().exists(), "ledgers": len(ledgers), "proposed": sum(l["status"] == "proposed" for l in ledgers), "confirmed": sum(l["status"] == "confirmed" for l in ledgers)}}
 
 
+def clear_cache() -> None:
+    with _memo_lock:
+        _memo.clear()
+
+
 def compute(conn) -> dict:
+    """Cached for TTL seconds per ledger list so /summary and /intercompany (loaded together) share one build."""
     ledgers = load()
+    key = ("compute", _ledger_key(ledgers))
+    with _memo_lock:
+        hit = _memo.get(key)
+        if hit and time.time() - hit[0] < TTL:
+            return hit[1]
+    out = _compute(conn, ledgers)
+    with _memo_lock:
+        _memo[key] = (time.time(), out)
+    return out
+
+
+def _compute(conn, ledgers: list[dict]) -> dict:
     rows = fetch(conn, ledgers)
     cov = conn.execute("SELECT min(entdt) AS a, max(entdt) AS b FROM gold_fpa.voucher_lines").fetchone()
     out = build(ledgers, rows, fetch_candidates(conn, ledgers), cov["a"], cov["b"])
