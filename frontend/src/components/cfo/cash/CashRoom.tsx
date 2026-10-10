@@ -47,10 +47,10 @@ function Strip({ s }: { s: CashSummary }) {
         <Cell testId="strip-till" label="Store Till Cash" value={cr(s.till.store_till_cash)} exact={s.till.store_till_cash} sub={`excludes bank balances · ${s.till.stores} stores · ${fmtDate(s.till_balance_date)}`} />
         <Cell testId="strip-credit" label="Credit Outstanding" value={credAvail ? cr(c.credit_outstanding) : DASH} exact={credAvail ? c.credit_outstanding : undefined} sub={credAvail ? `creditors · ${c.credit_items.toLocaleString("en-IN")} items · ${c.credit_vendors.toLocaleString("en-IN")} vendors` : c.reason} />
         <Cell testId="strip-pastdue" label="Past Due Creditors" value={credAvail ? cr(c.past_due_credit) : DASH} exact={credAvail ? c.past_due_credit : undefined} sub={credAvail ? `${fmtPct((num(c.past_due_credit) / (num(c.credit_outstanding) || 1)) * 100)} of credit outstanding` : undefined} />
-        <Cell testId="strip-debit" label="Creditor Debit Balances" value={credAvail ? cr(c.creditor_debit_balance) : DASH} exact={credAvail ? c.creditor_debit_balance : undefined} sub={credAvail ? "Dr in creditor ledgers · not netted" : undefined} />
+        <Cell testId="strip-bank" label="Bank Ledger Book · Posted" value={cr(s.bank_review.totals.posted_closing)} exact={s.bank_review.totals.posted_closing} tone={signedClass(s.bank_review.totals.posted_closing)} sub="provisional · not bank-reconciled" />
       </div>
       <div data-testid="strip-note" className="border-t bg-[oklch(0.985_0.006_265)] px-4 py-1.5 text-[11.5px] text-muted-foreground">
-        <span className="font-semibold text-foreground">Bank position not yet included.</span> These four figures are not a cash position and are not added together: Store Till Cash is cash in store tills only.
+        <span className="font-semibold text-foreground">Bank-reconciled position not available.</span> These four figures are not a cash position and are not added together: Store Till Cash is cash in store tills only, and the bank ledger book is provisional. Creditor debit balances are shown with the creditor obligations below.
         {credAvail && <> Creditors run {c.creditors_run_id} as of {fmtDate(c.as_of_date)}.</>}
       </div>
     </section>

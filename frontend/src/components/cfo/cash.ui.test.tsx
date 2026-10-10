@@ -35,14 +35,14 @@ describe("Liquidity & Working Capital Control: the verified strip", () => {
     mount(q("/cash"));
     await screen.findByTestId("cash-strip", {}, T);
     const strip = screen.getByTestId("cash-strip");
-    for (const label of ["Store Till Cash", "Credit Outstanding", "Past Due Creditors", "Creditor Debit Balances"]) expect(strip).toHaveTextContent(label);
+    for (const label of ["Store Till Cash", "Credit Outstanding", "Past Due Creditors", "Bank Ledger Book · Posted"]) expect(strip).toHaveTextContent(label);
     expect(screen.getByTestId("strip-till")).toHaveTextContent("excludes bank balances");
     expect(exact("strip-till-value")).toBe("3000000.0000");
     expect(text("strip-till-value")).toBe("₹0.30 Cr");
     expect(exact("strip-credit-value")).toBe(FIXTURE.credit);
     expect(exact("strip-pastdue-value")).toBe(FIXTURE.pastDue);
-    expect(exact("strip-debit-value")).toBe(FIXTURE.debit);
-    expect(screen.getByTestId("strip-note")).toHaveTextContent("Bank position not yet included.");
+    expect(screen.getByTestId("strip-bank")).toHaveTextContent(/not bank-reconciled/);
+    expect(screen.getByTestId("strip-note")).toHaveTextContent("Bank-reconciled position not available.");
     expect(screen.getByTestId("strip-note")).toHaveTextContent(/not a cash position and are not added together/);
   });
 
@@ -157,12 +157,12 @@ describe("Liquidity & Working Capital Control: the Finance review card", () => {
     expect(d).toHaveTextContent(/cannot be told from the books alone/);
   });
 
-  it("is kept out of the verified strip and out of Store Till Cash", async () => {
+  it("appears in the strip only as a provisional, not-reconciled figure, and is never part of Store Till Cash", async () => {
     mount(q("/cash"));
     await screen.findByTestId("bank-card", {}, T);
     const strip = screen.getByTestId("cash-strip");
     expect(strip.querySelector('[data-testid="bank-card"]')).toBeNull();
-    expect(strip).not.toHaveTextContent(/bank ledger|posted closing/i);
+    expect(within(strip).getByTestId("strip-bank")).toHaveTextContent(/provisional.*not bank-reconciled/);
     expect(Number(exact("strip-till-value"))).toBe(3000000); // till cash is the stores' tills only
   });
 
