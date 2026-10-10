@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from datetime import datetime, timezone
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -124,12 +125,12 @@ def source_lines(conn, gold, entity: str, voucher: str) -> dict:
     for g in src:
         d = describe(g, lmap, sloc)
         a = active.get(str(g["cost_tag_key"]))
-        out.append({"cost_tag_key": g["cost_tag_key"], "ledger": g["glname"], "entry_date": g["entdt"], "site_code": g["tag_site_code"], "amount_cr": (Decimal(g["profit_effect"]) / CR).quantize(Decimal("0.0001")),
+        out.append({"cost_tag_key": g["cost_tag_key"], "ledger": g["glname"], "entry_date": g["entdt"], "site_code": g["tag_site_code"], "amount_cr": (Decimal(g["profit_effect"]) / CR).quantize(Decimal("0.0001")), "fingerprint": fingerprint(g)[:12],
                     "management_group": d["group"] if d else None, "month": d["month"].strftime("%Y-%m") if d else None, "correctable": d is not None,
                     "not_correctable_reason": None if d else "Not a Management P&L line (inventory flow, unmapped ledger or unknown location).",
                     "active_correction": {"request_id": str(a["request_id"]), "corrected_group": a["corrected_group"] if a["group_active"] else None,
                                           "corrected_month": a["corrected_month"].strftime("%Y-%m") if a["month_active"] and a["corrected_month"] else None} if a else None})
-    return {"voucher": voucher, "entity": entity, "lines": out, "groups": P_L_GROUPS}
+    return {"voucher": voucher, "entity": entity, "lines": out, "groups": P_L_GROUPS, "read_at": datetime.now(timezone.utc).isoformat()}
 
 
 # --------------------------------------------------------------------------- create

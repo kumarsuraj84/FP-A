@@ -8,6 +8,8 @@ import type { Entry, EntryLine, EntryLineDetail, EntryRunHeader } from "@/types/
 import { Skeleton } from "../common";
 import { LiveBoundary, NotAvailable } from "../creditors/parts";
 import { Panel, WorkspaceHeader } from "../panels";
+import { MAKERS } from "@/api/controlApi";
+import { useMe } from "../control/ControlFrame";
 import { BalanceBadge, Crumbs, EntryRunBadge, GAP_NOTE, LINK_REASON, LinkChip, StatusChip } from "./parts";
 
 /**
@@ -194,6 +196,8 @@ export function EntryPage() {
   const p = parseEntrySearch(raw);
   const run = useEntryRun();
   const q = useEntry(p.ref ?? null, p.entity);
+  const me = useMe();
+  const canCorrect = !!me.data && MAKERS.includes(me.data.role); // shown only to a signed-in user whose role can request corrections
   const title = q.data ? `${q.data.entry.entry_type_short} · ${q.data.named && q.data.entry.identity ? q.data.entry.identity.entry_no : q.data.entry.entry_ref}` : p.ref ? `Voucher ${p.ref}` : "Voucher";
   return (
     <div data-testid="entry-page" className="@container">
@@ -203,7 +207,7 @@ export function EntryPage() {
         title={title}
         subtitle={q.data ? `${q.data.entry.entry_type_long} · ${fmtDate(q.data.entry.entry_date)} · ${q.data.named ? "Finance view" : "Masked view"}` : undefined}
         right={<>
-          {q.data && (
+          {q.data && canCorrect && (
             <a
               data-testid="create-correction"
               title="Move a line of this voucher to another management group or expense month. Opens the Corrections workbench (sign-in required); nothing is changed here."

@@ -118,12 +118,13 @@ function NewCorrection({ me, initial, onCreated }: { me: Me; initial: { entity: 
       {lines.data && (
         <>
           <div className="overflow-x-auto"><table className="w-full text-[12.5px]" data-testid="source-lines">
-            <thead><tr className="text-left text-[10.5px] uppercase tracking-wider text-muted-foreground"><th /><th>Ledger</th><th>Current group</th><th>Month</th><th>Site</th><th className="text-right">Amount Cr</th></tr></thead>
+            <thead><tr className="text-left text-[10.5px] uppercase tracking-wider text-muted-foreground"><th /><th>Ledger</th><th>Current group</th><th>Month</th><th>Site</th><th className="text-right">Amount Cr</th><th>Source fingerprint</th></tr></thead>
             <tbody>{lines.data.lines.map((l: SourceLine) => (
               <tr key={l.cost_tag_key} className={cn("border-t", !l.correctable && "opacity-60")} title={l.not_correctable_reason ?? undefined}>
                 <td className="py-1"><input type="checkbox" aria-label={`Select line ${l.cost_tag_key}`} disabled={!l.correctable} checked={picked.has(l.cost_tag_key)} onChange={() => toggle(l.cost_tag_key)} /></td>
-                <td>{l.ledger}</td><td>{l.management_group?.replace(/^\d+-/, "") ?? "Not a P&L line"}{l.active_correction && <span className="ml-1 text-[10.5px] tone-warn">· already corrected</span>}</td><td className="num">{l.month ?? ""}</td><td className="num">{l.site_code ?? ""}</td><td className="num text-right">{cr(l.amount_cr, true)}</td></tr>))}</tbody>
+                <td>{l.ledger}</td><td>{l.management_group?.replace(/^\d+-/, "") ?? "Not a P&L line"}{l.active_correction && <span className="ml-1 text-[10.5px] tone-warn">· already corrected</span>}</td><td className="num">{l.month ?? ""}</td><td className="num">{l.site_code ?? ""}</td><td className="num text-right">{cr(l.amount_cr, true)}</td><td className="num text-[11px] text-muted-foreground">{l.fingerprint ?? ""}</td></tr>))}</tbody>
           </table></div>
+          <div data-testid="source-read" className="text-[11px] text-muted-foreground">Lines read from the finance data just now{lines.data.read_at ? ` (${when(lines.data.read_at)})` : ""}. The fingerprint is checked again at approval and activation; if the source changes in between, the correction stops.</div>
           <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={wholeVoucher} onChange={(e) => setWholeVoucher(e.target.checked)} /> Correct the whole voucher (every P&L line becomes a child of one request)</label>
           <div className="grid gap-3 @[900px]:grid-cols-4">
             <Field label="Corrected management group"><select aria-label="Corrected management group" className={input} value={group} onChange={(e) => setGroup(e.target.value)}><option value="">No change</option>{lines.data.groups.map((g) => <option key={g} value={g}>{g}</option>)}</select></Field>

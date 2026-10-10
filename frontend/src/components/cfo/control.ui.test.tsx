@@ -44,7 +44,7 @@ function install(opts: { me: unknown | null; adjustments?: unknown[]; correction
     if (url.startsWith("/adjustments-api") && method === "POST") return json(ADJ({ status: "DRAFT" }));
     if (url.startsWith("/adjustments-api")) return json({ total: (opts.adjustments ?? []).length, items: opts.adjustments ?? [] });
     if (url.startsWith("/corrections-api/source-lines")) return json({ voucher: "V-1", entity: "RETAIL", groups: ["02-Employee Cost", "16-Miscellaneous Expenses"], lines: [
-      { cost_tag_key: 11, ledger: "Salary", entry_date: "2026-08-05", site_code: 10, amount_cr: "-0.0500", management_group: "02-Employee Cost", month: "2026-08", correctable: true, not_correctable_reason: null, active_correction: null },
+      { cost_tag_key: 11, fingerprint: "abc123def456", ledger: "Salary", entry_date: "2026-08-05", site_code: 10, amount_cr: "-0.0500", management_group: "02-Employee Cost", month: "2026-08", correctable: true, not_correctable_reason: null, active_correction: null },
       { cost_tag_key: 12, ledger: "Stock Transfer", entry_date: "2026-08-05", site_code: 10, amount_cr: "1.0000", management_group: null, month: null, correctable: false, not_correctable_reason: "Not a Management P&L line", active_correction: null }] });
     if (url.startsWith("/corrections-api/preview")) return json({ lines: 1, stores: 1, source_total_cr: "-0.0500", by_group: { "02-Employee Cost": "0.0500", "16-Miscellaneous Expenses": "-0.0500" }, by_month: { "2026-08": "0.0000" }, net_by_group_cr: "0.0000", net_by_month_cr: "0.0000", note: "Both nets are zero." });
     if (url.startsWith("/corrections-api") && method === "POST") return json({ request_id: "r1", scope_type: "LINE", correction_type: "GROUP", source_entity: "RETAIL", status: "DRAFT", reason_code: "WRONG_CLASSIFICATION", reason_text: "booked to the wrong group", evidence_reference: "ticket 1", requested_by: "u1", requested_at: "2026-10-03T10:00:00Z", approved_at: null, line_count: 1, source_total_cr: "-0.0500", counts_in_management_total: false });
@@ -166,6 +166,8 @@ describe("Corrections workbench", () => {
     await screen.findByTestId("correction-form", {}, T);
     fireEvent.click(screen.getByTestId("load-lines"));
     await screen.findByTestId("source-lines", {}, T);
+    expect(screen.getByTestId("source-read")).toHaveTextContent(/checked again at approval/);
+    expect(screen.getByTestId("source-lines")).toHaveTextContent("abc123def456");
     expect(screen.getByLabelText("Select line 12")).toBeDisabled();
     expect(screen.getByLabelText("Select line 11")).toBeChecked();
     fireEvent.change(screen.getByLabelText("Corrected management group"), { target: { value: "16-Miscellaneous Expenses" } });

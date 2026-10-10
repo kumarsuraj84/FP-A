@@ -94,7 +94,7 @@ export interface Correction {
   request_id: string; scope_type: string; correction_type: string; source_entity: string; status: CorStatus; reason_code: string; reason_text: string; evidence_reference: string; requested_by: string; requested_at: string;
   approved_at: string | null; line_count: number; source_total_cr: string; counts_in_management_total: boolean; lines?: CorLine[];
 }
-export interface SourceLine { cost_tag_key: number; ledger: string; entry_date: string; site_code: number | null; amount_cr: string; management_group: string | null; month: string | null; correctable: boolean; not_correctable_reason: string | null; active_correction: { request_id: string; corrected_group: string | null; corrected_month: string | null } | null }
+export interface SourceLine { cost_tag_key: number; fingerprint?: string; ledger: string; entry_date: string; site_code: number | null; amount_cr: string; management_group: string | null; month: string | null; correctable: boolean; not_correctable_reason: string | null; active_correction: { request_id: string; corrected_group: string | null; corrected_month: string | null } | null }
 export interface CorPreview { lines: number; stores: number; source_total_cr: string; by_group: Record<string, string>; by_month: Record<string, string>; net_by_group_cr: string; net_by_month_cr: string; note: string }
 export interface CorCreate { source_entity: string; scope: "LINE" | "VOUCHER" | "BULK"; line_keys?: number[]; voucher?: string; corrected_group?: string; corrected_month?: string; reason_code: string; reason_text: string; evidence_reference: string }
 
@@ -103,7 +103,7 @@ export const corrections = {
   one: (id: string) => call<Correction>("corrections", "GET", `/${id}`),
   history: (id: string) => call<HistoryEvent[]>("corrections", "GET", `/${id}/history`),
   preview: (id: string) => call<CorPreview>("corrections", "GET", `/${id}/preview`),
-  sourceLines: (entity: string, voucher: string) => call<{ voucher: string; entity: string; lines: SourceLine[]; groups: string[] }>("corrections", "GET", "/source-lines", { params: { entity, voucher } }),
+  sourceLines: (entity: string, voucher: string) => call<{ voucher: string; entity: string; lines: SourceLine[]; groups: string[]; read_at?: string }>("corrections", "GET", "/source-lines", { params: { entity, voucher } }),
   groups: () => call<{ group: string; line: string }[]>("corrections", "GET", "/groups"),
   create: (b: CorCreate) => call<Correction>("corrections", "POST", "", { body: b }),
   previewNew: (b: CorCreate) => call<CorPreview>("corrections", "POST", "/preview", { body: b }),
