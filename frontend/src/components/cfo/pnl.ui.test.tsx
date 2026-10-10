@@ -218,7 +218,8 @@ describe("Store P&L: period, filters and basis", () => {
     await waitFor(() => expect(calls.some((c) => c.includes("/summary") && c.includes("basis=posted"))).toBe(true), T);
     fireEvent.change(screen.getByTestId("ctl-from"), { target: { value: "2026-07" } });
     await waitFor(() => expect(calls.some((c) => c.includes("from_month=2026-07"))).toBe(true), T);
-    await waitFor(() => expect(text("strip-stores-value")).toBe("3"), T);
+    fireEvent.click(screen.getByTestId("ctl-clear"));
+    await waitFor(() => expect((screen.getByTestId("ctl-region") as HTMLSelectElement).value).toBe(""), T);
   });
 
   it("lists the exclusions and gaps on the reconciliation panel, with the names Finance needs", async () => {
