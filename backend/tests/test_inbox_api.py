@@ -193,9 +193,9 @@ def test_creditors_detectors_apply_the_versioned_thresholds_and_never_carry_a_ve
     from app.inbox.detectors import THRESHOLDS
     D_ = D
     today = date.today()
-    rows = [{"vendor_ref": "Vaaa", "cr_open": D_(600_000_000), "dr_open": D_(0), "overdue": D_(500_000_000), "old_cr": D_(0), "as_of": today},
-            {"vendor_ref": "Vbbb", "cr_open": D_(400_000_000), "dr_open": D_(0), "overdue": D_(150_000_000), "old_cr": D_(200_000_000), "as_of": today},
-            {"vendor_ref": "Vccc", "cr_open": D_(0), "dr_open": D_(30_000_000), "overdue": D_(0), "old_cr": D_(0), "as_of": today}]
+    rows = [{"vendor_ref": "Vaaa", "cr_open": D_(600_000_000), "dr_open": D_(0), "overdue": D_(500_000_000), "old_cr": D_(0), "over90": D_(0), "due_unavail": D_(0), "oldest_days": 10, "as_of": today},
+            {"vendor_ref": "Vbbb", "cr_open": D_(400_000_000), "dr_open": D_(0), "overdue": D_(150_000_000), "old_cr": D_(200_000_000), "over90": D_(0), "due_unavail": D_(0), "oldest_days": 10, "as_of": today},
+            {"vendor_ref": "Vccc", "cr_open": D_(0), "dr_open": D_(30_000_000), "overdue": D_(0), "old_cr": D_(0), "over90": D_(0), "due_unavail": D_(0), "oldest_days": 10, "as_of": today}]
     out = cc.creditors(FakeG(rows), THRESHOLDS)
     types = {c["exception_type"] for c in out}
     assert {"CREDITORS_OVERDUE_SHARE", "CREDITORS_OLD_PAYABLE", "CREDITORS_VENDOR_CONCENTRATION", "CREDITORS_DEBIT_BALANCE"} <= types
@@ -203,26 +203,77 @@ def test_creditors_detectors_apply_the_versioned_thresholds_and_never_carry_a_ve
     assert [c["subject_key"] for c in conc] == ["Vaaa", "Vbbb"]                          # 500 and 150 of 650 overdue pass 15 percent, ranked by size
     assert next(c for c in out if c["exception_type"] == "CREDITORS_DEBIT_BALANCE")["subject_key"] == "Vccc"
     assert all("vendor_name" not in c["evidence"] for c in out)
-    quiet = [{"vendor_ref": "Vaaa", "cr_open": D_(600_000_000), "dr_open": D_(0), "overdue": D_(10_000_000), "old_cr": D_(0), "as_of": today}]
+    quiet = [{"vendor_ref": "Vaaa", "cr_open": D_(600_000_000), "dr_open": D_(0), "overdue": D_(10_000_000), "old_cr": D_(0), "over90": D_(0), "due_unavail": D_(0), "oldest_days": 10, "as_of": today}]
     assert cc.creditors(FakeG(quiet), THRESHOLDS) == []
 
 
-def test_cash_detectors_flag_stale_data_negative_and_high_till_balances_and_untied_bank_openings():
+def test_cash_detectors_flag_stale_data_negative_and_high_till_balances_and_a_bank_control_exception():
     from app.inbox import detectors_cc as cc
     from app.inbox.detectors import THRESHOLDS
     old = date.today() - timedelta(days=5)
     till = [{"site_code": 11, "cumulative_balance": D(-500_000), "unposted_net": D(0), "as_of_date": old}, {"site_code": 12, "cumulative_balance": D(5_000_000), "unposted_net": D(0), "as_of_date": old},
-            {"site_code": 13, "cumulative_balance": D(100_000), "unposted_net": D(0), "as_of_date": old}]
-    bank = [{"prior_year_closing": None}, {"prior_year_closing": D(5)}]
-    out = cc.cash(FakeG(till, bank), THRESHOLDS)
+            {"site_code": 13, "cumulative_balance": D(100_000), "unposted_net": D(2_000_000), "as_of_date": old}]
+    bank = [{"ledger_name": "A", "prior_year_closing": None, "has_movement": True, "last_posted_date": old - timedelta(days=60), "posted_closing": D(1)},
+            {"ledger_name": "B", "prior_year_closing": D(5), "has_movement": True, "last_posted_date": old, "posted_closing": D(1)}]
+    out = cc.cash(FakeG(till, [], bank), THRESHOLDS)
     by = {(c["exception_type"], c.get("site_code")): c for c in out}
     assert ("CASH_DATA_STALE", None) in by and by[("CASH_DATA_STALE", None)]["evidence"]["age_days"] == 5
-    assert by[("CASH_STORE_BALANCE", "11")]["title"] == "A store till balance is negative" and ("CASH_STORE_BALANCE", "12") in by and ("CASH_STORE_BALANCE", "13") not in by
-    assert by[("BANK_UNTIED_OPENING", None)]["evidence"]["ledgers_without_tied_opening"] == 1
+    assert ("CASH_STORE_NEGATIVE", "11") in by and ("CASH_STORE_HIGH", "12") in by and ("CASH_STORE_HIGH", "13") not in by            # a very high balance flags at once
+    assert ("CASH_UNPOSTED_GAP", "13") in by
+    untied = by[("BANK_UNTIED_OPENING", None)]
+    assert untied["domain"] == "CONTROLS" and untied["escalated"] is True and untied["evidence"]["ledgers_without_tied_opening"] == 1           # a control exception, escalated whatever the rupees
+    assert by[("BANK_STALE_LEDGER", None)]["evidence"]["stale_ledgers"] == 1
     assert cc.cash(FakeG([], []), THRESHOLDS) == []
+
+
+def test_debit_balance_wording_is_finance_safe_and_oldest_bill_and_due_unavailable_are_flagged():
+    from app.inbox import detectors_cc as cc
+    from app.inbox.detectors import THRESHOLDS
+    today = date.today()
+    base = {"cr_open": D(0), "dr_open": D(0), "overdue": D(0), "old_cr": D(0), "over90": D(0), "due_unavail": D(0), "oldest_days": 10, "as_of": today}
+    rows = [{**base, "vendor_ref": "Vdeb", "dr_open": D(40_000_000)}, {**base, "vendor_ref": "Vold", "cr_open": D(60_000_000), "oldest_days": 500},
+            {**base, "vendor_ref": "Vnodue", "cr_open": D(500_000_000), "due_unavail": D(300_000_000)}]
+    out = cc.creditors(FakeG(rows), THRESHOLDS)
+    by = {c["exception_type"]: c for c in out}
+    assert by["CREDITORS_DEBIT_BALANCE"]["title"] == "Creditor debit balance: classification pending" and "overpay" not in by["CREDITORS_DEBIT_BALANCE"]["title"].lower()
+    assert by["CREDITORS_OLDEST_BILL"]["subject_key"] == "Vold" and by["CREDITORS_OLDEST_BILL"]["evidence"]["oldest_open_bill_days"] == 500
+    assert "CREDITORS_DUE_UNAVAILABLE" in by
+
+
+@pytest.mark.skipif(not HAVE_DB, reason="fpa_app not reachable")
+def test_trend_detectors_use_the_platforms_own_snapshots_and_stay_silent_on_the_first_day():
+    from app.inbox import detectors_cc as cc
+    from app.inbox.detectors import THRESHOLDS
+    c = app_connection()
+    try:
+        d1, d2 = date(2031, 3, 1), date(2031, 3, 2)
+
+        def day(as_of, overdue_a, over90):
+            base = {"dr_open": D(0), "old_cr": D(0), "due_unavail": D(0), "oldest_days": 10, "as_of": as_of}
+            return [{**base, "vendor_ref": "Va", "cr_open": D(500_000_000), "overdue": D(overdue_a), "over90": D(over90 // 2)}, {**base, "vendor_ref": "Vb", "cr_open": D(500_000_000), "overdue": D(100_000_000), "over90": D(over90 // 2)}]
+        first = cc.creditors(FakeG(day(d1, 100_000_000, 100_000_000)), THRESHOLDS, c)
+        assert not [x for x in first if x["exception_type"] in ("CREDITORS_AGEING_MIGRATION", "CREDITORS_OVERDUE_RISING", "CREDITORS_CONCENTRATION_RISING")]
+        second = {x["exception_type"]: x for x in cc.creditors(FakeG(day(d2, 300_000_000, 250_000_000)), THRESHOLDS, c)}
+        assert float(second["CREDITORS_AGEING_MIGRATION"]["evidence"]["over90_share_change_pp"]) == pytest.approx(15.0) and second["CREDITORS_AGEING_MIGRATION"]["evidence"]["over90_change_cr"] == "15.0000"
+        assert "CREDITORS_OVERDUE_RISING" in second and second["CREDITORS_CONCENTRATION_RISING"]["subject_key"] == "Va" and float(second["CREDITORS_CONCENTRATION_RISING"]["evidence"]["share_change_pp"]) == pytest.approx(25.0)
+        # the same day recorded twice does not duplicate or compare with itself
+        assert c.execute("SELECT count(*) AS n FROM metric_snapshot WHERE domain = 'CREDITORS' AND metric = 'aggregate' AND as_of = %s", (d2,)).fetchone()["n"] == 1
+        # till cash high for three snapshots in a row flags; two does not
+        for k in range(3):
+            cd = date(2031, 4, 1 + k)
+            till = [{"site_code": 12, "cumulative_balance": D(1_500_000), "unposted_net": D(0), "as_of_date": cd}]
+            out = cc.cash(FakeG(till, [], []), THRESHOLDS, c)
+            flagged = [x for x in out if x["exception_type"] == "CASH_STORE_HIGH"]
+            assert (len(flagged) == 1) == (k == 2)
+        import psycopg
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            c.execute("UPDATE metric_snapshot SET value = '{}'::jsonb")
+    finally:
+        c.rollback()
+        c.close()
 
 
 def test_every_case_is_stamped_with_the_threshold_version():
     from app.inbox import detectors
     stamped = detectors.stamp([{"exception_type": "X", "evidence": {}}])
-    assert stamped[0]["evidence"] == {"threshold_version": detectors.THRESHOLD_VERSION, "calibration_status": "UNCALIBRATED"} and detectors.THRESHOLD_VERSION.endswith("-2")
+    assert stamped[0]["evidence"] == {"threshold_version": detectors.THRESHOLD_VERSION, "calibration_status": "UNCALIBRATED"} and detectors.THRESHOLD_VERSION.endswith("-3")

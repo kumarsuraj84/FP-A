@@ -13,7 +13,7 @@ from ..mgmt import service as msvc
 
 D = Decimal
 # ONE visible, versioned set of thresholds. Every case records the version and the calibration status in its evidence. A change needs a new version string and a dated note here.
-THRESHOLD_VERSION = "2026-10-uncalibrated-2"
+THRESHOLD_VERSION = "2026-10-uncalibrated-3"
 CALIBRATION_STATUS = "UNCALIBRATED"
 THRESHOLDS = {
     "revenue_move": {"pct": D("10"), "min_cr": D("0.50")},          # revenue falls or rises by at least this, month on month
@@ -23,12 +23,19 @@ THRESHOLDS = {
     "provision_missing": {},                                        # any missing provision is a close blocker in the current month
     "control_failure": {},                                          # severity override: a failed control always ranks high regardless of rupees
     "creditors_overdue_share": {"pct": D("60")},                    # overdue credit as a share of all credit payable (related parties excluded)
-    "creditors_vendor_concentration": {"pct": D("15"), "min_cr": D("5"), "max_cases": 5},   # one vendor's share of all overdue credit
-    "creditors_debit_balance": {"min_cr": D("0.25"), "max_cases": 5},     # a vendor whose debits exceed its credits (advance or overpayment)
+    "creditors_vendor_concentration": {"pct": D("15"), "min_cr": D("5"), "max_cases": 5, "jump_pp": D("5")},   # one vendor's share of overdue credit, and a rise since the last snapshot
+    "creditors_debit_balance": {"min_cr": D("0.25"), "max_cases": 5},     # classification pending: flagged, the cause is never inferred
     "creditors_old_payable": {"pct": D("15")},                      # credit payable older than 180 days, as a share of all credit payable
-    "cash_store_balance": {"high_cr": D("0.10"), "max_cases": 10},        # till cash above this (or negative) at a store
+    "creditors_due_unavailable": {"pct": D("20")},                  # credit payable with no due date to measure overdue against
+    "creditors_oldest_bill": {"days": 365, "min_cr": D("0.5"), "max_cases": 5},   # a vendor with material open credit and a bill older than this
+    "creditors_ageing_migration": {"pp": D("3"), "min_cr": D("1")},       # share older than 90 days rose this many points AND this many crore since the last snapshot
+    "creditors_overdue_rising": {"overdue_pct": D("5"), "payable_flat_pct": D("2")},   # overdue up this much while total payable is flat or down
+    "cash_store_balance": {"high_cr": D("0.10"), "max_cases": 10, "consecutive_snapshots": 3},   # high balance counts after this many snapshots in a row (or 3x the limit at once); negative flags at once
+    "cash_unposted_gap": {"min_cr": D("0.05"), "max_cases": 10},    # posted versus unposted till movement
+    "cash_unchanged": {"days": 3, "snapshots": 3},                  # a trading store whose balance did not move across this many snapshots
     "cash_stale_days": {"days": 2},                                 # the till cash data is older than this many days
-    "bank_untied_opening": {},                                      # a bank ledger with movement but no tied prior-year closing
+    "bank_stale_days": {"days": 30},                                # an active bank ledger with no posting for this long
+    "bank_untied_opening": {},                                      # CONTROLS exception, escalates whatever the rupees
 }
 LINE_VARIANCE_PCT = THRESHOLDS["expense_move"]["pct"]
 LINE_VARIANCE_MIN_CR = THRESHOLDS["expense_move"]["min_cr"]
@@ -151,20 +158,20 @@ def stamp(cands: list[dict]) -> list[dict]:
     return cands
 
 
-def creditors(g) -> list[dict]:
+def creditors(g, app=None) -> list[dict]:
     from . import detectors_cc
-    return detectors_cc.creditors(g, THRESHOLDS)
+    return detectors_cc.creditors(g, THRESHOLDS, app)
 
 
-def cash(g) -> list[dict]:
+def cash(g, app=None) -> list[dict]:
     from . import detectors_cc
-    return detectors_cc.cash(g, THRESHOLDS)
+    return detectors_cc.cash(g, THRESHOLDS, app)
 
 
 def run_all(app, g) -> list[dict]:
     out, errors = [], []
     for name, fn, arg in (("line_variance", line_variance, g), ("unmapped", unmapped, g), ("control_failures", control_failures, g), ("provision_gaps", provision_gaps, app),
-                          ("stale_approvals", stale_approvals, app), ("intercompany", intercompany, g), ("creditors", creditors, g), ("cash", cash, g)):
+                          ("stale_approvals", stale_approvals, app), ("intercompany", intercompany, g), ("creditors", lambda x: creditors(x, app), g), ("cash", lambda x: cash(x, app), g)):
         try:
             out += fn(arg)
         except Exception as e:  # noqa: BLE001  one detector failing must not hide the others
