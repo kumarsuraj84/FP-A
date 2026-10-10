@@ -108,31 +108,18 @@ describe("Command Center on real data", () => {
     expect(screen.getByTestId("hero")).toHaveTextContent(/No opening-cash or cash-flow source exists/);
   });
 
-  it("liquidity shows real till cash and states why there is no projection; working capital shows only the creditors balance", async () => {
+  it("the real-data Command Center has no placeholder panels: what has no source is one line", async () => {
     mount();
-    await screen.findByTestId("liquidity-no-projection", {}, T);
-    expect(text("liq-current")).toMatch(/₹5\.00 Cr/);
-    expect(text("liq-projected")).toBe("Projected—");
-    expect(text("liq-min")).toMatch(/—/);
-    expect(text("liquidity-no-projection")).toMatch(/No forecast source exists/);
-    await screen.findByTestId("wc-row-creditors", {}, T);
-    expect(text("wc-row-creditors")).toMatch(/₹400\.00 Cr/);
-    expect(text("wc-row-inventory")).toMatch(/—/);
-    expect(text("wc-net")).toMatch(/—/);
-    expect(text("wc-net")).not.toMatch(/₹0/);
+    await screen.findByTestId("not-yet-available-chip", {}, T);
+    expect(text("not-yet-available-chip")).toMatch(/Data not yet available \(5\).*Forecast|AOP and forecast/);
+    for (const id of ["liquidity-no-projection", "wc-net", "forecast", "risk-payables"]) expect(screen.queryByTestId(id)).toBeNull();
   });
 
-  it("risks are rated only where a real fact exists; actions cite their evidence; the forecast is unavailable", async () => {
+  it("the decision queue cites its evidence", async () => {
     mount();
-    await screen.findByTestId("risk-payables", {}, T);
-    expect(text("risk-sev-payables")).toBe("High");
-    expect(text("risk-sev-advances")).toBe("Not rated");
     await screen.findByTestId("action-past_due", {}, T);
     expect(text("action-evidence-past_due")).toMatch(new RegExp(`Creditors · ${CRED.run} · as of 07 Oct 2026`));
     expect(text("action-unmapped_ledgers")).toMatch(/2 P&L ledgers need Finance mapping/);
-    const forecast = await screen.findByTestId("forecast", {}, T);
-    await waitFor(() => expect(within(forecast).getByTestId("state-unavailable")).toBeInTheDocument());
-    expect(forecast).toHaveTextContent(/No forecast source exists/);
   });
 
   it("a bridge bar opens a real drill with its sources and a way to the page that owns the detail", async () => {
@@ -179,14 +166,9 @@ describe("Quick fixes on the live app", () => {
 
   it("P-03: no unqualified 'Current cash' or 'Cash' stat; the till figure says it excludes the bank ledger book", async () => {
     mount();
-    await screen.findByTestId("liquidity-no-projection", {}, T);
-    expect(screen.getByTestId("liq-current").textContent).toMatch(/^Store till cash/);
-    expect(text("liq-current")).toMatch(/excludes bank ledger book \(provisional\)/);
+    await screen.findByTestId("pulse-cash", {}, T);
     expect(screen.getByTestId("pulse-cash").textContent).toMatch(/^Store till cash/);
     expect(text("pulse-cash")).toMatch(/excludes bank ledger book \(provisional\)/);
-    await screen.findByTestId("risk-liquidity", {}, T);
-    expect(text("risk-liquidity")).toMatch(/Store till cash/);
-    expect(text("risk-liquidity")).not.toMatch(/Cash on hand/);
     const bare = [...document.querySelectorAll("span, div, button")].filter((e) => e.children.length === 0 && /^(Current cash|Cash)$/.test((e.textContent ?? "").trim()) && !e.closest('[role="tablist"]'));
     expect(bare.map((e) => e.textContent)).toEqual([]);
   });
