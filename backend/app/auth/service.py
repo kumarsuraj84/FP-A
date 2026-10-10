@@ -41,6 +41,14 @@ class Actor:
         return {"user_id": str(self.user_id), "email": self.email, "display_name": self.display_name, "role": self.role, "must_change_password": self.must_change_password}
 
 
+READ_PATHS: dict[str, int] = {"session": 0, "proxy_token": 0, "refused": 0}
+
+
+def note_read_path(path: str) -> None:
+    """Counts how Finance reads were authorised since the API started, so the shared proxy token can be retired on evidence."""
+    READ_PATHS[path] = READ_PATHS.get(path, 0) + 1
+
+
 def now() -> datetime:
     return datetime.now(timezone.utc)
 

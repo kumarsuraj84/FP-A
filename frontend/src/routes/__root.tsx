@@ -13,6 +13,7 @@ import { drawerAllowed } from "@/context/cfoState";
 import { validateCfoSearch } from "@/context/drillUrl";
 import { AppShell } from "@/components/cfo/Shell";
 import { InvestigationDrawer } from "@/components/cfo/InvestigationDrawer";
+import { SessionGate } from "@/components/cfo/control/SessionGate";
 
 import appCss from "../styles.css?url";
 
@@ -98,7 +99,9 @@ function Frame() {
   const open = state.drawerOpen && state.origin !== null && drawerAllowed(state);
   return (
     <AppShell drawerOpen={open} drawer={open ? <InvestigationDrawer /> : null}>
-      <Outlet />
+      <SessionGate>
+        <Outlet />
+      </SessionGate>
     </AppShell>
   );
 }

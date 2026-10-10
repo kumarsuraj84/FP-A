@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import hmac
+import os
 import json
 from contextlib import contextmanager
 
@@ -30,12 +31,31 @@ def ok(data) -> Response:
 
 
 def finance_gate(request: Request) -> None:
+    """Finance routes (party names, narration, document codes). Two ways in, session first:
+      1. a signed-in named user (the HttpOnly session cookie): the way forward, and every read is attributed to a person;
+      2. the shared bearer token the dev proxy injects: TRANSITIONAL. FPA_ALLOW_PROXY_TOKEN=0 switches it off (then only a session works).
+    Which path served each request is counted (GET /api/v1/auth/admin/read-paths) so the token can be retired when nothing uses it any more."""
+    from ..auth import service as authsvc
+    actor = None
+    if request.cookies.get("fpa_session"):
+        try:
+            actor = authsvc.resolve(request.cookies.get("fpa_session"))
+        except Exception:  # noqa: BLE001  the app database being down must not lock the token path out, and must not be mistaken for a valid session
+            actor = None
+    if actor is not None:
+        authsvc.note_read_path("session")
+        return
+    if os.environ.get("FPA_ALLOW_PROXY_TOKEN", "1") == "0":
+        authsvc.note_read_path("refused")
+        raise HTTPException(401, "Sign in required")
     token = request.app.state.settings.finance_token
     if not token:
         raise HTTPException(503, "Finance access is not configured on this server")
     auth = request.headers.get("authorization", "")
     if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:].encode(), token.encode()):
+        authsvc.note_read_path("refused")
         raise HTTPException(401, "Finance authorization required")
+    authsvc.note_read_path("proxy_token")
 
 
 def database(request: Request):

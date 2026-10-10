@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 
 from app.appdb.conn import app_connection
 from app.auth import router as auth_router
+from app.creditors_api.router import finance_gate
 from app.auth import service as svc
 
 try:
@@ -184,3 +185,66 @@ def test_assignable_users_are_visible_to_any_signed_in_user_and_exclude_viewers(
     emails = {u["email"] for u in client.get("/api/v1/auth/assignable").json()["data"]}
     assert {"m@example.test", "admin@example.test"} <= emails and "v@example.test" not in emails
     assert TestClient(client.app).get("/api/v1/auth/assignable").status_code == 401
+
+
+def _gate_app(client_app, token="tok-123"):
+    from types import SimpleNamespace
+    client_app.state.settings = SimpleNamespace(finance_token=token)
+
+    def gate(request: Request) -> None:
+        finance_gate(request)
+
+    @client_app.get("/finance-only")
+    def finance_only(_=Depends(gate)):
+        return {"ok": True}
+    return client_app
+
+
+def test_finance_reads_accept_a_session_first_then_the_transitional_token_which_can_be_switched_off(shared, client, monkeypatch):
+    make_admin(shared)
+    app = _gate_app(client.app)
+    anon = TestClient(app)
+    before = dict(svc.READ_PATHS)
+    assert anon.get("/finance-only").status_code == 401                                              # no session, no token
+    assert anon.get("/finance-only", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    assert anon.get("/finance-only", headers={"Authorization": "Bearer tok-123"}).status_code == 200  # the transitional proxy token
+    client.post("/api/v1/auth/login", json={"email": "admin@example.test", "password": PW}, headers=H)
+    assert client.get("/finance-only").status_code == 200                                            # a named session
+    monkeypatch.setenv("FPA_ALLOW_PROXY_TOKEN", "0")
+    assert anon.get("/finance-only", headers={"Authorization": "Bearer tok-123"}).status_code == 401  # token retired
+    assert client.get("/finance-only").status_code == 200                                            # the session still works
+    after = svc.READ_PATHS
+    assert after["proxy_token"] == before["proxy_token"] + 1 and after["session"] == before["session"] + 2 and after["refused"] >= before["refused"] + 3
+    paths = client.get("/api/v1/auth/admin/read-paths").json()["data"]
+    assert paths["proxy_token_allowed"] is False and paths["session"] >= 2
+
+
+def test_an_expired_session_is_not_a_way_in(shared, client, monkeypatch):
+    make_admin(shared)
+    app = _gate_app(client.app)
+    client.post("/api/v1/auth/login", json={"email": "admin@example.test", "password": PW}, headers=H)
+    monkeypatch.setenv("FPA_ALLOW_PROXY_TOKEN", "0")
+    shared.execute("UPDATE app_session SET idle_expires_at = now() - interval '1 minute'")
+    assert client.get("/finance-only").status_code == 401
+
+
+def test_require_session_mode_refuses_every_data_route_without_a_session_and_lets_sign_in_through(shared, client, monkeypatch):
+    from app.auth.middleware import RequireSession, _ok
+    make_admin(shared)
+    app = client.app
+
+    @app.get("/api/v1/mgmt/anything")
+    def data():
+        return {"ok": True}
+    wrapped = TestClient(RequireSession(app))
+    monkeypatch.delenv("FPA_REQUIRE_SESSION", raising=False)
+    assert wrapped.get("/api/v1/mgmt/anything").status_code == 200                              # off by default
+    monkeypatch.setenv("FPA_REQUIRE_SESSION", "1")
+    _ok.clear()
+    assert wrapped.get("/api/v1/mgmt/anything").status_code == 401
+    assert wrapped.post("/api/v1/auth/login", json={"email": "admin@example.test", "password": PW}, headers=H).status_code == 200      # sign-in itself is exempt
+    assert wrapped.get("/api/v1/mgmt/anything").status_code == 200                              # the session cookie now opens the data route
+    assert wrapped.get("/api/v1/auth/me").status_code == 200
+    shared.execute("UPDATE app_session SET revoked_at = now()")
+    _ok.clear()
+    assert wrapped.get("/api/v1/mgmt/anything").status_code == 401

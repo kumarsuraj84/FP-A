@@ -35,7 +35,7 @@ export function useMe() {
   });
 }
 
-function LoginForm() {
+export function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const qc = useQueryClient();
@@ -55,7 +55,7 @@ function LoginForm() {
   );
 }
 
-function ChangePassword({ me, forced }: { me: Me; forced?: boolean }) {
+export function ChangePassword({ me, forced }: { me: Me; forced?: boolean }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [again, setAgain] = useState("");

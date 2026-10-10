@@ -122,6 +122,17 @@ def assignable(actor: Actor = Depends(current_actor)):
     return {"data": svc.assignable_users(actor)}
 
 
+@router.get("/admin/read-paths")
+def read_paths(actor: Actor = Depends(current_actor)):
+    """How Finance reads were authorised since the API started (session, proxy token, refused). Administrator only."""
+    try:
+        svc._need_admin(actor)
+    except AuthError as e:
+        _fail(e)
+    import os
+    return {"data": {**svc.READ_PATHS, "proxy_token_allowed": os.environ.get("FPA_ALLOW_PROXY_TOKEN", "1") != "0"}}
+
+
 @router.get("/admin/users")
 def users(actor: Actor = Depends(current_actor)):
     try:

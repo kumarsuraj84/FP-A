@@ -22,6 +22,7 @@ from ..inbox.router import router as inbox_router
 from ..close.router import router as close_router
 from ..mapping.router import router as mapping_router
 from ..sourcefix.router import router as sourcefix_router
+from ..auth.middleware import RequireSession
 
 
 def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> FastAPI:
@@ -35,6 +36,7 @@ def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> Fas
         app.state.settings = settings
     app.state.db = db if db is not None else (Db(settings.conninfo) if settings.conninfo else None)
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["GET"], allow_headers=["Authorization", "Content-Type"])
+    app.add_middleware(RequireSession)      # FPA_REQUIRE_SESSION=1: every /api/v1 data route needs a signed-in session (off by default)
     app.include_router(router)
     app.include_router(cash_router)
     app.include_router(entry_router)

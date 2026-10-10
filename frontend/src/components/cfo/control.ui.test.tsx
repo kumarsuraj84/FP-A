@@ -418,3 +418,20 @@ describe("Source fix candidates", () => {
     expect(await screen.findByTestId("copied", {}, T)).toHaveTextContent("1 candidates");
   });
 });
+
+describe("Whole-application sign-in", () => {
+  it("with VITE_REQUIRE_LOGIN on, a page does not render until a named user is signed in", async () => {
+    vi.stubEnv("VITE_REQUIRE_LOGIN", "1");
+    install({ me: null });
+    mount("/related-party");
+    await screen.findByTestId("login", {}, T);
+    expect(screen.queryByTestId("related-page")).toBeNull();
+    vi.unstubAllEnvs();
+  });
+
+  it("with it off (the default) nothing asks for a session outside the Control area", async () => {
+    install({ me: null });
+    mount("/related-party");
+    await waitFor(() => expect(screen.queryByTestId("login")).toBeNull(), T);
+  });
+});
