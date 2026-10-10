@@ -34,18 +34,22 @@ def location_of(row: dict, site_loc: dict) -> str | None:
     return site_loc[sc]["location_type"] if sc in site_loc else cfg.LOC_OF_KIND.get(row.get("site_kind"))
 
 
-def build_items(overlay_rows: list[dict], gold_rows: dict[tuple, dict], lmap: dict, site_loc: dict) -> list[dict]:
+def build_items(overlay_rows: list[dict], gold_rows: dict[tuple, dict], lmap: dict, site_loc: dict, skipped: list | None = None) -> list[dict]:
     """Pure. overlay_rows: v_correction_overlay rows; gold_rows: {(gold entity, cost_tag_key): voucher line}. Lines that vanished or are not P&L lines are skipped here
     (the source check reports them as ORPHANED / review)."""
     items = []
     for o in overlay_rows:
         g = gold_rows.get((o["source_entity"], int(o["source_line_key"])))
         if g is None:
+            if skipped is not None:
+                skipped.append({"request_id": str(o["request_id"]), "line": str(o["source_line_key"]), "reason": "the finance line no longer exists"})
             continue
         grp = line_group(g, lmap)
         key_from = cfg.KEY_OF_GROUP.get(grp) if grp and grp != cfg.EXCLUDED else None
         loc = location_of(g, site_loc)
         if key_from is None or loc is None:
+            if skipped is not None:
+                skipped.append({"request_id": str(o["request_id"]), "line": str(o["source_line_key"]), "reason": "the line is no longer a Management P&L line"})
             continue
         key_to = cfg.KEY_OF_GROUP.get(o["corrected_group"], key_from) if o["corrected_group"] else key_from
         m_from = month_of(g["entdt"])
@@ -58,7 +62,7 @@ def build_items(overlay_rows: list[dict], gold_rows: dict[tuple, dict], lmap: di
     return items
 
 
-def load(gconn) -> list[dict]:
+def load(gconn, skipped: list | None = None) -> list[dict]:
     """The reclass items for the engine. Raises when the app database cannot be read: the caller reports it rather than silently showing totals without corrections."""
     with app_connection() as a:
         rows = a.execute("SELECT * FROM v_correction_overlay").fetchall()
@@ -71,4 +75,4 @@ def load(gconn) -> list[dict]:
     for ent, ks in keys.items():
         for g in gconn.execute(GOLD_LINE_SQL, (ent, ks)).fetchall():
             gold_rows[(g["entity"], g["cost_tag_key"])] = g
-    return build_items(rows, gold_rows, cfg.ledger_map(), cfg.site_loc())
+    return build_items(rows, gold_rows, cfg.ledger_map(), cfg.site_loc(), skipped)

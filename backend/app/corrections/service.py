@@ -29,16 +29,22 @@ FP_VERSION = "v1"
 P_L_GROUPS = sorted(g for g in cfg.KEY_OF_GROUP)
 
 
-def _amt(x) -> str:
-    """Amounts in the fingerprint: null is zero and the scale does not matter (100 and 100.00 are the same line)."""
-    d = Decimal(x or 0)
-    return format(d.quantize(Decimal(1)) if d == d.to_integral() else d.normalize(), "f")
+def _norm(x) -> str:
+    """Canonical form of one fingerprint field: <NULL> for null, amounts as fixed 4-decimal text, dates ISO, other values trimmed and upper-cased."""
+    if x is None:
+        return "<NULL>"
+    if isinstance(x, Decimal):
+        return format(x.quantize(Decimal("0.0001")), "f")
+    if isinstance(x, date):
+        return x.isoformat()
+    return str(x).strip().upper()
 
 
 def fingerprint(g: dict) -> str:
-    """v1: sha256 over the immutable finance fields of the line, joined with a unit separator. Release status is NOT part of it (it legitimately moves unposted -> posted)."""
-    parts = (g["entity"], g["cost_tag_key"], g["glcode"], g["tag_site_code"], g["entdt"].isoformat(), _amt(g["damount"]), _amt(g["camount"]), g["entcode"])
-    return hashlib.sha256("\x1f".join("" if p is None else str(p) for p in parts).encode()).hexdigest()
+    """v1 = SHA-256 over 'v1|ENTITY|COST_TAG_KEY|GLCODE|SITE|ENTRY_DATE|DEBIT|CREDIT|VOUCHER_ENTRY_CODE' (UTF-8). Only immutable finance fields: never a derived management
+    field (group, expense month), never the extraction run id, and not the release status (it legitimately moves unposted -> posted). A null amount counts as zero."""
+    parts = (g["entity"], g["cost_tag_key"], g["glcode"], g["tag_site_code"], g["entdt"], Decimal(g["damount"] or 0), Decimal(g["camount"] or 0), g["entcode"])
+    return hashlib.sha256(("v1|" + "|".join(_norm(p) for p in parts)).encode("utf-8")).hexdigest()
 
 
 def need(actor: Actor, roles: tuple, what: str) -> None:

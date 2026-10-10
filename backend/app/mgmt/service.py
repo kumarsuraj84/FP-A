@@ -118,15 +118,15 @@ def run(conn, lo: str, hi: str, include_proposed: bool = True, entity: str = "co
     register = register_rows() + (extra_register or [])
     elim = gold_eliminations(conn, months)
     items = eng.evaluate_adjustments(book, months, register + elim, rules, include_proposed, last_month=available_months(conn)[-1])
-    reclass, overlay_error = [], None
+    reclass, overlay_error, overlay_skipped = [], None, []
     if os.environ.get("FPA_CORRECTIONS", "on").lower() != "off":
         try:
-            reclass = [r for r in overlay.load(conn) if r["month_from"] in months or r["month_to"] in months]
+            reclass = [r for r in overlay.load(conn, overlay_skipped) if r["month_from"] in months or r["month_to"] in months]
         except Exception as e:  # noqa: BLE001  the app database is optional for reading; the caller warns instead of hiding it
             overlay_error = type(e).__name__
     calc = eng.compute_pnl(book, items, months, entity, reclass)
     lines = eng.shape_lines(calc, months)
-    return {"months": months, "book": book, "items": items, "calc": calc, "lines": lines, "rules": rules, "register": register + elim, "entity": entity, "reclass": reclass, "overlay_error": overlay_error}
+    return {"months": months, "book": book, "items": items, "calc": calc, "lines": lines, "rules": rules, "register": register + elim, "entity": entity, "reclass": reclass, "overlay_error": overlay_error, "overlay_skipped": overlay_skipped}
 
 
 def warnings(conn, ctx: dict) -> list[str]:
@@ -157,7 +157,9 @@ def warnings(conn, ctx: dict) -> list[str]:
             w.append(f"{len(ic)} unmapped ledgers look like intercompany charges (" + ", ".join(e["ledger"] for e in ic[:4]) + ").")
     if ctx.get("overlay_error"):
         w.append(f"Active corrections could not be read from the app database ({ctx['overlay_error']}): the totals below do NOT include them.")
-    elif ctx.get("reclass"):
+    if ctx.get("overlay_skipped"):
+        w.append(f"{len(ctx['overlay_skipped'])} active corrections could not be applied (the finance line changed or vanished); run the source check on the Corrections page.")
+    if ctx.get("reclass") and not ctx.get("overlay_error"):
         w.append(f"{len(ctx['reclass'])} active line corrections are applied in the Reclass column (net zero). The Store and DC Expenses pages and the store league do not show them yet.")
     prov = [i for i in items if i["provisional"]]
     if prov:
