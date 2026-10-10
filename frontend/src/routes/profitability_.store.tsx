@@ -1,7 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { StoreWorkspacePage } from "@/components/cfo/profitability/StoreWorkspacePage";
 
 export const Route = createFileRoute("/profitability_/store")({
+  // a drill-only workspace: without its context in the address there is nothing to show, so return to the page that owns the list
+  beforeLoad: ({ search }) => {
+    if (!(search as { drill?: string }).drill) throw redirect({ to: "/profitability" });
+  },
   head: () => ({
     meta: [
       { title: "Store Workspace · CityKart FP&A" },
