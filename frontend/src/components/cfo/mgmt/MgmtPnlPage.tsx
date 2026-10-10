@@ -233,8 +233,10 @@ function Strip({ lines }: { lines: MgmtLine[] }) {
 }
 
 function PnlBody({ months, runWarnings }: { months: string[]; runWarnings: string[] }) {
-  const [from, setFrom] = useState<string>(fyYtdRange(months)[0]);
-  const [to, setTo] = useState<string>(fyYtdRange(months)[1]);
+  const asOf = useMgmtRun().data?.as_of_date;
+  // the default window is year to date through the last COMPLETE month; a partial month can still be picked and is labelled
+  const [from, setFrom] = useState<string>(fyYtdRange(months, asOf)[0]);
+  const [to, setTo] = useState<string>(fyYtdRange(months, asOf)[1]);
   const [mode, setMode] = useState<MgmtMode>("total");
   const [includeProposed, setIncludeProposed] = useState(true);
   const [pick, setPick] = useState<Pick | null>(null);
@@ -244,7 +246,7 @@ function PnlBody({ months, runWarnings }: { months: string[]; runWarnings: strin
   return (
     <>
       <div data-testid="mgmt-controls" className="flex flex-wrap items-center gap-3 border-b bg-card px-5 py-2 text-[12px]">
-        <MonthRange months={months} from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
+        <MonthRange months={months} from={from} to={to} asOf={asOf} onChange={(f, t) => { setFrom(f); setTo(t); }} />
         <div className="mx-1 h-5 w-px bg-border" />
         <div role="group" aria-label="Figure layer" data-testid="mgmt-mode" className="flex overflow-hidden rounded border">
           {MODES.filter((m) => m.id !== "reclass" || hasReclass).map((m) => (

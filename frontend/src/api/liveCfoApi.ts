@@ -96,6 +96,16 @@ const PERIOD_MONTHS: Record<QueryCtx["period"], [string | undefined, string | un
   ytdfy27: [undefined, undefined],
 };
 
+/** The default window is year to date through the last COMPLETE month: a part-month never distorts a year-to-date comparison. */
+export function lastCompleteMonthOf(asOf: string): string {
+  const y = Number(asOf.slice(0, 4)), m = Number(asOf.slice(5, 7)), d = Number(asOf.slice(8, 10));
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  if (d >= lastDay) return asOf.slice(0, 7);
+  const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1;
+  return `${py}-${String(pm).padStart(2, "0")}`;
+}
+const monthsFor = (period: QueryCtx["period"], asOf: string): [string | undefined, string | undefined] => (period === "ytdfy27" ? [undefined, lastCompleteMonthOf(asOf)] : PERIOD_MONTHS[period]);
+
 export const NO_BUDGET = "AOP (budget) is not available for FY26-27 (the FY25-26 plan ended in March 2026). Nothing is estimated.";
 export const NO_FORECAST = "No forecast source exists. A projection is not shown, and none is estimated.";
 export const NO_RECON = "No bank statement or reconciliation is available from the current sources.";
@@ -148,7 +158,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       async () => {
         try {
           const h = await c.pnl.current();
-          const [from, to] = PERIOD_MONTHS[period];
+          const [from, to] = monthsFor(period, h.as_of_date);
           const s = await c.pnl.summary(h.run_id, { basis: "all", from_month: from, to_month: to });
           return { ok: true, stamp: stamp("pnl", s.run_id, s.as_of_date, s.data_state, s.data_state_label), data: s };
         } catch (e) {
@@ -165,7 +175,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
           `mgmt:${period}`,
           async () => {
             try {
-              const [from, to] = PERIOD_MONTHS[period];
+              const [from, to] = monthsFor(period, (await c.pnl.current()).as_of_date);
               const p = await c.mgmt!.pnl({ from_month: from, to_month: to, include_proposed: true, entity: "consolidated" });
               return { ok: true, stamp: stamp("mgmt", p.run_id, p.as_of_date, "live", "Live"), data: p };
             } catch (e) {

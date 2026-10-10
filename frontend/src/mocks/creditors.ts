@@ -352,7 +352,7 @@ export function creditorBook(ctx: QueryCtx): Book {
   };
   const migration: AgeingMigration = {
     ageingBasis: AGEING_BASIS,
-    windowLabel: ctx.period === "sep26" ? "Sep 2026" : ctx.period === "q2fy27" ? "Q2 FY27 (Jul–Sep)" : "YTD FY27 (Apr – Oct, month to date)",
+    windowLabel: ctx.period === "sep26" ? "Sep 2026" : ctx.period === "q2fy27" ? "Q2 FY27 (Jul–Sep)" : "YTD FY27 (to last complete month)",
     opening: r4(sum(O)),
     closing: r4(sum(E)),
     buckets: rows,
