@@ -177,7 +177,7 @@ function Body({ e, run, named, billRef, entity }: { e: Entry; run: EntryRunHeade
           <BalanceBadge balanced={e.balanced} difference={diff} />
           <span className="num">Debit <b data-exact={e.total_dr}>{fmtRupees(e.total_dr)}</b></span>
           <span className="num">Credit <b data-exact={e.total_cr}>{fmtRupees(e.total_cr)}</b></span>
-          {!e.balanced && <span className="num font-semibold" data-testid="balance-difference">Difference {fmtRupees(diff)}</span>}
+          <span className={cn("num", !e.balanced && "font-semibold")} data-testid="balance-difference">Difference <b>{fmtRupees(diff)}</b></span>
         </div>
         {!e.balanced && <p data-testid="gap-note" className="mt-1.5 max-w-3xl text-[12px] text-muted-foreground">{GAP_NOTE}</p>}
         {e.balanced && <p className="mt-1 text-[11.5px] text-muted-foreground">The lines in the extract add up. The gold extract holds cost-tag lines only, so this is the whole voucher only when it is shown as balanced.</p>}

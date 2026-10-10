@@ -57,15 +57,12 @@ function River({ buckets, selected, onPick, hover, setHover }: { buckets: RiverB
     <div ref={ref} className="w-full" data-testid="ageing-river">
       <svg width={W} height={H} role="group" aria-label="Document age: credit outstanding by age of document" className="block select-none">
         {blocks.map((blk, i) => {
-          const prev = blocks[i - 1];
-          const next = blocks[i + 1];
-          const hl = prev ? (prev.h + blk.h) / 2 : blk.h * 0.75;
-          const hr = next ? (blk.h + next.h) / 2 : blk.h * 0.75;
-          const peak = blk.h - (hl + hr) / 4;
+          // a distribution, not a flow: one straight stacked bar, segment width proportional to credit
+          const bh = H * 0.7;
           const xl = blk.x;
           const xr = blk.x + blk.w;
           const xc = blk.x + blk.w / 2;
-          const d = `M ${xl} ${yc - hl / 2} Q ${xc} ${yc - peak} ${xr} ${yc - hr / 2} L ${xr} ${yc + hr / 2} Q ${xc} ${yc + peak} ${xl} ${yc + hl / 2} Z`;
+          const d = `M ${xl} ${yc - bh / 2} L ${xr} ${yc - bh / 2} L ${xr} ${yc + bh / 2} L ${xl} ${yc + bh / 2} Z`;
           const isSel = selected === null || selected.includes(blk.b.id);
           const isHover = hover === blk.b.id;
           return (

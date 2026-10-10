@@ -79,17 +79,16 @@ function Strip({ q, filtered }: { q: PnlQuery; filtered: boolean }) {
         return (
           <section aria-label="Verified figures" data-testid="pnl-strip" aria-busy={s.isPlaceholderData} data-updating={s.isPlaceholderData || undefined} className={cn("border-b bg-card transition-opacity", s.isPlaceholderData && "opacity-50")}>
             {s.isPlaceholderData && <div role="status" className="px-4 pt-1.5 text-[11px] font-medium text-muted-foreground">Updating for the selected period…</div>}
-            <div className="grid grid-cols-8 divide-x @max-[1700px]:grid-cols-4 @max-[1700px]:divide-y @max-[640px]:grid-cols-2">
+            <div className="grid grid-cols-6 divide-x @max-[1300px]:grid-cols-3 @max-[1300px]:divide-y @max-[640px]:grid-cols-2">
               <Cell testId="strip-sales" label={T.revenue} value={cr(t.revenue)} exact={t.revenue} sub={`${monthLabel(d.scope.from_month)} to ${monthLabel(d.scope.to_month)}${d.scope.partial_last_month ? " (last month partial)" : ""}`} />
               <Cell testId="strip-gm" label={filtered ? T.grossMargin : T.materialMargin} value={cr(t.gross_margin)} exact={t.gross_margin} sub={`${pct(t.gross_margin_pct)} of revenue`} />
               <Cell testId="strip-opex" label={T.storeExpenses} value={cr(t.opex)} exact={t.opex} sub={`${pct(t.opex_pct)} of revenue`} tone="" />
               <Cell testId="strip-contribution" label={filtered ? T.fourWall : `${T.storeEbitda} — Books`} value={cr(t.contribution)} exact={t.contribution} sub={`${pct(t.contribution_pct)} of revenue`} tone={tone(t.contribution)} />
+              {filtered && <Cell testId="strip-stores" label="Stores in this view" value={d.stores_in_scope.toLocaleString("en-IN")} sub="after the filters" />}
               {filtered
                 ? <Cell testId="strip-corporate" label="DC and HO cost" value="Company level" sub="not apportioned to a filtered view" tone="text-muted-foreground" />
                 : <Cell testId="strip-corporate" label={`${T.corporateEbitda} — Books`} value={cr(t.corporate_ebitda)} exact={t.corporate_ebitda} sub={`after DC cost ${cr(t.dc_cost)} and HO cost ${cr(t.ho_cost)}`} tone={tone(t.corporate_ebitda)} />}
               <Cell testId="strip-growth" label={`${T.yoy} vs ${T.ly}`} value={g ? pct(g.revenue_pct, true) : DASH} exact={g?.revenue_pct ?? undefined} sub={c ? `${monthLabel(c.period.from_month)} to ${monthLabel(c.period.to_month)} · complete months` : `no ${T.ly} data for these months`} tone={tone(g?.revenue_pct)} />
-              <Cell testId="strip-stores" label={filtered ? "Stores in this view" : "Stores trading"} value={d.stores_in_scope.toLocaleString("en-IN")} sub={filtered ? "after the filters" : "sites with sales"} />
-              <Cell testId="strip-budget" label={T.aop} value="Not available" sub={`no FY26-27 ${T.aop} in the sources`} tone="text-muted-foreground" />
             </div>
             <div data-testid="strip-note" className="border-t bg-[oklch(0.985_0.006_265)] px-4 py-1.5 text-[11.5px] text-muted-foreground">
               <span className="font-semibold text-foreground">{BOOKS_BASIS_NOTE}</span> {T.storeEbitda} is {T.materialMargin} less {T.storeExpenses} (STORES location only), before {T.dcCost}, {T.hoCost}, interest income and finance cost; the 1% shrinkage provision is not in this view. {T.aop}: not available (blank). {d.flags.cogs_lags_books && <>{T.materialCost} runs to {fmtDate(d.flags.cogs_through)}, the books to {fmtDate(d.flags.books_through)}. </>}

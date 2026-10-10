@@ -57,7 +57,7 @@ describe("Store P&L: the verified strip", () => {
     expect(text("strip-contribution")).toMatch(/Store EBITDA/);
     expect(text("strip-corporate")).toMatch(/Corporate EBITDA/);
     expect(text("strip-growth")).toMatch(/Y-o-Y Growth vs LY/);
-    expect(text("strip-budget")).toMatch(/AOP/);
+    expect(text("strip-note")).toMatch(/AOP/);
     expect(text("pnl-strip")).not.toMatch(/Net sales|Gross margin|Store opex|Contribution/);
     expect(note).toMatch(/Provisional \(unposted sales\): Oct 26/);
     expect(note).toMatch(/2 ledgers are Unmapped \/ Finance classification required/);
@@ -79,8 +79,9 @@ describe("Store P&L: the verified strip", () => {
   it("never invents a budget: the budget is a stated gap, not a figure or a variance", async () => {
     mount();
     await screen.findByTestId("unavailable-budget", {}, T);
-    await screen.findByTestId("strip-budget", {}, T);
-    expect(text("strip-budget-value")).toBe("Not available");                                  // never zero
+    await screen.findByTestId("strip-note", {}, T);
+    expect(screen.queryByTestId("strip-budget")).toBeNull();                                // no empty AOP tile: it is in the note and the data-status list
+    expect(text("strip-note")).toMatch(/AOP/);
     const room = screen.getByTestId("pnl-room");
     expect(screen.getByTestId("unavailable-budget")).toHaveTextContent(/nothing is estimated/i);
     expect(room.textContent ?? "").not.toMatch(/vs budget|budget variance|% of budget/i);
@@ -217,7 +218,6 @@ describe("Store P&L: period, filters and basis", () => {
     await waitFor(() => expect(calls.some((c) => c.includes("/summary") && c.includes("basis=posted"))).toBe(true), T);
     fireEvent.change(screen.getByTestId("ctl-from"), { target: { value: "2026-07" } });
     await waitFor(() => expect(calls.some((c) => c.includes("from_month=2026-07"))).toBe(true), T);
-    fireEvent.click(screen.getByTestId("ctl-clear"));
     await waitFor(() => expect(text("strip-stores-value")).toBe("3"), T);
   });
 
