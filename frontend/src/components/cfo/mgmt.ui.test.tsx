@@ -416,12 +416,12 @@ describe("Store league: partial month and nomenclature (P-06, N-09)", () => {
     expect(await screen.findByTestId("stores-partial", {}, T)).toHaveTextContent(/partial month/);
   });
 
-  it("uses the portal vocabulary: Gross Margin and Revenue from operations, never RGM or Net sales", async () => {
+  it("uses the portal vocabulary: Material Margin and Revenue from operations, never RGM or Net sales", async () => {
     installMgmtApi();
     mount("/mgmt/stores");
     await screen.findByTestId("stores-table", {}, T);
     const page = screen.getByTestId("mgmt-room").textContent ?? "";
-    expect(page).toMatch(/Gross Margin/);
+    expect(page).toMatch(/Material Margin/);
     expect(page).toMatch(/Revenue from operations/);
     expect(page).not.toMatch(/\bRGM\b|Net sales|net sales|retail gross margin/);
   });

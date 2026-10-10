@@ -17,9 +17,9 @@ type SortKey = NumKey | "store";
 
 const COLS: { key: NumKey; label: string; hint: string }[] = [
   { key: "net_sales", label: "Revenue from operations", hint: "Revenue from operations, ex-GST" },
-  { key: "rgm", label: "Gross Margin", hint: "Revenue from operations plus other operating income less Material Cost, for one store" },
+  { key: "rgm", label: "Material Margin", hint: "Revenue from operations plus other operating income less Material Cost, for one store" },
   { key: "store_expenses", label: "Store Expenses", hint: "Rent, employee, power, advertisement, freight and other store expenses" },
-  { key: "four_wall", label: "4-Wall EBITDA", hint: "Gross Margin less Store Expenses: what the store earns before DC and HO cost" },
+  { key: "four_wall", label: "4-Wall EBITDA", hint: "Material Margin less Store Expenses: what the store earns before DC and HO cost" },
   { key: "apportioned", label: "DC + HO", hint: "DC and HO cost spread pro rata to revenue from operations at one blended rate" },
   { key: "ebitda_after", label: "EBITDA after DC & HO", hint: "4-Wall EBITDA less the apportioned DC and HO cost" },
 ];
@@ -34,7 +34,7 @@ export function checkStores(d: MgmtStores): { ok: boolean; problems: string[] } 
   const pairs: [NumKey, number][] = [["net_sales", d.summary.net_sales], ["rgm", d.summary.rgm], ["store_expenses", d.summary.store_expenses], ["four_wall", d.summary.four_wall], ["apportioned", d.summary.apportioned], ["ebitda_after", d.summary.store_ebitda_after]];
   for (const [k, v] of pairs) if (Math.abs(sumOf(d.rows, k) - v) > TOL) problems.push(`${COLS.find((c) => c.key === k)!.label}: stores add to ${cr2(sumOf(d.rows, k))}, summary says ${cr2(v)}`);
   if (Math.abs(d.summary.apportioned - (d.summary.dc_total + d.summary.ho_total)) > TOL) problems.push(`Apportioned ${cr2(d.summary.apportioned)} is not DC ${cr2(d.summary.dc_total)} + HO ${cr2(d.summary.ho_total)}`);
-  if (Math.abs(d.summary.four_wall - (d.summary.rgm + d.summary.store_expenses)) > TOL) problems.push("4-Wall EBITDA is not Gross Margin + Store Expenses");
+  if (Math.abs(d.summary.four_wall - (d.summary.rgm + d.summary.store_expenses)) > TOL) problems.push("4-Wall EBITDA is not Material Margin + Store Expenses");
   if (!d.summary.reconciles) problems.push("The API reports that the stores do not reconcile to the P&L");
   return { ok: problems.length === 0, problems };
 }
@@ -188,7 +188,7 @@ function StoresBody({ months, asOf }: { months: string[]; asOf: string }) {
 
 export function MgmtStoresPage() {
   return (
-    <MgmtFrame active="stores" subtitle="Per store: revenue from operations, Gross Margin, Store Expenses, 4-Wall EBITDA, and EBITDA after the DC and HO cost apportioned at one blended rate. INR Cr.">
+    <MgmtFrame active="stores" subtitle="Per store: revenue from operations, Material Margin, Store Expenses, 4-Wall EBITDA, and EBITDA after the DC and HO cost apportioned at one blended rate. INR Cr.">
       {(months, _w, asOf) => <StoresBody months={months} asOf={asOf} />}
     </MgmtFrame>
   );

@@ -8,8 +8,8 @@ export const T = {
   totalIncome: "Total income",
   materialCost: "Material Cost",
   materialMargin: "Material Margin",
-  /** at store level the same line is Gross Margin (finance abbreviates it RGM; the abbreviation is not used in the portal) */
-  grossMargin: "Gross Margin",
+  /** at store level the same line (finance abbreviates it RGM) carries the same governed name, Material Margin */
+  grossMargin: "Material Margin",
   storeExpenses: "Store Expenses",
   storeEbitda: "Store EBITDA",
   fourWall: "4-Wall EBITDA",
