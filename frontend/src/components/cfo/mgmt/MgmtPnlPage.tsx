@@ -249,7 +249,7 @@ function PnlBody({ months, runWarnings }: { months: string[]; runWarnings: strin
         <MonthRange months={months} from={from} to={to} asOf={asOf} onChange={(f, t) => { setFrom(f); setTo(t); }} />
         <div className="mx-1 h-5 w-px bg-border" />
         <div role="group" aria-label="Figure layer" data-testid="mgmt-mode" className="flex overflow-hidden rounded border">
-          {MODES.filter((m) => m.id !== "reclass" || hasReclass).map((m) => (
+          {MODES.map((m) => (
             <button key={m.id} type="button" data-testid={`mode-${m.id}`} aria-pressed={mode === m.id} title={m.hint} onClick={() => setMode(m.id)} className={cn("press px-2.5 py-1 font-medium", mode === m.id ? "bg-foreground text-background" : "hover:bg-muted")}>
               {m.label}
             </button>

@@ -83,11 +83,11 @@ describe("Management P&L: the MIS table", () => {
     expect(Number(c.getAttribute("data-exact"))).toBeCloseTo(-92.32, 4);
   });
 
-  it("offers a Reclass layer only when approved corrections move something, and Total = book + reclass + adjustment", async () => {
+  it("always offers the Reclass layer (Book | Reclass | Adjustment | Total), and Total = book + reclass + adjustment", async () => {
     installMgmtApi();
     mount("/mgmt");
     await screen.findByTestId("mgmt-table", {}, T);
-    expect(screen.queryByTestId("mode-reclass")).toBeNull();                       // no correction in the fixture: no extra layer
+    expect(screen.getByTestId("mode-reclass")).toBeInTheDocument();                // a governed layer never disappears, even with no correction yet
     cleanup();
     vi.unstubAllGlobals();
     installMgmtApi({

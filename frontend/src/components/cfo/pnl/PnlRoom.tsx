@@ -1,6 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouterState } from "@tanstack/react-router";
 import { CheckCircle2, ChevronRight, X } from "lucide-react";
+import { lastCompleteMonthOf } from "@/api/liveCfoApi";
 import { usePnlExpenseExceptions, usePnlHierarchy, usePnlLedgers, usePnlReconciliation, usePnlRevenueExceptions, usePnlRun, usePnlStore, usePnlStores, usePnlSummary, usePnlTrend } from "@/api/pnlLiveHooks";
 import { fmtDate } from "@/lib/format";
 import { DASH, fmtCr, fmtPct } from "@/lib/format";
@@ -505,6 +506,14 @@ export function PnlRoom() {
   const [site, setSite0] = useState<string | null>(() => (back.ps !== undefined && /^\d{1,9}$/.test(String(back.ps)) ? String(back.ps) : null));
   const [group, setGroup] = useState<string | null>(() => (back.ps !== undefined && typeof back.pg === "string" && back.pg.length < 80 ? back.pg : null));
   const setQ = (f: (p: PnlQuery) => PnlQuery) => setQ0((p) => f(p));
+  // the default window is year to date through the last COMPLETE month (a partial month stays selectable); a drill that came back with its own period keeps it
+  const asOfRun = run.data?.as_of_date;
+  const defaulted = useRef(false);
+  useEffect(() => {
+    if (!asOfRun || defaulted.current) return;
+    defaulted.current = true;
+    setQ0((p) => (p.to_month || p.from_month ? p : { ...p, to_month: lastCompleteMonthOf(asOfRun) }));
+  }, [asOfRun]);
   const pickStore = (s: string | null, g: string | null = null) => {
     setSite0(s);
     setGroup(g);
