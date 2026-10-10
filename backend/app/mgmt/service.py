@@ -155,6 +155,10 @@ def warnings(conn, ctx: dict) -> list[str]:
         ic = [e for e in exc if any(h in e["ledger"].lower() for h in cfg.INTERCO_HINTS)]
         if ic:
             w.append(f"{len(ic)} unmapped ledgers look like intercompany charges (" + ", ".join(e["ledger"] for e in ic[:4]) + ").")
+    if app_register.source() == "both":
+        w.append("Adjustments are read from BOTH the spreadsheet register and the app register (FPA_ADJ_SOURCE=both). Use this only while the two are disjoint; a row in both is counted twice. Cut over with FPA_ADJ_SOURCE=app.")
+    elif app_register.source() == "app":
+        w.append("Adjustments are read from the governed app register only; the spreadsheet register is not used.")
     if ctx.get("overlay_error"):
         w.append(f"Active corrections could not be read from the app database ({ctx['overlay_error']}): the totals below do NOT include them.")
     if ctx.get("overlay_skipped"):
