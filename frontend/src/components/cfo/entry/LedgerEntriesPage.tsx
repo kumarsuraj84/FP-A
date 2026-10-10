@@ -133,7 +133,14 @@ export function LedgerEntriesPage() {
         right={<EntryRunBadge />}
       />
       {!valid ? (
-        <NotAvailable testId="entry-list-empty" title="No ledger or store selected" reason="Open this list from a P&L ledger line or a store till day." />
+        <>
+          <NotAvailable testId="entry-list-empty" title="No ledger or store selected" reason="Open this list from a P&L ledger line or a store till day." />
+          <div data-testid="entry-list-ways" className="flex flex-wrap gap-2 px-4 pb-4 text-[12px]">
+            {[["/entry", "Find a voucher by reference"], ["/mgmt/store-expenses", "Store Expenses, down to the voucher"], ["/cash", "Liquidity: store till days"]].map(([href, label]) => (
+              <AppLink key={href} href={href} className="press rounded border px-2.5 py-1 font-semibold text-primary hover:bg-muted">{label}</AppLink>
+            ))}
+          </div>
+        </>
       ) : (
         <LiveBoundary query={q} skeleton={<Skeleton className="m-4 h-[320px]" />}>
           {(d) => (
