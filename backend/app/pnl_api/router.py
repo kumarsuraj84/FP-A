@@ -20,6 +20,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from decimal import Decimal
 
+from collections import defaultdict
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from ..creditors_api.router import ok
@@ -68,9 +69,10 @@ class Scope:
             raise HTTPException(422, "from_month is after to_month")
         self.run, self.conn, self.lo, self.hi, self.basis = run, conn, lo, hi, basis
         self.filters = {"region": region, "cluster": cluster, "state": state, "vintage": vintage, "status": status}
-        self.sites = repo.sites(conn, run["run_id"])
-        self.stores = repo.store_set(conn, run["run_id"])
-        self.data = repo.site_months(conn, run["run_id"], basis)
+        self.sites = repo.cached(("sites", run["run_id"]), lambda: repo.sites(conn, run["run_id"]))
+        self.stores = repo.cached(("stores", run["run_id"]), lambda: repo.store_set(conn, run["run_id"]))
+        # per-site-month figures of a whole run: heavy to build, identical for every request of the same run and basis; a copy keeps lookups from growing the cache
+        self.data = defaultdict(repo.blank, repo.cached(("site_months", run["run_id"], basis), lambda: dict(repo.site_months(conn, run["run_id"], basis))))
         self.first_month = min((m for _, m in self.data), default=lo)
         self.filtered = any(self.filters.values())
 

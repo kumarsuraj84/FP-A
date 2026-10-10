@@ -77,7 +77,8 @@ function Strip({ q, filtered }: { q: PnlQuery; filtered: boolean }) {
         const c = d.comparison;
         const g = c?.growth;
         return (
-          <section aria-label="Verified figures" data-testid="pnl-strip" className="border-b bg-card">
+          <section aria-label="Verified figures" data-testid="pnl-strip" aria-busy={s.isPlaceholderData} data-updating={s.isPlaceholderData || undefined} className={cn("border-b bg-card transition-opacity", s.isPlaceholderData && "opacity-50")}>
+            {s.isPlaceholderData && <div role="status" className="px-4 pt-1.5 text-[11px] font-medium text-muted-foreground">Updating for the selected period…</div>}
             <div className="grid grid-cols-8 divide-x @max-[1700px]:grid-cols-4 @max-[1700px]:divide-y @max-[640px]:grid-cols-2">
               <Cell testId="strip-sales" label={T.revenue} value={cr(t.revenue)} exact={t.revenue} sub={`${monthLabel(d.scope.from_month)} to ${monthLabel(d.scope.to_month)}${d.scope.partial_last_month ? " (last month partial)" : ""}`} />
               <Cell testId="strip-gm" label={filtered ? T.grossMargin : T.materialMargin} value={cr(t.gross_margin)} exact={t.gross_margin} sub={`${pct(t.gross_margin_pct)} of revenue`} />

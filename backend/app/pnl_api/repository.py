@@ -93,6 +93,37 @@ def pct(a: Decimal, b: Decimal) -> Decimal | None:
 # ───────────── data access ─────────────
 
 
+_CACHE: dict = {}
+_CACHE_TTL_SECONDS = 120
+
+
+def cached(key: tuple, build):
+    """A short-lived per-process cache for run-wide figures: a run does not change while it is served, and a reload is picked up within the TTL."""
+    import os
+    import time
+    if "PYTEST_CURRENT_TEST" in os.environ:  # tests reload the same run id with different data
+        return build()
+    now = time.monotonic()
+    hit = _CACHE.get(key)
+    if hit and now - hit[0] < _CACHE_TTL_SECONDS:
+        return hit[1]
+    value = build()
+    _CACHE[key] = (now, value)
+    return value
+
+
+def run_cached(fn):
+    """Cache a query of a whole run by its arguments (the connection is not part of the key). Results are copied out, so callers may reshape them."""
+    import copy
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(conn, *args):
+        key = (fn.__name__, *(frozenset(a) if isinstance(a, set) else a for a in args))
+        return copy.deepcopy(cached(key, lambda: fn(conn, *args)))
+    return wrapper
+
+
 def sites(conn, run_id: str) -> dict[str, dict]:
     return {r["site_code"]: r for r in conn.execute("SELECT * FROM pnl.v_site WHERE run_id = %s", (run_id,)).fetchall()}
 
@@ -189,6 +220,7 @@ def last_year(lo: date, hi: date, first_month: date) -> tuple[date, date] | None
     return (a, b) if a >= first_month else None
 
 
+@run_cached
 def pl_lines(conn, run_id: str, basis: str, lo: date, hi: date, site_codes: set[str] | None) -> list[dict]:
     cond = "AND release_status = 'Posted'" if basis == "posted" else ""
     params: list = [run_id, lo, hi]
@@ -209,6 +241,7 @@ def pl_lines(conn, run_id: str, basis: str, lo: date, hi: date, site_codes: set[
     return sorted(merged.values(), key=lambda r: (order[r["section"]], r["amount"] if r["section"] in COST_SECTIONS else -r["amount"], r["group_label"]))
 
 
+@run_cached
 def unmapped_ledgers(conn, run_id: str, basis: str, lo: date, hi: date, limit: int = 60) -> dict:
     """Ledgers that still need a group (mapping_state UNMAPPED), plus apart the inventory-flow ledgers the management rules exclude on purpose (stock transfers, purchases)."""
     cond = "AND release_status = 'Posted'" if basis == "posted" else ""
@@ -220,6 +253,7 @@ def unmapped_ledgers(conn, run_id: str, basis: str, lo: date, hi: date, limit: i
             "inventory_flow_ledgers": inv["n"], "inventory_flow_net": inv["net"]}
 
 
+@run_cached
 def unmapped_run_count(conn, run_id: str) -> int:
     """Ledgers with no group anywhere in the run (every loaded month): the period view can show fewer."""
     return conn.execute("SELECT count(DISTINCT glcode) AS n FROM pnl.v_gl_site_month WHERE run_id = %s AND mapping_state = 'UNMAPPED'", (run_id,)).fetchone()["n"]
@@ -240,6 +274,7 @@ def untied(conn, run_id: str, lo: date, hi: date, limit: int = 25) -> list[dict]
                         "WHERE t.run_id = %s AND NOT t.tied AND t.month BETWEEN %s AND %s ORDER BY abs(t.difference) DESC, t.site_code LIMIT %s", (run_id, lo, hi, limit)).fetchall()
 
 
+@run_cached
 def cogs_only_sites(conn, run_id: str) -> list[dict]:
     return conn.execute("SELECT c.site_code, s.store_name, sum(c.sl_v - c.tax_amt) AS sales_ex_gst, sum(c.cogs_v) AS cogs FROM pnl.v_cogs_site_month c LEFT JOIN pnl.v_site s ON s.run_id = c.run_id AND s.site_code = c.site_code "
                         "WHERE c.run_id = %s AND NOT EXISTS (SELECT 1 FROM pnl.v_gl_site_month g WHERE g.run_id = c.run_id AND g.site_code = c.site_code AND g.ledger_name = %s) "
