@@ -25,7 +25,7 @@ interface Step {
 /** Two short lines per step when the bridge is too narrow for the full names; the full name stays in the tooltip. */
 const SHORT: Record<string, [string, string]> = {
   revenue: ["Revenue", ""], cogs: ["Material", "cost"], cogs_books: ["Other mat.", "items"], ooi: ["Other", "income"], gross_margin: ["Material", "margin"],
-  opex: ["Store", "expenses"], contribution: ["Store", "EBITDA"], dc_cost: ["DC", "cost"], ho_cost: ["HO", "cost"], corporate_ebitda: ["Corp.", "EBITDA"],
+  opex: ["Store", "expenses"], contribution: ["Store EBITDA", "Books"], dc_cost: ["DC", "cost"], ho_cost: ["HO", "cost"], corporate_ebitda: ["Corp. EBITDA", "Books"],
 };
 
 export function PnlWaterfall({ t, height = 300, store = false }: { t: PnlMoney; height?: number; store?: boolean }) {
@@ -40,12 +40,12 @@ export function PnlWaterfall({ t, height = 300, store = false }: { t: PnlMoney; 
     ...(ooi !== 0 ? [{ id: "ooi", label: T.otherOperatingIncome, value: ooi, kind: "delta" as const }] : []),
     { id: "gross_margin", label: store ? T.grossMargin : T.materialMargin, value: cr(t.gross_margin) ?? 0, kind: "total" },
     { id: "opex", label: T.storeExpenses, value: cr(t.opex) ?? 0, kind: "delta" },
-    { id: "contribution", label: store ? T.fourWall : T.storeEbitda, value: cr(t.contribution) ?? 0, kind: "total" },
+    { id: "contribution", label: store ? T.fourWall : `${T.storeEbitda} — Books`, value: cr(t.contribution) ?? 0, kind: "total" },
     ...(!store && t.corporate_ebitda !== undefined
       ? [
           { id: "dc_cost", label: T.dcCost, value: cr(t.dc_cost) ?? 0, kind: "delta" as const },
           { id: "ho_cost", label: T.hoCost, value: cr(t.ho_cost) ?? 0, kind: "delta" as const },
-          { id: "corporate_ebitda", label: T.corporateEbitda, value: cr(t.corporate_ebitda) ?? 0, kind: "total" as const },
+          { id: "corporate_ebitda", label: `${T.corporateEbitda} — Books`, value: cr(t.corporate_ebitda) ?? 0, kind: "total" as const },
         ]
       : []),
   ];

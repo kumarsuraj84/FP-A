@@ -197,10 +197,10 @@ describe("Quick fixes on the live app", () => {
     expect(within(screen.getByTestId("hero")).getByTestId("basis-tag")).toHaveTextContent("Management total");
   });
 
-  it("P-04: Profitability tags its Corporate EBITDA 'Books'", async () => {
+  it("P-04: Profitability names its Corporate EBITDA 'Corporate EBITDA — Books', not the Management figure", async () => {
     mount("/profitability");
     await screen.findByTestId("strip-corporate", {}, T);
-    expect(within(screen.getByTestId("strip-corporate")).getByTestId("basis-tag")).toHaveTextContent("Books");
+    expect(screen.getByTestId("strip-corporate")).toHaveTextContent(/Corporate EBITDA — Books/);
   });
 
   it("P-11: Landing chips come from the run headers, not literals", async () => {

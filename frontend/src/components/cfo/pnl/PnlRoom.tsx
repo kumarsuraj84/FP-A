@@ -83,10 +83,10 @@ function Strip({ q, filtered }: { q: PnlQuery; filtered: boolean }) {
               <Cell testId="strip-sales" label={T.revenue} value={cr(t.revenue)} exact={t.revenue} sub={`${monthLabel(d.scope.from_month)} to ${monthLabel(d.scope.to_month)}${d.scope.partial_last_month ? " (last month partial)" : ""}`} />
               <Cell testId="strip-gm" label={filtered ? T.grossMargin : T.materialMargin} value={cr(t.gross_margin)} exact={t.gross_margin} sub={`${pct(t.gross_margin_pct)} of revenue`} />
               <Cell testId="strip-opex" label={T.storeExpenses} value={cr(t.opex)} exact={t.opex} sub={`${pct(t.opex_pct)} of revenue`} tone="" />
-              <Cell testId="strip-contribution" label={filtered ? T.fourWall : T.storeEbitda} value={cr(t.contribution)} exact={t.contribution} sub={`${pct(t.contribution_pct)} of revenue`} tone={tone(t.contribution)} />
+              <Cell testId="strip-contribution" label={filtered ? T.fourWall : `${T.storeEbitda} — Books`} value={cr(t.contribution)} exact={t.contribution} sub={`${pct(t.contribution_pct)} of revenue`} tone={tone(t.contribution)} />
               {filtered
                 ? <Cell testId="strip-corporate" label="DC and HO cost" value="Company level" sub="not apportioned to a filtered view" tone="text-muted-foreground" />
-                : <Cell testId="strip-corporate" label={T.corporateEbitda} tag={<BasisTag basis="books" />} value={cr(t.corporate_ebitda)} exact={t.corporate_ebitda} sub={`after DC cost ${cr(t.dc_cost)} and HO cost ${cr(t.ho_cost)}`} tone={tone(t.corporate_ebitda)} />}
+                : <Cell testId="strip-corporate" label={`${T.corporateEbitda} — Books`} value={cr(t.corporate_ebitda)} exact={t.corporate_ebitda} sub={`after DC cost ${cr(t.dc_cost)} and HO cost ${cr(t.ho_cost)}`} tone={tone(t.corporate_ebitda)} />}
               <Cell testId="strip-growth" label={`${T.yoy} vs ${T.ly}`} value={g ? pct(g.revenue_pct, true) : DASH} exact={g?.revenue_pct ?? undefined} sub={c ? `${monthLabel(c.period.from_month)} to ${monthLabel(c.period.to_month)} · complete months` : `no ${T.ly} data for these months`} tone={tone(g?.revenue_pct)} />
               <Cell testId="strip-stores" label={filtered ? "Stores in this view" : "Stores trading"} value={d.stores_in_scope.toLocaleString("en-IN")} sub={filtered ? "after the filters" : "sites with sales"} />
               <Cell testId="strip-budget" label={T.aop} value="Not available" sub={`no FY26-27 ${T.aop} in the sources`} tone="text-muted-foreground" />
@@ -541,7 +541,7 @@ export function PnlRoom() {
           {tab === "overview" && (
             <>
               <div className="grid grid-cols-2 gap-3 p-3 @max-[1000px]:grid-cols-1">
-                <Panel testId="bridge-panel" eyebrow="Real · verified" title="From revenue to Corporate EBITDA" right={summary.data && <span className="num text-[11.5px] text-muted-foreground">{monthLabel(summary.data.scope.from_month)} to {monthLabel(summary.data.scope.to_month)} · {summary.data.scope.basis_label}</span>}>
+                <Panel testId="bridge-panel" eyebrow="Real · verified" title="From revenue to Corporate EBITDA — Books" right={summary.data && <span className="num text-[11.5px] text-muted-foreground">{monthLabel(summary.data.scope.from_month)} to {monthLabel(summary.data.scope.to_month)} · {summary.data.scope.basis_label}</span>}>
                   <LiveBoundary query={summary} skeleton={<Skeleton className="m-4 h-[300px]" />}>{(d) => <PnlWaterfall t={d.totals as PnlMoney} store={filtered} />}</LiveBoundary>
                   {summary.data?.reconciliation && (
                     <div data-testid="bridge-reconciles" className={cn("border-t px-4 py-1.5 text-[11.5px]", summary.data.reconciliation.reconciles ? "text-[oklch(0.4_0.12_155)]" : "tone-bad")}>
