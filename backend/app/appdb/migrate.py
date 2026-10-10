@@ -40,7 +40,7 @@ def main(argv: list[str]) -> int:
         c.rollback()
         todo = []
         for f in files():
-            sha = hashlib.sha256(f.read_bytes()).hexdigest()
+            sha = hashlib.sha256(f.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
             if f.stem in have:
                 if have[f.stem] != sha:
                     print(f"REFUSED {f.name}: applied earlier but the file has changed; add a new migration instead")
