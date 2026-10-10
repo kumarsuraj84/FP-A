@@ -25,7 +25,15 @@ const CASE = (over: Record<string, unknown> = {}) => ({
   due_date: null, next_action: null, closure_reason: null, first_detected_at: "2026-10-02T10:00:00Z", last_detected_at: "2026-10-02T10:00:00Z", detection_count: 1, overdue: false, recurring: false, ...over,
 });
 
-function install(opts: { me: unknown | null; adjustments?: unknown[]; corrections?: unknown; cases?: unknown[]; calls?: Call[]; loginMe?: unknown }) {
+const CK = (key: string, title: string, status: string, summary: string, over: Record<string, unknown> = {}) => ({ key, title, status, effective: status, summary, evidence: {}, link: null, manual: false, signature: "s" + key, signoff: null, ...over });
+const READY = (over: Record<string, unknown> = {}) => ({
+  entity: "SUBCO", month: "2026-09", period_status: "SOFT_CLOSED", outcome: "BLOCKED", readiness_pct: 60, management_pnl: "PROVISIONAL", can_management_close: false, can_final_close: false,
+  blockers: [{ key: "provisions", title: "Required provisions generated", summary: "Missing: Gratuity." }], note: "Blockers decide the close.",
+  checks: [CK("revenue_loaded", "Revenue loaded for the whole month", "PASS", "Revenue 90.00 Cr."), CK("provisions", "Required provisions generated", "BLOCKED", "Missing: Gratuity."), CK("adjustments", "Adjustments approved", "ATTENTION", "2 adjustment(s) not yet active"),
+    CK("intercompany", "Intercompany reconciliation signed off", "PENDING", "Review the intercompany tie, then sign it off.", { manual: true }), CK("pnl_certification", "Management P&L certified", "PENDING", "A controller certifies.", { manual: true })], ...over,
+});
+
+function install(opts: { readiness?: unknown; me: unknown | null; adjustments?: unknown[]; corrections?: unknown; cases?: unknown[]; calls?: Call[]; loginMe?: unknown }) {
   const calls = opts.calls ?? [];
   let me = opts.me;
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -49,6 +57,9 @@ function install(opts: { me: unknown | null; adjustments?: unknown[]; correction
     if (url.startsWith("/corrections-api/preview")) return json({ lines: 1, stores: 1, source_total_cr: "-0.0500", by_group: { "02-Employee Cost": "0.0500", "16-Miscellaneous Expenses": "-0.0500" }, by_month: { "2026-08": "0.0000" }, net_by_group_cr: "0.0000", net_by_month_cr: "0.0000", note: "Both nets are zero." });
     if (url.startsWith("/corrections-api") && method === "POST") return json({ request_id: "r1", scope_type: "LINE", correction_type: "GROUP", source_entity: "RETAIL", status: "DRAFT", reason_code: "WRONG_CLASSIFICATION", reason_text: "booked to the wrong group", evidence_reference: "ticket 1", requested_by: "u1", requested_at: "2026-10-03T10:00:00Z", approved_at: null, line_count: 1, source_total_cr: "-0.0500", counts_in_management_total: false });
     if (url.startsWith("/corrections-api")) return json(opts.corrections ?? { total: 0, counts: {}, items: [] });
+    if (url.startsWith("/close-api/readiness")) return json(opts.readiness ?? READY());
+    if (url.startsWith("/close-api/history")) return json([{ from_status: "OPEN", to_status: "SOFT_CLOSED", reason: "month complete and reviewed", at: "2026-10-03T10:00:00Z", actor: "mgr@example.test" }]);
+    if (url.startsWith("/close-api/signoff") || url.startsWith("/close-api/period")) return json(READY({ period_status: "SOFT_CLOSED" }));
     if (url.startsWith("/inbox-api/thresholds")) return json({ version: "t1", calibration_status: "UNCALIBRATED", thresholds: {} });
     if (/\/inbox-api\/[^/?]+\/history/.test(url)) return json([{ seq: 1, event_type: "DETECTED", from_status: null, to_status: "OPEN", comment: null, at: "2026-10-02T10:00:00Z", actor: "system" }]);
     if (/\/inbox-api\/[^/?]+\/(assign|close|acknowledge)/.test(url) && method === "POST") return json(CASE({ owner_user_id: "u2" }));
@@ -240,5 +251,50 @@ describe("Exception Inbox", () => {
     expect(screen.queryByTestId("act-close")).toBeNull();
     expect(screen.queryByTestId("assign-box")).toBeNull();
     expect(screen.getByTestId("recurring")).toHaveTextContent("OCCURRENCE 3");
+  });
+});
+
+
+describe("Month-end close", () => {
+  it("shows the outcome, the blockers and the checklist with each item's status", async () => {
+    install({ me: ME("fpa_manager") });
+    mount("/control/close");
+    expect((await screen.findByTestId("close-outcome", {}, T)).dataset.outcome).toBe("BLOCKED");
+    expect(screen.getByTestId("close-blockers")).toHaveTextContent("Missing: Gratuity.");
+    expect(screen.getByTestId("status-revenue_loaded").dataset.status).toBe("PASS");
+    expect(screen.getByTestId("status-provisions").dataset.status).toBe("BLOCKED");
+    expect(screen.getByTestId("pnl-state")).toHaveTextContent("PROVISIONAL");
+    expect(screen.getByTestId("readiness-pct")).toHaveTextContent("60%");
+    expect(screen.getByTestId("period-status-text")).toHaveTextContent("Soft closed");
+  });
+
+  it("a blocker cannot be overridden, an attention item can with a comment, and a manual item is signed off", async () => {
+    const calls = install({ me: ME("finance_reviewer") });
+    mount("/control/close");
+    await screen.findByTestId("close-checklist", {}, T);
+    expect(screen.queryByTestId("sign-provisions")).toBeNull();
+    fireEvent.click(screen.getByTestId("sign-adjustments"));
+    const confirm = screen.getByTestId("confirm-adjustments");
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(screen.getByTestId("check-adjustments").nextElementSibling as HTMLElement).getByLabelText("Comment"), { target: { value: "both are covered by the policy" } });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    await waitFor(() => expect(calls.some((c) => c.url.startsWith("/close-api/signoff"))).toBe(true));
+    expect(calls.find((c) => c.url.startsWith("/close-api/signoff"))!.body).toMatchObject({ entity: "SUBCO", month: expect.any(String), check_key: "adjustments", decision: "OVERRIDDEN" });
+    expect(screen.getByTestId("sign-intercompany")).toHaveTextContent("Sign off");
+    expect(screen.queryByTestId("sign-pnl_certification")).toBeNull();       // only a controller certifies
+  });
+
+  it("period actions need a reason, and management close stays disabled while blockers remain", async () => {
+    const calls = install({ me: ME("controller") });
+    mount("/control/close");
+    await screen.findByTestId("close-checklist", {}, T);
+    expect(screen.getByTestId("sign-pnl_certification")).toBeInTheDocument();
+    expect(screen.getByTestId("period-management-close")).toBeDisabled();
+    fireEvent.change(screen.getAllByLabelText("Reason").slice(-1)[0], { target: { value: "reopening for a late invoice" } });
+    expect(screen.getByTestId("period-management-close")).toBeDisabled();       // blockers remain even with a reason
+    fireEvent.click(screen.getByTestId("period-reopen"));
+    await waitFor(() => expect(calls.some((c) => c.url === "/close-api/period/reopen")).toBe(true));
+    expect(calls.find((c) => c.url === "/close-api/period/reopen")!.body).toMatchObject({ entity: "SUBCO", reason: "reopening for a late invoice" });
   });
 });

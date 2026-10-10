@@ -3,6 +3,7 @@ user, adjustment or audit row is left behind. Skipped without fpa_app; the gold-
 from __future__ import annotations
 
 import pytest
+from appdb_helpers import set_period
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -155,7 +156,7 @@ def test_maker_checker_follows_single_user_mode(env):
 
 def test_closed_period_blocks_new_adjustments_with_a_clear_message(env):
     m = env["person"]("mgr4@example.test", "fpa_manager")
-    env["db"].execute("INSERT INTO reporting_period_status (entity, period, status) VALUES ('SUBCO', '2031-05-01', 'FINAL_CLOSED')")
+    set_period(env["db"], "SUBCO", "2031-05-01", "FINAL_CLOSED")
     r = post(m, "", {**FIXED, "month": "2031-05"})
     assert r.status_code == 422 and "closed" in r.json()["detail"]
 
@@ -165,7 +166,7 @@ def test_template_generation_calendar_and_closed_month_are_never_shifted(env):
     t = m.post("/api/v1/adjustments/templates", json={**FIXED, "name": "Gratuity", "start_month": "2020-01", "end_month": "2020-06"}, headers=H).json()["data"]
     assert t["status"] == "DRAFT" and t["effect"] == "COST" and t["fixed_amount_rupees"] == "-100000.0000"
     assert m.post(f"/api/v1/adjustments/templates/{t['template_id']}/approve", headers=H).json()["data"]["status"] == "ACTIVE"
-    env["db"].execute("INSERT INTO reporting_period_status (entity, period, status) VALUES ('SUBCO', '2020-03-01', 'FINAL_CLOSED')")
+    set_period(env["db"], "SUBCO", "2020-03-01", "FINAL_CLOSED")
     g = m.post("/api/v1/adjustments/templates/generate/2020-02", headers=H).json()["data"]
     assert len(g["created"]) == 1 and not g["skipped"]
     again = m.post("/api/v1/adjustments/templates/generate/2020-02", headers=H).json()["data"]

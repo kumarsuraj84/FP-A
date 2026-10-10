@@ -87,6 +87,11 @@ export default defineConfig({
           changeOrigin: false,
           rewrite: (path) => path.replace(/^\/inbox-api/, "/api/v1/exceptions"), // governed writes: the session cookie and the X-FPA-Request header pass through; no finance token is ever added
         },
+        "/close-api": {
+          target,
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/close-api/, "/api/v1/close"), // month-end close: session cookie and X-FPA-Request header pass through; no finance token
+        },
         "/related-api": {
           target,
           changeOrigin: false,

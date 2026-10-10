@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import psycopg
+from appdb_helpers import set_period
 import pytest
 
 from app.appdb.conn import app_connection
@@ -171,7 +172,7 @@ def test_closed_month_blocks_approval_and_soft_close_needs_a_controller(db):
     u, ctl = user(db, "c10a@example.test"), user(db, "c10b@example.test", role="controller")
     r = request(db, u, ctype="EXPENSE_MONTH")
     line(db, r, corrected_group=None, corrected_month="2031-08-01", original_month="2031-07-01")
-    db.execute("INSERT INTO reporting_period_status (entity, period, status) VALUES ('SUBCO', '2031-08-01', 'SOFT_CLOSED')")
+    set_period(db, "SUBCO", "2031-08-01", "SOFT_CLOSED")
     event(db, r, u, "CREATED", "DRAFT")
     event(db, r, u, "SUBMITTED", "SUBMITTED")
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -180,12 +181,12 @@ def test_closed_month_blocks_approval_and_soft_close_needs_a_controller(db):
     u, ctl = user(db, "c10c@example.test"), user(db, "c10d@example.test", role="controller")
     r = request(db, u, ctype="EXPENSE_MONTH")
     line(db, r, key="K9", corrected_group=None, corrected_month="2031-10-01", original_month="2031-09-01")
-    db.execute("INSERT INTO reporting_period_status (entity, period, status) VALUES ('SUBCO', '2031-10-01', 'SOFT_CLOSED')")
+    set_period(db, "SUBCO", "2031-10-01", "SOFT_CLOSED")
     event(db, r, u, "CREATED", "DRAFT")
     event(db, r, u, "SUBMITTED", "SUBMITTED")
     event(db, r, ctl, "APPROVED", "APPROVED")
     assert status(db, r) == "APPROVED"
-    db.execute("UPDATE reporting_period_status SET status = 'FINAL_CLOSED' WHERE entity = 'SUBCO' AND period = '2031-10-01'")
+    set_period(db, "SUBCO", "2031-10-01", "FINAL_CLOSED")
     with pytest.raises(psycopg.errors.CheckViolation):
         event(db, r, ctl, "ACTIVATED", "ACTIVE")
 

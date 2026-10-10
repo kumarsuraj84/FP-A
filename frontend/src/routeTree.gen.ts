@@ -33,6 +33,7 @@ import { Route as CreditorsVendorRouteImport } from './routes/creditors_.vendor'
 import { Route as ControlUsersRouteImport } from './routes/control.users'
 import { Route as ControlInboxRouteImport } from './routes/control.inbox'
 import { Route as ControlCorrectionsRouteImport } from './routes/control.corrections'
+import { Route as ControlCloseRouteImport } from './routes/control.close'
 import { Route as ControlAdjustmentsRouteImport } from './routes/control.adjustments'
 
 const VoucherRoute = VoucherRouteImport.update({
@@ -155,6 +156,11 @@ const ControlCorrectionsRoute = ControlCorrectionsRouteImport.update({
   path: '/control/corrections',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ControlCloseRoute = ControlCloseRouteImport.update({
+  id: '/control/close',
+  path: '/control/close',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ControlAdjustmentsRoute = ControlAdjustmentsRouteImport.update({
   id: '/control/adjustments',
   path: '/control/adjustments',
@@ -174,6 +180,7 @@ export interface FileRoutesByFullPath {
   '/related-party': typeof RelatedPartyRoute
   '/voucher': typeof VoucherRoute
   '/control/adjustments': typeof ControlAdjustmentsRoute
+  '/control/close': typeof ControlCloseRoute
   '/control/corrections': typeof ControlCorrectionsRoute
   '/control/inbox': typeof ControlInboxRoute
   '/control/users': typeof ControlUsersRoute
@@ -201,6 +208,7 @@ export interface FileRoutesByTo {
   '/related-party': typeof RelatedPartyRoute
   '/voucher': typeof VoucherRoute
   '/control/adjustments': typeof ControlAdjustmentsRoute
+  '/control/close': typeof ControlCloseRoute
   '/control/corrections': typeof ControlCorrectionsRoute
   '/control/inbox': typeof ControlInboxRoute
   '/control/users': typeof ControlUsersRoute
@@ -229,6 +237,7 @@ export interface FileRoutesById {
   '/related-party': typeof RelatedPartyRoute
   '/voucher': typeof VoucherRoute
   '/control/adjustments': typeof ControlAdjustmentsRoute
+  '/control/close': typeof ControlCloseRoute
   '/control/corrections': typeof ControlCorrectionsRoute
   '/control/inbox': typeof ControlInboxRoute
   '/control/users': typeof ControlUsersRoute
@@ -258,6 +267,7 @@ export interface FileRouteTypes {
     | '/related-party'
     | '/voucher'
     | '/control/adjustments'
+    | '/control/close'
     | '/control/corrections'
     | '/control/inbox'
     | '/control/users'
@@ -285,6 +295,7 @@ export interface FileRouteTypes {
     | '/related-party'
     | '/voucher'
     | '/control/adjustments'
+    | '/control/close'
     | '/control/corrections'
     | '/control/inbox'
     | '/control/users'
@@ -312,6 +323,7 @@ export interface FileRouteTypes {
     | '/related-party'
     | '/voucher'
     | '/control/adjustments'
+    | '/control/close'
     | '/control/corrections'
     | '/control/inbox'
     | '/control/users'
@@ -340,6 +352,7 @@ export interface RootRouteChildren {
   RelatedPartyRoute: typeof RelatedPartyRoute
   VoucherRoute: typeof VoucherRoute
   ControlAdjustmentsRoute: typeof ControlAdjustmentsRoute
+  ControlCloseRoute: typeof ControlCloseRoute
   ControlCorrectionsRoute: typeof ControlCorrectionsRoute
   ControlInboxRoute: typeof ControlInboxRoute
   ControlUsersRoute: typeof ControlUsersRoute
@@ -525,6 +538,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ControlCorrectionsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/control/close': {
+      id: '/control/close'
+      path: '/control/close'
+      fullPath: '/control/close'
+      preLoaderRoute: typeof ControlCloseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/control/adjustments': {
       id: '/control/adjustments'
       path: '/control/adjustments'
@@ -548,6 +568,7 @@ const rootRouteChildren: RootRouteChildren = {
   RelatedPartyRoute: RelatedPartyRoute,
   VoucherRoute: VoucherRoute,
   ControlAdjustmentsRoute: ControlAdjustmentsRoute,
+  ControlCloseRoute: ControlCloseRoute,
   ControlCorrectionsRoute: ControlCorrectionsRoute,
   ControlInboxRoute: ControlInboxRoute,
   ControlUsersRoute: ControlUsersRoute,

@@ -1,7 +1,7 @@
 /** Client for the governed write APIs (identity, adjustments, corrections, exceptions). Same-origin through the dev proxy; the session is an HttpOnly cookie the browser
  *  sends by itself, and every state-changing call carries X-FPA-Request: 1 (the server also checks the Origin). No token or password is ever kept in JavaScript. */
-export type Area = "auth" | "adjustments" | "corrections" | "inbox";
-const BASE: Record<Area, string> = { auth: "/auth-api", adjustments: "/adjustments-api", corrections: "/corrections-api", inbox: "/inbox-api" };
+export type Area = "auth" | "adjustments" | "corrections" | "inbox" | "close";
+const BASE: Record<Area, string> = { auth: "/auth-api", adjustments: "/adjustments-api", corrections: "/corrections-api", inbox: "/inbox-api", close: "/close-api" };
 
 export class ControlApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -130,4 +130,23 @@ export const inbox = {
   act: (id: string, action: string, comment?: string, closure_reason?: string) => call<Case>("inbox", "POST", `/${id}/${action}`, { body: { comment, closure_reason } }),
   comment: (id: string, comment: string) => call<Case>("inbox", "POST", `/${id}/comment`, { body: { comment } }),
   nextAction: (id: string, text: string) => call<Case>("inbox", "POST", `/${id}/next-action`, { body: { text } }),
+};
+
+/* ---------------- month-end close ---------------- */
+export type CheckStatus = "PASS" | "ATTENTION" | "BLOCKED" | "PENDING" | "NA";
+export interface CloseCheck {
+  key: string; title: string; status: CheckStatus; effective: CheckStatus; summary: string; evidence: Record<string, unknown>; link: string | null; manual: boolean; signature: string;
+  signoff: { decision: string; comment: string; at: string; by: string | null; stale: boolean } | null;
+}
+export interface Readiness {
+  entity: "SUBCO" | "HOLDCO"; month: string; period_status: string; outcome: "READY" | "NEEDS_ATTENTION" | "BLOCKED"; readiness_pct: number; blockers: { key: string; title: string; summary: string }[];
+  management_pnl: "COMPLETE" | "PROVISIONAL"; can_management_close: boolean; can_final_close: boolean; checks: CloseCheck[]; note: string;
+}
+export interface PeriodEvent { from_status: string | null; to_status: string; reason: string; at: string; actor: string | null }
+
+export const close = {
+  readiness: (entity: string, month: string) => call<Readiness>("close", "GET", "/readiness", { params: { entity, month } }),
+  history: (entity: string, month: string) => call<PeriodEvent[]>("close", "GET", "/history", { params: { entity, month } }),
+  signoff: (entity: string, month: string, check_key: string, decision: string, comment: string) => call<Readiness>("close", "POST", "/signoff", { body: { entity, month, check_key, decision, comment } }),
+  period: (action: string, entity: string, month: string, reason: string) => call<Readiness>("close", "POST", `/period/${action}`, { body: { entity, month, reason } }),
 };

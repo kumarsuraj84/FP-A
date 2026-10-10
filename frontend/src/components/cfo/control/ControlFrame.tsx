@@ -7,8 +7,9 @@ import { Skeleton } from "../common";
 import { Panel, WorkspaceHeader } from "../panels";
 import { Btn, ErrMsg, Field, input, useWrite } from "./ui";
 
-export type ControlTab = "adjustments" | "corrections" | "inbox" | "users";
-const TABS: { id: ControlTab; label: string; to: "/control/adjustments" | "/control/corrections" | "/control/inbox" | "/control/users"; admin?: boolean }[] = [
+export type ControlTab = "close" | "adjustments" | "corrections" | "inbox" | "users";
+const TABS: { id: ControlTab; label: string; to: "/control/close" | "/control/adjustments" | "/control/corrections" | "/control/inbox" | "/control/users"; admin?: boolean }[] = [
+  { id: "close", label: "Month-end close", to: "/control/close" },
   { id: "adjustments", label: "Adjustments & Provisions", to: "/control/adjustments" },
   { id: "corrections", label: "Corrections", to: "/control/corrections" },
   { id: "inbox", label: "Exception Inbox", to: "/control/inbox" },

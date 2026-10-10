@@ -3,6 +3,7 @@ back, so nothing is left behind. Skipped when fpa_app is not reachable."""
 from __future__ import annotations
 
 import psycopg
+from appdb_helpers import set_period
 import pytest
 
 from app.appdb.conn import app_connection
@@ -126,7 +127,7 @@ def test_rejection_needs_a_reason(db):
 def test_closed_period_refuses_new_and_activation(db):
     u = user(db, "t8@example.test")
     # the app login cannot close a period itself in this test, so close one through the projection it may update (a plain INSERT is allowed for status rows)
-    db.execute("INSERT INTO reporting_period_status (entity, period, status) VALUES ('SUBCO', '2031-05-01', 'FINAL_CLOSED')")
+    set_period(db, "SUBCO", "2031-05-01", "FINAL_CLOSED")
     with pytest.raises(psycopg.errors.CheckViolation):
         adjustment(db, u, month="2031-05-01")
 
@@ -156,7 +157,7 @@ def test_one_live_adjustment_per_template_and_month(db):
 
 def test_period_is_keyed_by_entity_and_consolidated_needs_both(db):
     u = user(db, "t12@example.test")
-    db.execute("INSERT INTO reporting_period_status (entity, period, status) VALUES ('SUBCO', '2031-06-01', 'FINAL_CLOSED')")
+    set_period(db, "SUBCO", "2031-06-01", "FINAL_CLOSED")
     adjustment(db, u, month="2031-06-01", entity="HOLDCO", location_type="HO")
     with pytest.raises(psycopg.errors.CheckViolation):
         adjustment(db, u, month="2031-06-01", entity="CONSOLIDATED", adjustment_type="INTERCOMPANY_ELIMINATION")
