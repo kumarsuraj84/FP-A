@@ -121,7 +121,7 @@ function StoresBody({ months, asOf }: { months: string[]; asOf: string }) {
                         className="press inline-flex items-center gap-1 rounded border px-2 py-1 text-[12px] font-medium hover:bg-muted"
                         onClick={() => downloadCsv(`mgmt-stores-${d.run_id}-${from}${from !== to ? `_${to}` : ""}.csv`, [["Store", "Site", "Type", ...COLS.map((c) => c.label)], ...rows.map((r) => [r.store, r.site_code, r.store_type ?? "", ...COLS.map((c) => r[c.key] ?? "")]), ["Total", "", "", ...COLS.map((c) => totals[c.key].toFixed(4))]])}
                       >
-                        <Download className="h-3.5 w-3.5" /> CSV
+                        <Download className="h-3.5 w-3.5" /> Download CSV
                       </button>
                     </div>
                   }

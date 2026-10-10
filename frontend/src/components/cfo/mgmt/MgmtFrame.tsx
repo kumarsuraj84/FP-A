@@ -19,7 +19,7 @@ const TABS: { id: MgmtTab; label: string; to: "/mgmt" | "/mgmt/stores" | "/mgmt/
   { id: "stores", label: "Store league", to: "/mgmt/stores" },
   { id: "store-exp", label: "Store Expenses", to: "/mgmt/store-expenses" },
   { id: "dc-exp", label: "DC Expenses", to: "/mgmt/dc-expenses" },
-  { id: "recon", label: "Reconciliation", to: "/mgmt/reconciliation" },
+  { id: "recon", label: "Reconciliation to MIS", to: "/mgmt/reconciliation" },
   { id: "mapping", label: "Ledger mapping", to: "/mgmt/mapping" },
 ];
 

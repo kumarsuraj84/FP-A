@@ -271,7 +271,7 @@ function PnlBody({ months, runWarnings }: { months: string[]; runWarnings: strin
               downloadCsv(`mgmt-pnl-${d.run_id}-${mode}.csv`, [["Line (INR Cr)", ...d.months.map(monthShort), "Total"], ...d.lines.map((l) => [l.label, ...d.months.map((m) => l.values[m]?.[mode] ?? ""), l.total[mode] ?? ""])]);
             }}
           >
-            <Download className="h-3.5 w-3.5" /> CSV
+            <Download className="h-3.5 w-3.5" /> Download CSV
           </button>
         )}
       </div>
