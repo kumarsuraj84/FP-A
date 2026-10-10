@@ -217,6 +217,7 @@ def test_finance_reads_accept_a_session_first_then_the_transitional_token_which_
     assert after["proxy_token"] == before["proxy_token"] + 1 and after["session"] == before["session"] + 2 and after["refused"] >= before["refused"] + 3
     paths = client.get("/api/v1/auth/admin/read-paths").json()["data"]
     assert paths["proxy_token_allowed"] is False and paths["session"] >= 2
+    assert "proxy_token" in paths["last_used"] and "session" in paths["last_used"] and "FPA_ALLOW_PROXY_TOKEN=1" in paths["rollback"]
 
 
 def test_an_expired_session_is_not_a_way_in(shared, client, monkeypatch):

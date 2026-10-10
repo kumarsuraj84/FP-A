@@ -130,7 +130,8 @@ def read_paths(actor: Actor = Depends(current_actor)):
     except AuthError as e:
         _fail(e)
     import os
-    return {"data": {**svc.READ_PATHS, "proxy_token_allowed": os.environ.get("FPA_ALLOW_PROXY_TOKEN", "1") != "0"}}
+    return {"data": {**svc.READ_PATHS, "last_used": dict(svc.LAST_READ), "proxy_token_allowed": os.environ.get("FPA_ALLOW_PROXY_TOKEN", "1") != "0",
+                     "rollback": "Set FPA_ALLOW_PROXY_TOKEN=1 and restart the API. Before switching it off, confirm proxy_token was last used long ago (or never)."}}
 
 
 @router.get("/admin/users")
