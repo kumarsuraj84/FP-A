@@ -257,7 +257,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
         id: "cash", label: "Store till cash", value: { value: rupToCr(t.store_till_cash) }, unit: "cr",
         comparisonLabel: "No prior snapshot", movement: na("No prior till snapshot is served, so no movement is shown."), movementUnit: "cr",
         status: `${t.stores_with_cash} of ${t.stores} stores hold cash · excludes bank ledger book (provisional)`,
-        tone: t.stores_negative > 0 ? "warn" : "neutral", family: "cash", heroTab: "cash",
+        tone: t.stores_negative > 0 ? "warn" : "neutral", family: "cash", heroTab: "profit",
         origin: { source: "pulse", scope: "pulse", id: "cash", label: "Store till cash", family: "cash", amount: rupToCr(t.store_till_cash), variance: null },
         source: cash.stamp,
       });
@@ -332,7 +332,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
       out.push({
         id: "creditors", label: "Creditors", value: { value: rupToCr(s.credit_outstanding) }, unit: "cr", comparisonLabel: "No prior snapshot",
         movement: na("No prior-period creditors snapshot is served, so no movement is shown."), movementUnit: "cr",
-        status: `Past due ${fmtCr(rupToCr(s.past_due_credit))} · ${pct1(share)} of credit`, tone: share >= 60 ? "bad" : share >= 30 ? "warn" : "neutral", family: "payables", heroTab: "workingCapital",
+        status: `Past due ${fmtCr(rupToCr(s.past_due_credit))} · ${pct1(share)} of credit`, tone: share >= 60 ? "bad" : share >= 30 ? "warn" : "neutral", family: "payables", heroTab: "profit",
         origin: { source: "pulse", scope: "pulse", id: "creditors", label: "Creditors", family: "payables", amount: rupToCr(s.credit_outstanding), variance: null },
         target: { age: "all" }, source: cred.stamp,
       });
@@ -340,7 +340,7 @@ export function createLiveCfoApi(opts: LiveOptions = {}): CfoApi {
 
     /* Vendor advances and the bank reconciliation have no source: they are listed once in the data-status drawer, not as empty tiles here. */
     // keep the page's fixed order
-    const order = ["cash", "revenue", "gm", "profit", "corp", "creditors"];
+    const order = ["revenue", "gm", "profit", "corp", "creditors", "cash"];
     out.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
     return ok(out, oldest(stamps));
   }

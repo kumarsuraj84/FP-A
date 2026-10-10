@@ -103,9 +103,9 @@ describe("Command Center on real data", () => {
     await waitFor(() => expect(screen.getByTestId("hero").textContent).toMatch(new RegExp(`${MGMT.run} · as of 09 Oct 2026`)));
     expect(screen.getByTestId("hero").textContent).toMatch(/Corporate EBITDA/);
     expect(screen.getByTestId("hero").textContent).toMatch(/includes management adjustments/);
-    fireEvent.click(screen.getByTestId("hero-tab-cash"));
-    await within(screen.getByTestId("hero")).findByTestId("state-unavailable", {}, T);
-    expect(screen.getByTestId("hero")).toHaveTextContent(/No opening-cash or cash-flow source exists/);
+    // the bridge is the profit story only: no Cash / Working Capital tabs on real data (cash and creditors drill from their own KPIs)
+    expect(screen.queryByTestId("hero-tab-cash")).toBeNull();
+    expect(screen.queryByRole("tablist", { name: "Bridge" })).toBeNull();
   });
 
   it("the real-data Command Center has no placeholder panels: what has no source is one line", async () => {

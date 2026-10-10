@@ -56,7 +56,7 @@ describe("live adapter: pulse", () => {
     installLiveSources();
     const p = (await api().getPulse(ctx())).data!;
     const m = (id: string) => p.find((x) => x.id === id)!;
-    expect(p.map((x) => x.id)).toEqual(["cash", "revenue", "gm", "profit", "corp", "creditors"]);
+    expect(p.map((x) => x.id)).toEqual(["revenue", "gm", "profit", "corp", "creditors", "cash"]);
     // the P&L tiles are the MIS chain from the Management P&L: book + management adjustments
     expect(m("revenue").value.value).toBeCloseTo(1000, 6);
     expect(m("gm").value.value).toBeCloseTo(40.3, 6);

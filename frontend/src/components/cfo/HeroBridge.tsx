@@ -1,6 +1,7 @@
 import { useBridge } from "@/api/hooks";
 import { useCfo } from "@/context/CfoContext";
 import { fmtCr } from "@/lib/format";
+import { isLiveCfo } from "@/api";
 import { HERO_TABS, originFromBridgeItem } from "@/lib/origins";
 import { cn } from "@/lib/utils";
 import type { Bridge, HeroTab } from "@/types/cfo";
@@ -79,7 +80,7 @@ export function HeroBridge() {
         </div>
         <div className="flex items-center gap-3">
           {q.data?.status === "stale" && <StaleChip reason={q.data.reason} />}
-          <div role="tablist" aria-label="Bridge" className="flex rounded bg-white/10 p-0.5">
+          {!isLiveCfo && <div role="tablist" aria-label="Bridge" className="flex rounded bg-white/10 p-0.5">
             {HERO_TABS.map((t) => (
               <button
                 key={t.id}
@@ -92,7 +93,7 @@ export function HeroBridge() {
                 {t.label}
               </button>
             ))}
-          </div>
+          </div>}
         </div>
       </div>
       <div className="flex">
