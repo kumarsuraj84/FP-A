@@ -1,7 +1,7 @@
 /** Client for the governed write APIs (identity, adjustments, corrections, exceptions). Same-origin through the dev proxy; the session is an HttpOnly cookie the browser
  *  sends by itself, and every state-changing call carries X-FPA-Request: 1 (the server also checks the Origin). No token or password is ever kept in JavaScript. */
-export type Area = "auth" | "adjustments" | "corrections" | "inbox" | "close" | "mapping";
-const BASE: Record<Area, string> = { auth: "/auth-api", adjustments: "/adjustments-api", corrections: "/corrections-api", inbox: "/inbox-api", close: "/close-api", mapping: "/mapping-api" };
+export type Area = "auth" | "adjustments" | "corrections" | "inbox" | "close" | "mapping" | "sourcefix";
+const BASE: Record<Area, string> = { auth: "/auth-api", adjustments: "/adjustments-api", corrections: "/corrections-api", inbox: "/inbox-api", close: "/close-api", mapping: "/mapping-api", sourcefix: "/sourcefix-api" };
 
 export class ControlApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -171,4 +171,23 @@ export const mapping = {
   act: (id: string, action: string, comment?: string) => call<MappingRule>("mapping", "POST", `/${id}/${action}`, { body: { comment } }),
   validate: () => call<MappingValidation>("mapping", "GET", "/validate"),
   importBaseline: () => call<{ imported: Record<string, number>; skipped_existing: number; next: string }>("mapping", "POST", "/import"),
+};
+
+/* ---------------- source fix candidates (advisory) ---------------- */
+export type FixStatus = "OPEN" | "ACKNOWLEDGED" | "FIX_IMPLEMENTED" | "VALIDATED" | "STILL_RECURRING" | "DISMISSED";
+export interface FixCandidate {
+  candidate_id: string; issue_type: "RECURRING_GROUP_RECLASS" | "RECURRING_MONTH_SHIFT" | "RECURRING_MAPPING_CHANGE"; entity: string | null; subject_key: string; subject_name: string | null; from_value: string | null; to_value: string | null;
+  correction_count: number; line_count: number; site_count: number; months_affected: number; consecutive_months: number; cumulative_amount_cr: string; first_seen: string | null; last_seen: string | null; score: string;
+  recommended_fix: string; origin_ids: string[]; threshold_version: string; status: FixStatus; finance_owner: string | null; data_owner: string | null; source_fix_date: string | null;
+  post_fix_validation: "NOT_VALIDATED" | "PENDING" | "PASSED" | "FAILED"; advisory: string;
+}
+export interface FixList { total: number; counts: Record<string, number>; items: FixCandidate[]; threshold_version: string; calibration_status: string; advisory: string }
+
+export const sourcefix = {
+  list: (p: { status?: string; issue?: string } = {}) => call<FixList>("sourcefix", "GET", "", { params: p }),
+  history: (id: string) => call<HistoryEvent[]>("sourcefix", "GET", `/${id}/history`),
+  refresh: () => call<{ raised: number; updated: number; validated: number; still_recurring: number; candidates: number }>("sourcefix", "POST", "/refresh"),
+  act: (id: string, action: string, body: { comment?: string; fix_date?: string } = {}) => call<FixCandidate>("sourcefix", "POST", `/${id}/${action}`, { body }),
+  owners: (id: string, finance_owner: string, data_owner: string) => call<FixCandidate>("sourcefix", "POST", `/${id}/owners`, { body: { finance_owner, data_owner } }),
+  exportText: () => call<{ text: string }>("sourcefix", "GET", "/export"),
 };

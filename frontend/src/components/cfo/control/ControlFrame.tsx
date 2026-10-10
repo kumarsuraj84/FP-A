@@ -7,13 +7,14 @@ import { Skeleton } from "../common";
 import { Panel, WorkspaceHeader } from "../panels";
 import { Btn, ErrMsg, Field, input, useWrite } from "./ui";
 
-export type ControlTab = "mapping" | "close" | "adjustments" | "corrections" | "inbox" | "users";
-const TABS: { id: ControlTab; label: string; to: "/control/mapping" | "/control/close" | "/control/adjustments" | "/control/corrections" | "/control/inbox" | "/control/users"; admin?: boolean }[] = [
+export type ControlTab = "sourcefix" | "mapping" | "close" | "adjustments" | "corrections" | "inbox" | "users";
+const TABS: { id: ControlTab; label: string; to: "/control/source-fixes" | "/control/mapping" | "/control/close" | "/control/adjustments" | "/control/corrections" | "/control/inbox" | "/control/users"; admin?: boolean }[] = [
   { id: "close", label: "Month-end close", to: "/control/close" },
   { id: "adjustments", label: "Adjustments & Provisions", to: "/control/adjustments" },
   { id: "corrections", label: "Corrections", to: "/control/corrections" },
   { id: "inbox", label: "Exception Inbox", to: "/control/inbox" },
   { id: "mapping", label: "Mapping", to: "/control/mapping" },
+  { id: "sourcefix", label: "Source fixes", to: "/control/source-fixes" },
   { id: "users", label: "Users", to: "/control/users", admin: true },
 ];
 

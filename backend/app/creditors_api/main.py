@@ -21,6 +21,7 @@ from ..corrections.router import router as corrections_router
 from ..inbox.router import router as inbox_router
 from ..close.router import router as close_router
 from ..mapping.router import router as mapping_router
+from ..sourcefix.router import router as sourcefix_router
 
 
 def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> FastAPI:
@@ -48,6 +49,7 @@ def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> Fas
     app.include_router(inbox_router)
     app.include_router(close_router)
     app.include_router(mapping_router)
+    app.include_router(sourcefix_router)
     return app
 
 

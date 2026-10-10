@@ -97,6 +97,11 @@ export default defineConfig({
           changeOrigin: false,
           rewrite: (path) => path.replace(/^\/mapping-api/, "/api/v1/mapping"), // governed mapping rules: session cookie and X-FPA-Request header pass through; no finance token
         },
+        "/sourcefix-api": {
+          target,
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/sourcefix-api/, "/api/v1/source-fixes"), // advisory queue: session cookie and X-FPA-Request header pass through; no finance token
+        },
         "/related-api": {
           target,
           changeOrigin: false,

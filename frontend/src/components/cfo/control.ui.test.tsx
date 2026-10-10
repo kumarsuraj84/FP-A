@@ -36,7 +36,12 @@ const READY = (over: Record<string, unknown> = {}) => ({
 const MAP = (over: Record<string, unknown> = {}) => ({ mapping_id: "m1", domain: "LEDGER_GROUP", source_key: "Salary", mapped_value: "16-Miscellaneous Expenses", attrs: {}, effective_from: "2026-09", effective_to: null, version: 2, supersedes_id: "m0", status: "SUBMITTED",
   source: "app", reason: "booked to the wrong group since September", evidence_ref: "ticket 9", requested_at: "2026-10-03T10:00:00Z", approved_at: null, in_force_now: false, ...over });
 
-function install(opts: { mappings?: unknown[]; validation?: unknown; readiness?: unknown; me: unknown | null; adjustments?: unknown[]; corrections?: unknown; cases?: unknown[]; calls?: Call[]; loginMe?: unknown }) {
+const FIX = (over: Record<string, unknown> = {}) => ({ candidate_id: "f1", issue_type: "RECURRING_GROUP_RECLASS", entity: "RETAIL", subject_key: "L77", subject_name: "Salary", from_value: "02-Employee Cost", to_value: "16-Miscellaneous Expenses",
+  correction_count: 6, line_count: 6, site_count: 4, months_affected: 4, consecutive_months: 4, cumulative_amount_cr: "2.4000", first_seen: "2026-04", last_seen: "2026-07", score: "62.00",
+  recommended_fix: "Fix the upstream ledger-to-management-group mapping so ledger Salary posts to 16-Miscellaneous Expenses instead of 02-Employee Cost.", origin_ids: ["aaaaaaaa-1", "bbbbbbbb-2", "cccccccc-3", "dddddddd-4"], threshold_version: "t1", status: "OPEN",
+  finance_owner: null, data_owner: null, source_fix_date: null, post_fix_validation: "NOT_VALIDATED", advisory: "Advisory only: this queue never changes a mapping, a correction or finance data.", ...over });
+
+function install(opts: { fixes?: unknown[]; mappings?: unknown[]; validation?: unknown; readiness?: unknown; me: unknown | null; adjustments?: unknown[]; corrections?: unknown; cases?: unknown[]; calls?: Call[]; loginMe?: unknown }) {
   const calls = opts.calls ?? [];
   let me = opts.me;
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -60,6 +65,11 @@ function install(opts: { mappings?: unknown[]; validation?: unknown; readiness?:
     if (url.startsWith("/corrections-api/preview")) return json({ lines: 1, stores: 1, source_total_cr: "-0.0500", by_group: { "02-Employee Cost": "0.0500", "16-Miscellaneous Expenses": "-0.0500" }, by_month: { "2026-08": "0.0000" }, net_by_group_cr: "0.0000", net_by_month_cr: "0.0000", note: "Both nets are zero." });
     if (url.startsWith("/corrections-api") && method === "POST") return json({ request_id: "r1", scope_type: "LINE", correction_type: "GROUP", source_entity: "RETAIL", status: "DRAFT", reason_code: "WRONG_CLASSIFICATION", reason_text: "booked to the wrong group", evidence_reference: "ticket 1", requested_by: "u1", requested_at: "2026-10-03T10:00:00Z", approved_at: null, line_count: 1, source_total_cr: "-0.0500", counts_in_management_total: false });
     if (url.startsWith("/corrections-api")) return json(opts.corrections ?? { total: 0, counts: {}, items: [] });
+    if (url.startsWith("/sourcefix-api/refresh")) return json({ raised: 1, updated: 0, validated: 0, still_recurring: 0, candidates: 1 });
+    if (url.startsWith("/sourcefix-api/export")) return json({ text: "Source fix candidates\n\n1. [RECURRING_GROUP_RECLASS] Salary" });
+    if (/\/sourcefix-api\/[^/?]+\/history/.test(url)) return json([{ seq: 1, event_type: "DETECTED", from_status: null, to_status: "OPEN", comment: null, at: "2026-10-03T10:00:00Z", actor: "system" }]);
+    if (url.startsWith("/sourcefix-api") && method === "POST") return json(FIX({ status: "FIX_IMPLEMENTED", post_fix_validation: "PENDING", source_fix_date: "2026-10-05" }));
+    if (url.startsWith("/sourcefix-api")) return json({ total: (opts.fixes ?? []).length, counts: {}, items: opts.fixes ?? [], threshold_version: "t1", calibration_status: "UNCALIBRATED", advisory: "Advisory only: this queue never changes a mapping, a correction or finance data." });
     if (url.startsWith("/mapping-api/validate")) return json(opts.validation ?? { window: ["2026-04", "2026-10"], csv_ledgers: 140, app_ledgers: 140, csv_sites: 1, app_sites: 1, active_rules: 141, key_difference_count: 0, key_differences: [], line_differences: [], identical: true, note: "" });
     if (url.startsWith("/mapping-api/import")) return json({ imported: { LEDGER_GROUP: 140, SITE_LOCATION: 1 }, skipped_existing: 0, next: "" });
     if (url.startsWith("/mapping-api/preview") || /\/mapping-api\/[^/?]+\/preview/.test(url)) return json({ from_month: "2026-09", to_month: "2026-10", note: "A move between store lines does not change the totals.", lines: [
@@ -359,5 +369,52 @@ describe("Mapping Governance", () => {
     const res = await screen.findByTestId("validation-result", {}, T);
     expect(res.dataset.identical).toBe("true");
     expect(res).toHaveTextContent("Identical");
+  });
+});
+
+
+describe("Source fix candidates", () => {
+  it("ranks candidates, shows the evidence and origin ids and says it is advisory and uncalibrated", async () => {
+    install({ me: ME("fpa_manager"), fixes: [FIX()] });
+    mount("/control/source-fixes");
+    expect(await screen.findByTestId("fix-f1", {}, T)).toHaveTextContent("Salary");
+    await waitFor(() => expect(screen.getByTestId("fix-calibration")).toHaveTextContent(/uncalibrated/));
+    fireEvent.click(screen.getByTestId("fix-f1"));
+    await screen.findByTestId("fix-detail", {}, T);
+    expect(screen.getByTestId("fix-recommendation")).toHaveTextContent("Fix the upstream ledger-to-management-group mapping");
+    expect(screen.getByTestId("origin-ids")).toHaveTextContent("4 originating correction(s)");
+    expect(screen.getByTestId("fix-evidence")).toHaveTextContent("6 corrections, 6 lines, 4 sites");
+    expect(screen.getByTestId("fix-detail")).toHaveTextContent(/never changes a mapping, a correction or finance data/);
+    expect(screen.getByTestId("validation").dataset.state).toBe("NOT_VALIDATED");
+  });
+
+  it("records a source fix with its date and shows the validation as pending", async () => {
+    const calls = install({ me: ME("fpa_manager"), fixes: [FIX()] });
+    mount("/control/source-fixes");
+    fireEvent.click(await screen.findByTestId("fix-f1", {}, T));
+    fireEvent.change(await screen.findByLabelText("Fix date"), { target: { value: "2026-10-05" } });
+    fireEvent.change(screen.getByLabelText("Fix note"), { target: { value: "ledger remapped in the extraction layer" } });
+    fireEvent.click(screen.getByTestId("act-implemented"));
+    await waitFor(() => expect(calls.some((c) => c.url === "/sourcefix-api/f1/implemented")).toBe(true));
+    expect(calls.find((c) => c.url === "/sourcefix-api/f1/implemented")!.body).toEqual({ fix_date: "2026-10-05", comment: "ledger remapped in the extraction layer" });
+  });
+
+  it("a viewer can read but is offered no action, and dismissing needs a reason", async () => {
+    install({ me: ME("viewer"), fixes: [FIX()] });
+    mount("/control/source-fixes");
+    fireEvent.click(await screen.findByTestId("fix-f1", {}, T));
+    await screen.findByTestId("fix-detail", {}, T);
+    expect(screen.queryByTestId("act-implemented")).toBeNull();
+    expect(screen.getByTestId("refresh-fixes")).toBeDisabled();
+  });
+
+  it("refreshing reports what was raised and the export copies the list", async () => {
+    install({ me: ME("fpa_manager"), fixes: [] });
+    mount("/control/source-fixes");
+    await screen.findByTestId("fix-empty", {}, T);
+    fireEvent.click(screen.getByTestId("refresh-fixes"));
+    expect(await screen.findByTestId("refresh-result", {}, T)).toHaveTextContent("1 new");
+    fireEvent.click(screen.getByTestId("export-fixes"));
+    expect(await screen.findByTestId("copied", {}, T)).toHaveTextContent("1 candidates");
   });
 });
