@@ -5,6 +5,7 @@ import { DASH } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { MgmtReconCell } from "@/types/mgmtLive";
 import { Skeleton } from "../common";
+import { useMgmtRun } from "@/api/mgmtLiveHooks";
 import { LiveBoundary } from "../creditors/parts";
 import { Panel } from "../panels";
 import { MgmtFrame, MonthRange, WarningsBanner, fyYtdRange } from "./MgmtFrame";
@@ -18,10 +19,11 @@ import { cr2, cr3, monthShort, toneOf } from "./mgmtFormat";
  */
 export function StatusPill({ status }: { status: "TIED" | "VARIANCE" | string }) {
   const tied = status === "TIED";
+  const noData = status === "NO_MIS_DATA"; // nothing to compare with: neutral, not a variance
   return (
-    <span data-testid="status-pill" data-status={status} className={cn("inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide", tied ? "bg-[oklch(0.94_0.06_155)] text-[oklch(0.32_0.1_155)]" : "bg-[oklch(0.58_0.2_25)] text-white")}>
-      {tied ? <CheckCircle2 className="h-3 w-3" /> : <TriangleAlert className="h-3 w-3" />}
-      {status}
+    <span data-testid="status-pill" data-status={status} className={cn("inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide", tied ? "bg-[oklch(0.94_0.06_155)] text-[oklch(0.32_0.1_155)]" : noData ? "bg-muted text-muted-foreground" : "bg-[oklch(0.58_0.2_25)] text-white")}>
+      {tied ? <CheckCircle2 className="h-3 w-3" /> : noData ? null : <TriangleAlert className="h-3 w-3" />}
+      {noData ? "No MIS data" : status}
     </span>
   );
 }
@@ -44,6 +46,7 @@ function VarianceCell({ lineKey, month, c }: { lineKey: string; month: string; c
 }
 
 function ReconBody({ months }: { months: string[] }) {
+  const runWarnings = useMgmtRun().data?.warnings;
   const [from, setFrom] = useState(fyYtdRange(months)[0]);
   const [to, setTo] = useState(fyYtdRange(months)[1]);
   const entity = useMgmtEntity();
@@ -61,7 +64,8 @@ function ReconBody({ months }: { months: string[] }) {
           const tiedCount = d.months.filter((m) => m.status === "TIED").length;
           return (
             <>
-              <WarningsBanner warnings={d.warnings.filter((w) => w.trim().length > 0)} />
+              {/* the frame already shows the run warnings; show these only when they add something */}
+              <WarningsBanner warnings={d.warnings.filter((w) => w.trim().length > 0 && !(runWarnings ?? []).includes(w))} />
               <section aria-label="Month status" data-testid="recon-months" className="flex flex-wrap items-center gap-2 border-b bg-card px-5 py-3">
                 <span className="eyebrow mr-1">{tiedCount} of {d.months.length} months tied</span>
                 {d.months.map((m) => (
