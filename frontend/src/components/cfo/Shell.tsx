@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
-import { Banknote, CalendarCheck, ClipboardCheck, Inbox, Shuffle, ChevronRight, ChevronsLeft, ChevronsRight, CircleDot, FileSpreadsheet, Handshake, LayoutDashboard, LayoutGrid, Receipt, Route, Store, Truck, Warehouse, Wrench } from "lucide-react";
+import { Banknote, CalendarCheck, ClipboardCheck, Inbox, Shuffle, ChevronRight, ChevronsLeft, ChevronsRight, CircleDot, FileSpreadsheet, Handshake, LayoutDashboard, LayoutGrid, Receipt, Route, Store, Truck, Users, Warehouse, Wrench } from "lucide-react";
 import { useCfo } from "@/context/CfoContext";
 import { searchFromState } from "@/context/drillUrl";
 import { CREDITORS_ORIGIN } from "@/lib/creditorNodes";
@@ -154,7 +154,7 @@ export function TopBar() {
       <div className="mx-1 h-6 w-px bg-border" />
       {real ? (
         <div className="flex flex-1 items-center justify-end gap-2" data-testid="real-controls"><DataStatus page={real} refreshKeys={refreshKeysFor(real.scope)} /></div>
-      ) : path.startsWith("/related-party") ? (
+      ) : path.startsWith("/related-party") || path.startsWith("/control") ? (
         <div className="flex-1" /> // intercompany balances are a position as of the run: period, comparison and scenario do not apply
       ) : (
       <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -194,8 +194,8 @@ export function TopBar() {
   );
 }
 
-type NavTo = "/" | "/profitability" | "/mgmt" | "/mgmt/store-expenses" | "/mgmt/dc-expenses" | "/cash" | "/creditors" | "/related-party" | "/control/adjustments" | "/control/corrections" | "/control/inbox" | "/control/close" | "/control/mapping" | "/control/source-fixes";
-type NavId = "command" | "profitability" | "mgmt" | "storeExp" | "dcExp" | "cash" | "creditors" | "related" | "adjust" | "corrections" | "inbox" | "close" | "mapping" | "sourcefix";
+type NavTo = "/" | "/profitability" | "/mgmt" | "/mgmt/store-expenses" | "/mgmt/dc-expenses" | "/cash" | "/creditors" | "/related-party" | "/control/adjustments" | "/control/corrections" | "/control/inbox" | "/control/close" | "/control/mapping" | "/control/source-fixes" | "/control/users";
+type NavId = "command" | "profitability" | "mgmt" | "storeExp" | "dcExp" | "cash" | "creditors" | "related" | "adjust" | "corrections" | "inbox" | "close" | "mapping" | "sourcefix" | "users";
 
 const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: NavTo; testId: string; icon: typeof Truck }[] }[] = [
   { group: "Executive", items: [{ id: "command", label: "Command Center", title: "CFO Command Center", to: "/", testId: "nav-command-center", icon: LayoutDashboard }] },
@@ -216,11 +216,12 @@ const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: str
     { id: "adjust", label: "Adjustments", title: "Adjustments and Provisions: governed management amounts (sign-in required)", to: "/control/adjustments", testId: "nav-adjustments", icon: ClipboardCheck },
     { id: "corrections", label: "Corrections", title: "Corrections: reclassify a booked line to another group or month (sign-in required)", to: "/control/corrections", testId: "nav-corrections", icon: Shuffle },
     { id: "mapping", label: "Mapping", title: "Mapping governance: how ledgers map to management groups (sign-in required)", to: "/control/mapping", testId: "nav-mapping", icon: Route },
+    { id: "users", label: "Users", title: "Users and access: administrators only (sign-in required)", to: "/control/users", testId: "nav-users", icon: Users },
     { id: "sourcefix", label: "Source fixes", title: "Source-fix queue: errors to be corrected at the source system (sign-in required)", to: "/control/source-fixes", testId: "nav-source-fixes", icon: Wrench },
   ] },
 ];
 
-const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, mgmt: null, storeExp: null, dcExp: null, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN, related: null, adjust: null, corrections: null, inbox: null, close: null, mapping: null, sourcefix: null };
+const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, mgmt: null, storeExp: null, dcExp: null, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN, related: null, adjust: null, corrections: null, inbox: null, close: null, mapping: null, sourcefix: null, users: null };
 
 /** The destination the current investigation belongs to, so a ledger or voucher still highlights its own area. */
 function activeNav(scope: string | undefined, path: string, trail?: unknown): NavId {
@@ -233,6 +234,7 @@ function activeNav(scope: string | undefined, path: string, trail?: unknown): Na
   if (path.startsWith("/control/close")) return "close";
   if (path.startsWith("/control/mapping")) return "mapping";
   if (path.startsWith("/control/source-fixes")) return "sourcefix";
+  if (path.startsWith("/control/users")) return "users";
   if (path.startsWith("/control/")) return "inbox";
   if (path.startsWith("/entry")) {
     // the voucher drill highlights the area it was reached from: the first step of its trail
@@ -270,6 +272,7 @@ export function SideNav() {
     close: () => undefined,
     mapping: () => undefined,
     sourcefix: () => undefined,
+    users: () => undefined,
   };
   const toggle = () => { const v = !collapsed; setCollapsed(v); try { window.localStorage.setItem(NAV_KEY, v ? "1" : "0"); } catch { /* per-viewer convenience only */ } };
   return (
@@ -316,6 +319,15 @@ export function Breadcrumbs() {
         <span className="text-muted-foreground">CityKart</span>
         <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
         <span aria-current="page" className="font-semibold text-foreground">Management P&amp;L</span>
+      </nav>
+    );
+  }
+  if (path.startsWith("/control")) {
+    return (
+      <nav aria-label="Breadcrumb" data-testid="breadcrumbs" className="flex h-8 items-center gap-1 overflow-x-auto whitespace-nowrap border-b bg-background px-4 text-[12px]">
+        <span className="text-muted-foreground">CityKart</span>
+        <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
+        <span className="text-muted-foreground">Control</span>
       </nav>
     );
   }
