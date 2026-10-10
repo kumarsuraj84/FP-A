@@ -52,6 +52,9 @@ function install(opts: { fixes?: unknown[]; mappings?: unknown[]; validation?: u
     if (url.startsWith("/auth-api/me")) return me ? json(me) : json({ detail: "Sign in required." }, 401);
     if (url.startsWith("/auth-api/login")) { me = opts.loginMe ?? opts.me ?? ME("fpa_manager"); return json(me); }
     if (url.startsWith("/auth-api/assignable")) return json([{ user_id: "u2", email: "o@example.test", display_name: "Omar Owner", role: "fpa_manager" }]);
+    if (url.startsWith("/adjustments-api/import-register")) return json({ imported: 39, skipped_existing: 0, kept_as_engine_rows: 74, not_importable: [], next: "" });
+    if (url.startsWith("/adjustments-api/validate-register")) return json({ window: ["2026-04", "2026-10"], csv_rows: 118, csv_importable: 44, csv_engine_rows: 74, line_differences: [], identical: true, note: "" });
+    if (url.startsWith("/adjustments-api/cutover") || url.startsWith("/mapping-api/cutover")) return json({ cutover_id: 1, domain: "ADJUSTMENTS", first_month: "2026-11", next: "Now set the environment variable and restart the API." });
     if (url.startsWith("/adjustments-api/preview") || /\/adjustments-api\/[^/]+\/preview/.test(url)) return json(IMPACT);
     if (url.startsWith("/adjustments-api/calendar")) return json({ months: ["2026-08", "2026-09"], legend: [], rows: [{ template_id: "t1", name: "Gratuity", entity: "SUBCO", line: "employee_cost", status: "ACTIVE", cells: { "2026-08": { state: "active", adjustment_id: "a1", amount_cr: "-0.0100" }, "2026-09": { state: "missing", adjustment_id: null, amount_cr: null } } }] });
     if (url.startsWith("/adjustments-api/templates")) return json([]);
@@ -433,5 +436,41 @@ describe("Whole-application sign-in", () => {
     install({ me: null });
     mount("/related-party");
     await waitFor(() => expect(screen.queryByTestId("login")).toBeNull(), T);
+  });
+});
+
+
+describe("Cut-over panels", () => {
+  it("the adjustments cut-over imports once, validates identical and records the decision with a comment", async () => {
+    const calls = install({ me: ME("admin"), adjustments: [] });
+    mount("/control/adjustments");
+    fireEvent.click(await screen.findByTestId("adj-tab-cutover", {}, T));
+    expect(screen.getByTestId("record-cutover")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("import-register"));
+    expect(await screen.findByTestId("register-import-result", {}, T)).toHaveTextContent("Imported 39");
+    fireEvent.click(screen.getByTestId("validate-register"));
+    expect((await screen.findByTestId("register-validation", {}, T)).dataset.identical).toBe("true");
+    fireEvent.change(screen.getByLabelText("Cut-over comment"), { target: { value: "validated identical, switching to the app register" } });
+    fireEvent.click(screen.getByTestId("record-cutover"));
+    expect(await screen.findByTestId("cutover-recorded", {}, T)).toHaveTextContent("Recorded for 2026-11");
+    expect(calls.find((c) => c.url === "/adjustments-api/cutover")!.body).toMatchObject({ first_month: expect.any(String), comment: "validated identical, switching to the app register" });
+  });
+
+  it("only an administrator can import or record a cut-over", async () => {
+    install({ me: ME("fpa_manager"), adjustments: [] });
+    mount("/control/adjustments");
+    fireEvent.click(await screen.findByTestId("adj-tab-cutover", {}, T));
+    expect(screen.getByTestId("import-register")).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Cut-over comment"), { target: { value: "validated identical, switching to the app register" } });
+    expect(screen.getByTestId("record-cutover")).toBeDisabled();
+  });
+
+  it("the mapping cut-over tab records the decision too", async () => {
+    install({ me: ME("admin"), mappings: [] });
+    mount("/control/mapping");
+    fireEvent.click(await screen.findByTestId("map-tab-cutover", {}, T));
+    fireEvent.change(screen.getByLabelText("Cut-over comment"), { target: { value: "validated identical, switching to the governed mapping" } });
+    fireEvent.click(screen.getByTestId("record-cutover"));
+    expect(await screen.findByTestId("cutover-recorded", {}, T)).toBeInTheDocument();
   });
 });

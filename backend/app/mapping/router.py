@@ -19,6 +19,7 @@ from ..adjustments.service import Problem
 from ..appdb.conn import app_connection
 from ..auth.router import current_actor, writer
 from ..auth.service import Actor
+from .. import cutover as cut
 from . import service as svc
 
 router = APIRouter(prefix="/api/v1/mapping")
@@ -61,6 +62,18 @@ def validate(request: Request, from_month: str | None = None, to_month: str | No
 def import_baseline(actor: Actor = Depends(writer)):
     with app_connection() as conn:
         return ok(guard(lambda: svc.import_baseline(conn, actor)))
+
+
+@router.post("/cutover")
+def cutover(body: Body, request: Request, actor: Actor = Depends(writer)):
+    p = body.model_dump()
+    gold = database(request)
+
+    def go():
+        with app_connection() as conn:
+            v = svc.validate(conn, gold, None, None)
+            return cut.record(conn, actor, "MAPPING", str(p.get("first_month", "")), str(p.get("comment", "")), v)
+    return ok(guard(go))
 
 
 @router.post("/preview")

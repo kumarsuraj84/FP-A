@@ -84,6 +84,9 @@ export const adjustments = {
   createTemplate: (b: AdjInput & { name: string; start_month: string; end_month?: string }) => call<TemplateRow>("adjustments", "POST", "/templates", { body: b }),
   templateAction: (id: string, action: string) => call<TemplateRow>("adjustments", "POST", `/templates/${id}/${action}`),
   generate: (month: string) => call<{ month: string; created: { template: string; adjustment_id: string; provisional: boolean }[]; skipped: { template: string; reason: string }[] }>("adjustments", "POST", `/templates/generate/${month}`),
+  importRegister: () => call<{ imported: number; skipped_existing: number; kept_as_engine_rows: number; not_importable: { id: string; reason: string }[]; next: string }>("adjustments", "POST", "/import-register"),
+  validateRegister: () => call<{ window: string[]; csv_rows: number; csv_importable: number; csv_engine_rows: number; line_differences: { key: string; label: string; change: string }[]; identical: boolean; note: string }>("adjustments", "GET", "/validate-register"),
+  cutover: (first_month: string, comment: string) => call<{ cutover_id: number; domain: string; first_month: string; next: string }>("adjustments", "POST", "/cutover", { body: { first_month, comment } }),
   calendar: (from_month: string, to_month: string) => call<Calendar>("adjustments", "GET", "/calendar", { params: { from_month, to_month } }),
 };
 
@@ -170,6 +173,7 @@ export const mapping = {
   previewSaved: (id: string) => call<MappingImpact>("mapping", "GET", `/${id}/preview`),
   act: (id: string, action: string, comment?: string) => call<MappingRule>("mapping", "POST", `/${id}/${action}`, { body: { comment } }),
   validate: () => call<MappingValidation>("mapping", "GET", "/validate"),
+  cutover: (first_month: string, comment: string) => call<{ cutover_id: number; domain: string; first_month: string; next: string }>("mapping", "POST", "/cutover", { body: { first_month, comment } }),
   importBaseline: () => call<{ imported: Record<string, number>; skipped_existing: number; next: string }>("mapping", "POST", "/import"),
 };
 

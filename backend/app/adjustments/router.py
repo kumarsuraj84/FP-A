@@ -22,6 +22,8 @@ from pydantic import BaseModel
 from ..appdb.conn import app_connection
 from ..auth.router import current_actor, writer
 from ..auth.service import Actor
+from .. import cutover as cut
+from . import register_import as reg
 from . import service as svc
 from . import templates as tpl
 from .service import Problem
@@ -52,6 +54,30 @@ class Body(BaseModel):
 
 class CommentBody(BaseModel):
     comment: str | None = None
+
+
+@router.get("/validate-register")
+def validate_register(request: Request, from_month: str | None = None, to_month: str | None = None, actor: Actor = Depends(current_actor)):
+    gold = database(request)
+    return ok(guard(lambda: reg.validate_register(gold, from_month, to_month)))
+
+
+@router.post("/import-register")
+def import_register(actor: Actor = Depends(writer)):
+    with app_connection() as conn:
+        return ok(guard(lambda: reg.import_register(conn, actor)))
+
+
+@router.post("/cutover")
+def cutover(body: Body, request: Request, actor: Actor = Depends(writer)):
+    p = body.model_dump()
+    gold = database(request)
+
+    def go():
+        v = reg.validate_register(gold, None, None)
+        with app_connection() as conn:
+            return cut.record(conn, actor, "ADJUSTMENTS", str(p.get("first_month", "")), str(p.get("comment", "")), v)
+    return ok(guard(go))
 
 
 @router.get("/calendar")

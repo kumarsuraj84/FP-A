@@ -102,6 +102,9 @@ function Detail({ r, me, onClose }: { r: MappingRule; me: Me; onClose: () => voi
 function Validation({ me }: { me: Me }) {
   const val = useWrite(() => mapping.validate(), []);
   const imp = useWrite(() => mapping.importBaseline(), ["mapping"]);
+  const [month, setMonth] = useState(thisMonth());
+  const [comment, setComment] = useState("");
+  const rec = useWrite(() => mapping.cutover(month, comment), []);
   const d = val.data;
   return (
     <Panel testId="mapping-validation" eyebrow="Cut-over" title="Legacy CSV baseline and validation">
@@ -112,6 +115,13 @@ function Validation({ me }: { me: Me }) {
           <Btn testId="import-baseline" disabled={me.role !== "admin" || imp.isPending} title={me.role === "admin" ? undefined : "Administrator only"} onClick={() => imp.mutate(undefined)}>Import legacy baseline</Btn>
           <Btn testId="validate-mapping" tone="primary" disabled={val.isPending} onClick={() => val.mutate(undefined)}>{val.isPending ? "Validating…" : "Validate against the CSV"}</Btn>
         </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="First month the governed rules are the source"><input aria-label="Cut-over month" type="month" className={input} value={month} onChange={(e) => setMonth(e.target.value)} /></Field>
+          <Field label="What was decided (10+ characters)" className="min-w-[300px] flex-1"><input aria-label="Cut-over comment" className={input} value={comment} onChange={(e) => setComment(e.target.value)} /></Field>
+          <Btn testId="record-cutover" tone="primary" disabled={me.role !== "admin" || comment.trim().length < 10 || rec.isPending} onClick={() => rec.mutate(undefined)}>Record cut-over</Btn>
+        </div>
+        {rec.error && <ErrMsg error={rec.error} />}
+        {rec.data && <div role="status" data-testid="cutover-recorded">Recorded for {rec.data.first_month}. {rec.data.next}</div>}
         {imp.data && <div role="status" data-testid="import-result">Imported {imp.data.imported.LEDGER_GROUP} ledger and {imp.data.imported.SITE_LOCATION} site rules; skipped {imp.data.skipped_existing} that already exist.</div>}
         {d && (
           <div data-testid="validation-result" data-identical={String(d.identical)} className={cn("rounded border px-3 py-2", d.identical ? "border-[oklch(0.75_0.1_155)] bg-[oklch(0.96_0.04_155)]" : "border-[oklch(0.8_0.08_85)] bg-[oklch(0.985_0.03_90)]")}>

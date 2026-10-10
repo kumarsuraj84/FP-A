@@ -247,12 +247,43 @@ function Templates({ me }: { me: Me }) {
   );
 }
 
-type SubTab = "register" | "new" | "calendar" | "templates";
+function Cutover({ me }: { me: Me }) {
+  const [month, setMonth] = useState(thisMonth());
+  const [comment, setComment] = useState("");
+  const imp = useWrite(() => adjustments.importRegister(), ["adjustments"]);
+  const val = useWrite(() => adjustments.validateRegister(), []);
+  const rec = useWrite(() => adjustments.cutover(month, comment), []);
+  const admin = me.role === "admin";
+  return (
+    <div className="p-3">
+      <Panel testId="adjustments-cutover" eyebrow="Cut-over" title="From the spreadsheet register to this one">
+        <div className="grid gap-3 p-4 text-[12.5px]">
+          <p className="text-muted-foreground">Import the spreadsheet rows once, check that the Management P&L is identical under both, record the decision, then set <code>FPA_ADJ_SOURCE=app</code> and restart the API. Do not leave both sources on: a row in both counts twice. Rows the engine works out from the books (the HoldCo stop-gap, true-ups) stay engine rows.</p>
+          <ErrMsg error={imp.error ?? val.error ?? rec.error} />
+          <div className="flex flex-wrap gap-2">
+            <Btn testId="import-register" disabled={!admin || imp.isPending} title={admin ? undefined : "Administrator only"} onClick={() => imp.mutate(undefined)}>Import legacy register</Btn>
+            <Btn testId="validate-register" tone="primary" disabled={val.isPending} onClick={() => val.mutate(undefined)}>{val.isPending ? "Validating…" : "Validate against the spreadsheet"}</Btn>
+          </div>
+          {imp.data && <div role="status" data-testid="register-import-result">Imported {imp.data.imported}; skipped {imp.data.skipped_existing} already there; {imp.data.kept_as_engine_rows} kept as engine rows{imp.data.not_importable.length ? `; ${imp.data.not_importable.length} could not be imported` : ""}.</div>}
+          {val.data && <div data-testid="register-validation" data-identical={String(val.data.identical)} className={cn("rounded border px-3 py-2", val.data.identical ? "border-[oklch(0.75_0.1_155)] bg-[oklch(0.96_0.04_155)]" : "border-[oklch(0.8_0.08_85)] bg-[oklch(0.985_0.03_90)]")}>{val.data.identical ? "Identical: the cut-over changes no number." : `${val.data.line_differences.length} P&L line(s) differ: ${val.data.line_differences.slice(0, 5).map((d) => d.label).join(", ")}.`} ({val.data.window[0]} to {val.data.window[1]}; {val.data.csv_importable} importable rows, {val.data.csv_engine_rows} engine rows.)</div>}
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label="First month the app is the source"><input aria-label="Cut-over month" type="month" className={input} value={month} onChange={(e) => setMonth(e.target.value)} /></Field>
+            <Field label="What was decided (10+ characters)" className="min-w-[300px] flex-1"><input aria-label="Cut-over comment" className={input} value={comment} onChange={(e) => setComment(e.target.value)} /></Field>
+            <Btn testId="record-cutover" tone="primary" disabled={!admin || comment.trim().length < 10 || rec.isPending} onClick={() => rec.mutate(undefined)}>Record cut-over</Btn>
+          </div>
+          {rec.data && <div role="status" data-testid="cutover-recorded">Recorded for {rec.data.first_month}. {rec.data.next}</div>}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+type SubTab = "register" | "new" | "calendar" | "templates" | "cutover";
 
 export function AdjustmentsPage() {
   const [tab, setTab] = useState<SubTab>("register");
   const [selected, setSelected] = useState<string | null>(null);
-  const tabs: [SubTab, string][] = [["register", "Register"], ["new", "New adjustment"], ["calendar", "Provision calendar"], ["templates", "Templates"]];
+  const tabs: [SubTab, string][] = [["register", "Register"], ["new", "New adjustment"], ["calendar", "Provision calendar"], ["templates", "Templates"], ["cutover", "Cut-over"]];
   return (
     <ControlFrame active="adjustments" subtitle="Management adjustments and provisions: Management Total = Book + Reclass + approved Adjustment. Only ACTIVE adjustments count; proposed ones are shown as provisional.">
       {(me) => (
@@ -264,6 +295,7 @@ export function AdjustmentsPage() {
           {tab === "new" && <div className="p-3"><Panel eyebrow="Entry" title="New adjustment or provision"><AdjForm me={me} onSaved={(a) => { setSelected(a?.adjustment_id ?? null); setTab("register"); }} /></Panel></div>}
           {tab === "calendar" && <CalendarView onOpen={(id) => { setSelected(id); setTab("register"); }} />}
           {tab === "templates" && <Templates me={me} />}
+          {tab === "cutover" && <Cutover me={me} />}
         </>
       )}
     </ControlFrame>

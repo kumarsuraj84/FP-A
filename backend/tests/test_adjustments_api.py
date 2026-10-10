@@ -221,3 +221,41 @@ def test_preview_of_an_unsaved_hocost_leaves_store_ebitda_unchanged(env):
 
 
 from decimal import Decimal as D  # noqa: E402
+
+
+@pytest.mark.skipif(gold_db() is None, reason="gold_fpa not reachable")
+def test_legacy_register_import_validates_identical_and_the_cutover_is_recorded_only_then(env, monkeypatch):
+    from app.mgmt import app_register
+    monkeypatch.setattr(app_register, "app_connection", lambda: env["db"])
+    admin, mgr = env["admin"], env["person"]("mgr11@example.test", "fpa_manager")
+    assert mgr.post("/api/v1/adjustments/import-register", headers=H).status_code == 403
+    r = admin.post("/api/v1/adjustments/import-register", headers=H)
+    assert r.status_code == 200, r.text
+    d = r.json()["data"]
+    assert d["imported"] > 10 and d["kept_as_engine_rows"] > 0
+    again = admin.post("/api/v1/adjustments/import-register", headers=H).json()["data"]
+    assert again["imported"] == 0 and again["skipped_existing"] == d["imported"]
+    imported = env["db"].execute("SELECT count(*) AS n, count(*) FILTER (WHERE status = 'ACTIVE') AS act FROM adjustment WHERE source = 'legacy_csv_import'").fetchone()
+    assert imported["n"] == d["imported"] and imported["act"] > 0
+    v = admin.get("/api/v1/adjustments/validate-register").json()["data"]
+    assert v["identical"] is True and v["line_differences"] == [] and v["csv_engine_rows"] > 0, v
+    assert mgr.post("/api/v1/adjustments/cutover", json={"first_month": "2026-11", "comment": "switching to the app register"}, headers=H).status_code == 403
+    assert admin.post("/api/v1/adjustments/cutover", json={"first_month": "2026-11", "comment": "short"}, headers=H).status_code == 422
+    c = admin.post("/api/v1/adjustments/cutover", json={"first_month": "2026-11", "comment": "validated identical, switching to the app register"}, headers=H)
+    assert c.status_code == 200 and c.json()["data"]["first_month"] == "2026-11" and "FPA_ADJ_SOURCE=app" in c.json()["data"]["next"]
+    assert env["db"].execute("SELECT identical, domain FROM cutover_record").fetchone() == {"identical": True, "domain": "ADJUSTMENTS"}
+    import psycopg
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        env["db"].execute("DELETE FROM cutover_record")
+    env["db"].rollback()
+
+
+@pytest.mark.skipif(gold_db() is None, reason="gold_fpa not reachable")
+def test_a_cutover_cannot_be_recorded_while_the_validation_differs(env, monkeypatch):
+    from app.mgmt import app_register
+    monkeypatch.setattr(app_register, "app_connection", lambda: env["db"])
+    admin = env["admin"]
+    # nothing imported: the app source lacks every importable CSV row, so the P&L differs and the cut-over is refused
+    r = admin.post("/api/v1/adjustments/cutover", json={"first_month": "2026-11", "comment": "trying to switch without importing"}, headers=H)
+    assert r.status_code == 409 and "not identical" in r.json()["detail"]
+    assert env["db"].execute("SELECT count(*) AS n FROM cutover_record").fetchone()["n"] == 0

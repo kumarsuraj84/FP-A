@@ -183,3 +183,16 @@ def test_site_location_rule_and_validation_flags_a_difference(env):
         post(m, f"/{mid}/{a}")
     v = env["admin"].get("/api/v1/mapping/validate").json()["data"]
     assert v["identical"] is False and any(x["domain"] == "SITE_LOCATION" and x["key"] == "999999" and x["csv"] is None and x["app"] == "DC" for x in v["key_differences"])
+
+
+def test_mapping_cutover_is_recorded_only_when_identical_and_only_by_an_administrator(env):
+    admin, mgr = env["admin"], env["person"]("mgr5@example.test", "fpa_manager")
+    body = {"first_month": "2026-11", "comment": "validated identical, switching to the governed mapping"}
+    assert post(mgr, "/cutover", body).status_code == 403
+    r = post(admin, "/cutover", body)
+    assert r.status_code == 409 and "not identical" in r.json()["detail"]                              # nothing imported yet: the app mapping is empty
+    post(admin, "/import")
+    r = post(admin, "/cutover", body)
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["first_month"] == "2026-11" and "FPA_MAPPING_SOURCE=app" in r.json()["data"]["next"]
+    assert env["db"].execute("SELECT domain, identical FROM cutover_record").fetchone() == {"domain": "MAPPING", "identical": True}

@@ -104,9 +104,10 @@ def check_window(conn, lo: str | None, hi: str | None) -> tuple[str, str]:
 
 
 def register_rows() -> list[dict]:
-    """The adjustment register the engine reads: the CSV rows, the fpa_app ACTIVE rows, or both, by FPA_ADJ_SOURCE (default csv)."""
+    """The adjustment register the engine reads (FPA_ADJ_SOURCE, default csv). In app mode the CSV is not a source, except the legacy rows the engine evaluates against the books."""
     src = app_register.source()
-    return (cfg.adjustments() if src in ("csv", "both") else []) + (app_register.active_rows() if src in ("app", "both") else [])
+    csv_rows = cfg.adjustments() if src in ("csv", "both") else [r for r in cfg.adjustments() if app_register.is_engine_row(r)] if src == "app" else []
+    return csv_rows + (app_register.active_rows() if src in ("app", "both") else [])
 
 
 def run(conn, lo: str, hi: str, include_proposed: bool = True, entity: str = "consolidated", extra_register: list[dict] | None = None) -> dict:
