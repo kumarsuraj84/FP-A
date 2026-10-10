@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { ControlApiError } from "@/api/controlApi";
+import { ControlApiError, close } from "@/api/controlApi";
 
 export const input = "w-full rounded border bg-card px-2 py-1 text-[12.5px] outline-none focus:ring-1 focus:ring-primary disabled:opacity-60";
 
@@ -87,5 +87,26 @@ export function History({ events }: { events: { seq: number; event_type: string;
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Months that no longer accept changes. A soft-closed month still does (a controller approves it); management and final closed months are locked until a controller reopens them. */
+export const LOCKED_STATUSES = ["MANAGEMENT_CLOSED", "FINAL_CLOSED"];
+
+/** Whether the month is locked for this entity, read from the close calendar, so the form says so before anyone fills it in (the database refuses it anyway). */
+export function usePeriodLock(entity: string, month: string) {
+  const ok = /^\d{4}-\d{2}$/.test(month);
+  const q = useQuery({ queryKey: ["close", "period", month], queryFn: () => close.periods(month, month), enabled: ok, staleTime: 15_000 });
+  const row = q.data?.[0];
+  const status = row ? (entity === "HOLDCO" ? row.holdco : row.subco) : "OPEN";
+  return { status, locked: LOCKED_STATUSES.includes(status) };
+}
+
+export function PeriodLockNotice({ status, month }: { status: string; month: string }) {
+  if (!LOCKED_STATUSES.includes(status)) return null;
+  return (
+    <div role="alert" data-testid="period-locked" className="rounded border border-[oklch(0.75_0.12_25)] bg-[oklch(0.97_0.03_25)] px-3 py-2 text-[12px] text-[oklch(0.4_0.15_25)]">
+      {month} is {status === "FINAL_CLOSED" ? "final closed" : "management closed"} for this entity: nothing can be added or changed in it until a controller reopens the month (Month-end close).
+    </div>
   );
 }

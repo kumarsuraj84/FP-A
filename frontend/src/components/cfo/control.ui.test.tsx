@@ -41,7 +41,7 @@ const FIX = (over: Record<string, unknown> = {}) => ({ candidate_id: "f1", issue
   recommended_fix: "Fix the upstream ledger-to-management-group mapping so ledger Salary posts to 16-Miscellaneous Expenses instead of 02-Employee Cost.", origin_ids: ["aaaaaaaa-1", "bbbbbbbb-2", "cccccccc-3", "dddddddd-4"], threshold_version: "t1", status: "OPEN",
   finance_owner: null, data_owner: null, source_fix_date: null, post_fix_validation: "NOT_VALIDATED", advisory: "Advisory only: this queue never changes a mapping, a correction or finance data.", ...over });
 
-function install(opts: { fixes?: unknown[]; mappings?: unknown[]; validation?: unknown; readiness?: unknown; me: unknown | null; adjustments?: unknown[]; corrections?: unknown; cases?: unknown[]; calls?: Call[]; loginMe?: unknown }) {
+function install(opts: { periods?: unknown; fixes?: unknown[]; mappings?: unknown[]; validation?: unknown; readiness?: unknown; me: unknown | null; adjustments?: unknown[]; corrections?: unknown; cases?: unknown[]; calls?: Call[]; loginMe?: unknown }) {
   const calls = opts.calls ?? [];
   let me = opts.me;
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -81,6 +81,7 @@ function install(opts: { fixes?: unknown[]; mappings?: unknown[]; validation?: u
     if (/\/mapping-api\/m1/.test(url) && method === "GET") return json({ ...MAP(), events: [{ seq: 1, event_type: "CREATED", from_status: null, to_status: "DRAFT", comment: null, at: "2026-10-03T10:00:00Z", actor_email: "mgr@example.test" }], versions: [MAP({ mapping_id: "m0", version: 1, status: "RETIRED", mapped_value: "02-Employee Cost", effective_from: "2000-01", effective_to: "2026-08" }), MAP()] });
     if (url.startsWith("/mapping-api") && method === "POST") return json(MAP({ status: "DRAFT" }));
     if (url.startsWith("/mapping-api")) return json({ total: (opts.mappings ?? []).length, counts: { SUBMITTED: 1, ACTIVE: 140 }, source_in_use: "csv", items: opts.mappings ?? [], groups: ["02-Employee Cost", "16-Miscellaneous Expenses"] });
+    if (url.startsWith("/close-api/periods")) return json(opts.periods ?? [{ month: "2026-10", subco: "OPEN", holdco: "OPEN" }]);
     if (url.startsWith("/close-api/readiness")) return json(opts.readiness ?? READY());
     if (url.startsWith("/close-api/history")) return json([{ from_status: "OPEN", to_status: "SOFT_CLOSED", reason: "month complete and reviewed", at: "2026-10-03T10:00:00Z", actor: "mgr@example.test" }]);
     if (url.startsWith("/close-api/signoff") || url.startsWith("/close-api/period")) return json(READY({ period_status: "SOFT_CLOSED" }));
@@ -183,6 +184,16 @@ describe("Adjustments and Provisions", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url === "/adjustments-api")).toBe(true));
     const body = calls.find((c) => c.method === "POST" && c.url === "/adjustments-api")!.body as Record<string, unknown>;
     expect(body).toMatchObject({ amount_rupees: "100000", effect: "COST", basis_type: "FIXED", entity: "SUBCO" });
+  });
+
+  it("a closed month is visibly blocked in the entry form before anyone fills it in", async () => {
+    const month = new Date().toISOString().slice(0, 7);
+    install({ me: ME("fpa_manager"), adjustments: [], periods: [{ month, subco: "MANAGEMENT_CLOSED", holdco: "OPEN" }] });
+    mount("/control/adjustments");
+    fireEvent.click(await screen.findByTestId("adj-tab-new", {}, T));
+    expect(await screen.findByTestId("period-locked", {}, T)).toHaveTextContent(/management closed/);
+    expect(screen.getByTestId("save-draft")).toBeDisabled();
+    expect(screen.getByTestId("save-submit")).toBeDisabled();
   });
 
   it("the provision calendar shows active and missing months", async () => {

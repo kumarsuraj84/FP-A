@@ -147,7 +147,10 @@ export interface Readiness {
 }
 export interface PeriodEvent { from_status: string | null; to_status: string; reason: string; at: string; actor: string | null }
 
+export interface PeriodRow { month: string; subco: string; holdco: string }
+
 export const close = {
+  periods: (from_month: string, to_month: string) => call<PeriodRow[]>("close", "GET", "/periods", { params: { from_month, to_month } }),
   readiness: (entity: string, month: string) => call<Readiness>("close", "GET", "/readiness", { params: { entity, month } }),
   history: (entity: string, month: string) => call<PeriodEvent[]>("close", "GET", "/history", { params: { entity, month } }),
   signoff: (entity: string, month: string, check_key: string, decision: string, comment: string) => call<Readiness>("close", "POST", "/signoff", { body: { entity, month, check_key, decision, comment } }),

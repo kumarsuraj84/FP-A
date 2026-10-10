@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Skeleton } from "../common";
 import { Panel } from "../panels";
 import { ControlFrame } from "./ControlFrame";
-import { Btn, cr, ErrMsg, Field, History, input, label, Pill, useWrite, when } from "./ui";
+import { Btn, cr, ErrMsg, Field, History, input, label, Pill, PeriodLockNotice, usePeriodLock, useWrite, when } from "./ui";
 
 const REASONS = ["WRONG_CLASSIFICATION", "WRONG_MONTH", "LATE_INVOICE_TIMING", "WRONG_SOURCE_MAPPING", "MANAGEMENT_RECLASSIFICATION", "OTHER"];
 const TABS: [string, string, string[]][] = [
@@ -104,11 +104,13 @@ function NewCorrection({ me, initial, onCreated }: { me: Me; initial: { entity: 
   })(), ["corrections"], onCreated);
   const preview = useWrite(() => { const keys = [...picked]; return corrections.previewNew({ source_entity: entity, scope: keys.length === 1 ? "LINE" : "BULK", line_keys: keys, corrected_group: group || undefined, corrected_month: month || undefined, reason_code: reasonCode, reason_text: text || "preview of a correction", evidence_reference: evidence || "preview" }); }, [], setPrev);
   const toggle = (k: number) => setPicked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
-  const canMake = MAKERS.includes(me.role);
+  const lock = usePeriodLock(entity === "VENTURES" ? "HOLDCO" : "SUBCO", month);
+  const canMake = MAKERS.includes(me.role) && !lock.locked;
   const ready = canMake && picked.size > 0 && (group || month) && text.trim().length >= 10 && evidence.trim().length >= 3;
   return (
     <div className="grid gap-3 p-4" data-testid="correction-form">
-      {!canMake && <div role="status" className="rounded border bg-muted px-3 py-2 text-[12px]">Your role ({me.role.replaceAll("_", " ")}) can read and comment but not request corrections.</div>}
+      <PeriodLockNotice status={lock.status} month={month} />
+      {!canMake && !lock.locked && <div role="status" className="rounded border bg-muted px-3 py-2 text-[12px]">Your role ({me.role.replaceAll("_", " ")}) can read and comment but not request corrections.</div>}
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Books"><select aria-label="Books" className={input} value={entity} onChange={(e) => setEntity(e.target.value)}><option value="RETAIL">SubCo (Citykart Stores)</option><option value="VENTURES">HoldCo (Citykart Ventures)</option></select></Field>
         <Field label="Voucher number"><input aria-label="Voucher number" className={input} value={voucher} onChange={(e) => setVoucher(e.target.value)} /></Field>

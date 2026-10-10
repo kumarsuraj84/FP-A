@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { Skeleton } from "../common";
 import { Panel } from "../panels";
 import { ControlFrame } from "./ControlFrame";
-import { Btn, cr, ErrMsg, Field, History, input, label, Pill, useWrite, when } from "./ui";
+import { Btn, cr, ErrMsg, Field, History, input, label, Pill, PeriodLockNotice, usePeriodLock, useWrite, when } from "./ui";
 
 export const LINES: { key: string; label: string }[] = [
   { key: "other_operating_income", label: "Other operating income" }, { key: "material_cost", label: "Material cost" }, { key: "rent", label: "Rent" }, { key: "employee_cost", label: "Employee cost" },
@@ -63,11 +63,13 @@ function AdjForm({ me, initial, template, onSaved }: { me: Me; initial?: Adjustm
     const a = initial ? await adjustments.update(initial.adjustment_id, body()) : await adjustments.create(body());
     return submit ? adjustments.act(a.adjustment_id, "submit") : a;
   })(), ["adjustments"], (a) => onSaved(a));
-  const canMake = MAKERS.includes(me.role);
+  const lock = usePeriodLock(f.entity, f.month);
+  const canMake = MAKERS.includes(me.role) && !lock.locked;
   const rate = f.basis_type === "RATE";
   return (
     <div className="grid gap-3 p-4" data-testid={template ? "template-form" : "adjustment-form"}>
-      {!canMake && <div role="status" className="rounded border bg-muted px-3 py-2 text-[12px]">Your role ({me.role.replaceAll("_", " ")}) can read and comment but not create adjustments.</div>}
+      <PeriodLockNotice status={lock.status} month={f.month} />
+      {!canMake && !lock.locked && <div role="status" className="rounded border bg-muted px-3 py-2 text-[12px]">Your role ({me.role.replaceAll("_", " ")}) can read and comment but not create adjustments.</div>}
       <div className="grid grid-cols-2 gap-3 @[900px]:grid-cols-4">
         {template && <Field label="Template name" className="col-span-2"><input aria-label="Template name" className={input} value={f.name ?? ""} onChange={(e) => set("name", e.target.value)} placeholder="Gratuity provision, stores" /></Field>}
         <Field label={template ? "Start month" : "Reporting month"}><input aria-label="Reporting month" type="month" className={input} value={f.month} onChange={(e) => set("month", e.target.value)} /></Field>
