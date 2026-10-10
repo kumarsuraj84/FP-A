@@ -67,6 +67,11 @@ export default defineConfig({
             });
           },
         },
+        "/auth-api": {
+          target,
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/auth-api/, "/api/v1/auth"), // identity: the session cookie and the X-FPA-Request header pass through untouched
+        },
         "/related-api": {
           target,
           changeOrigin: false,
