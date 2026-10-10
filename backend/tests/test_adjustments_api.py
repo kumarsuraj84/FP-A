@@ -72,6 +72,7 @@ def env(monkeypatch):
     app.include_router(auth_router.router)
     app.include_router(adj_router.router)
     app.state.db = gold_db()
+    s.execute("UPDATE app_user SET role = 'viewer' WHERE role = 'admin'")      # inside this rolled-back transaction only: a real administrator may exist now
     auth.bootstrap_admin("boss@example.test", "Boss", PW)
     admin = TestClient(app)
     admin.post("/api/v1/auth/login", json={"email": "boss@example.test", "password": PW}, headers=H)

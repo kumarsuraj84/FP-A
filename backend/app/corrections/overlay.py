@@ -58,7 +58,7 @@ def build_items(overlay_rows: list[dict], gold_rows: dict[tuple, dict], lmap: di
             continue
         items.append({"request_id": str(o["request_id"]), "line_id": str(o["line_id"]), "entity": ENTITY[o["source_entity"]], "location_type": loc, "key_from": key_from, "key_to": key_to,
                       "group_from": grp, "group_to": o["corrected_group"] or grp, "month_from": m_from, "month_to": m_to, "amount_cr": Decimal(g["profit_effect"]) / CR,
-                      "ledger": g["glname"], "voucher": g["entcode"]})
+                      "ledger": g["glname"], "voucher": g["entcode"], "site_code": g.get("tag_site_code")})
     return items
 
 

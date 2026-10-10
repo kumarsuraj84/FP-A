@@ -164,7 +164,7 @@ def warnings(conn, ctx: dict) -> list[str]:
     if ctx.get("overlay_skipped"):
         w.append(f"{len(ctx['overlay_skipped'])} active corrections could not be applied (the finance line changed or vanished); run the source check on the Corrections page.")
     if ctx.get("reclass") and not ctx.get("overlay_error"):
-        w.append(f"{len(ctx['reclass'])} active line corrections are applied in the Reclass column (net zero). The Store and DC Expenses pages and the store league do not show them yet.")
+        w.append(f"{len(ctx['reclass'])} active line corrections are applied in the Reclass column (net zero). They are also applied on the Store, DC and HO Expenses pages (inside the Adjustment column, at head and site level) and in the store league; the ledger and voucher drills still show the source postings.")
     prov = [i for i in items if i["provisional"]]
     if prov:
         w.append(f"Provisional adjustments included: {len(prov)} rows (status proposed or stopgap), {eng.q4(sum((i['amount_cr'] for i in prov), D(0)))} Cr net.")
@@ -204,4 +204,4 @@ def stores(conn, ctx: dict) -> dict:
         return sr, cs
     sr, cs = cached(("stores", lo, hi), go)
     names = cached("names", lambda: {r["site_code"]: r for r in conn.execute("SELECT site_code, short_name, store_name, store_type FROM gold_fpa.dim_site WHERE entity = 'RETAIL'").fetchall()})
-    return eng.build_stores(sr, cs, names, ctx["items"], ctx["months"], ctx["lines"], cfg.ledger_map(), ctx["entity"])
+    return eng.build_stores(sr, cs, names, ctx["items"], ctx["months"], ctx["lines"], cfg.ledger_map(), ctx["entity"], ctx.get("reclass"))

@@ -61,11 +61,13 @@ def client(shared):
 
 
 def make_admin(shared, email="admin@example.test"):
+    shared.execute("UPDATE app_user SET role = 'viewer' WHERE role = 'admin'")      # inside this rolled-back transaction only: a real administrator may exist now
     svc.bootstrap_admin(email, "Admin", PW)
     return email
 
 
 def test_bootstrap_has_no_default_and_only_one_admin(shared):
+    shared.execute("UPDATE app_user SET role = 'viewer' WHERE role = 'admin'")
     with pytest.raises(svc.AuthError):
         svc.bootstrap_admin("a@example.test", "A", "short")
     make_admin(shared)

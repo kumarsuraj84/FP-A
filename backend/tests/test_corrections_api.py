@@ -75,6 +75,7 @@ def env(monkeypatch):
     app.include_router(auth_router.router)
     app.include_router(cor_router.router)
     app.state.db = GOLD
+    s.execute("UPDATE app_user SET role = 'viewer' WHERE role = 'admin'")      # inside this rolled-back transaction only: a real administrator may exist now
     auth.bootstrap_admin("boss@example.test", "Boss", PW)
     admin = TestClient(app)
     admin.post("/api/v1/auth/login", json={"email": "boss@example.test", "password": PW}, headers=H)
@@ -244,3 +245,43 @@ def test_preview_of_an_unsaved_request_writes_nothing_and_nets_to_zero(env):
     p = r.json()["data"]
     assert D(p["net_by_group_cr"]) == 0 and D(p["net_by_month_cr"]) == 0 and p["lines"] == 1
     assert env["db"].execute("SELECT count(*) AS n FROM correction_request").fetchone()["n"] == before
+
+
+def test_reclass_reaches_the_expense_heads_the_site_rows_and_the_store_league_with_totals_unchanged(env):
+    from app.mgmt import expenses as ex
+    line = a_line("02-Employee Cost")
+    m = env["person"]("mgr10@example.test", "fpa_manager")
+    with GOLD.session("pnl") as g:
+        base = ex.load(g, "store", "2026-08", "2026-08", "consolidated")
+        base_cells = {k: dict(v) for k, v in base.cells.items()}
+        base_sites = ex.site_table(g, base)
+        base_ctx = msvc.run(g, "2026-08", "2026-08")
+        base_league = msvc.stores(g, base_ctx)
+    rid = make(m, line, corrected_group="16-Miscellaneous Expenses").json()["data"]["request_id"]
+    for a in ("submit", "approve", "activate"):
+        assert go(m, rid, a).status_code == 200
+    pe = D(line["profit_effect"]) / D(10_000_000)               # negative for a cost
+    with GOLD.session("pnl") as g:
+        x = ex.load(g, "store", "2026-08", "2026-08", "consolidated")
+        d_emp = x.cells[("2026-08", "employee_cost")]["adj"] - base_cells.get(("2026-08", "employee_cost"), {"adj": D(0)})["adj"]
+        d_oth = x.cells[("2026-08", "other_expenses")]["adj"] - base_cells.get(("2026-08", "other_expenses"), {"adj": D(0)})["adj"]
+        assert abs(d_emp - pe) <= D("0.0001") and abs(d_oth + pe) <= D("0.0001")            # expense sign: the cost leaves employee cost and enters other expenses
+        assert x.cells[("2026-08", "employee_cost")]["adj0"] == base_cells.get(("2026-08", "employee_cost"), {"adj0": D(0)})["adj0"]       # adjustments alone are untouched
+        tot_b = sum((c["adj"] for (mm, h), c in base_cells.items()), D(0))
+        tot_a = sum((c["adj"] for (mm, h), c in x.cells.items()), D(0))
+        assert abs(tot_a - tot_b) <= D("0.0001")                                           # nets to zero across heads
+        sites = ex.site_table(g, x)
+        site_code = int(next(r for r in sites["rows"] if True and r["site_code"] is not None and r["site_code"] == int(a_site(line)))["site_code"]) if a_site(line) else None
+        assert site_code is not None
+        before = next(r for r in base_sites["rows"] if r["site_code"] == site_code)
+        after = next(r for r in sites["rows"] if r["site_code"] == site_code)
+        assert abs(after["total"] - before["total"]) <= D("0.0001")                         # a within-store move leaves the store's total expense unchanged
+        assert abs((after["adj"]["employee_cost"] - before["adj"]["employee_cost"]) - pe) <= D("0.0001")
+        league = msvc.stores(g, msvc.run(g, "2026-08", "2026-08"))
+        assert abs(D(str(league["summary"]["four_wall"])) - D(str(base_league["summary"]["four_wall"]))) <= D("0.0002")
+
+
+def a_site(line):
+    with GOLD.session("pnl") as g:
+        r = g.execute("SELECT tag_site_code FROM gold_fpa.voucher_lines WHERE entity = 'RETAIL' AND cost_tag_key = %s", (line["cost_tag_key"],)).fetchone()
+    return r["tag_site_code"] if r else None

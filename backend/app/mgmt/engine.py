@@ -372,7 +372,7 @@ def bridge(book_lines: list[dict], items: list[dict], months: list[str], publish
 
 # --------------------------------------------------------------------------- stores & apportionment
 
-def build_stores(site_rows: list[dict], cogs_site: list[dict], names: dict, items: list[dict], months: list[str], pnl_lines: list[dict], lmap: dict, entity: str) -> dict:
+def build_stores(site_rows: list[dict], cogs_site: list[dict], names: dict, items: list[dict], months: list[str], pnl_lines: list[dict], lmap: dict, entity: str, reclass: list[dict] | None = None) -> dict:
     """Per-store 4-wall and apportioned EBITDA. DC + HO cost is spread at one blended rate per month = (DC + HO cost) / total store net sales.
     Store-level adjustments (STORES location) are allocated pro rata to net sales, as the workbook does (gratuity, advertisement movement, COGS correction, bifurcation);
     other operating income adjustments (SIS) are not attributable to a store and stay unallocated."""
@@ -405,6 +405,13 @@ def build_stores(site_rows: list[dict], cogs_site: list[dict], names: dict, item
             exp_book[k] += amt
     out_rows: dict[int, dict] = {}
     mset = set(months)
+    for rc in reclass or []:      # active corrections stay with their own store and month (profit sign): -x where the line was, +x where it now belongs
+        if rc["entity"] != "SUBCO" or rc["location_type"] != "STORES" or rc.get("site_code") is None:
+            continue
+        for m_, key_, sign in ((rc["month_from"], rc["key_from"], -1), (rc["month_to"], rc["key_to"], 1)):
+            if m_ not in mset or key_ in ("revenue", *BELOW):
+                continue
+            (rgm_book if key_ in ("material_cost", "other_operating_income") else exp_book)[(m_, rc["site_code"])] += sign * rc["amount_cr"]
     for m in months:
         sites = [s for (mm, s) in ns if mm == m]
         tot_ns = sum((ns[(m, s)] for s in sites), ZERO)

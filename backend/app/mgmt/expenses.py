@@ -128,10 +128,27 @@ def classify_entity(raw: str | None) -> str:
 
 # ------------------------------------------------------------------ engine-level aggregation
 
-def engine_cells(book: eng.Book, items: list, scope: str, entity: str, months) -> dict:
-    """{(month, head): {'book': D, 'adj': D}} as positive expenses, from the management engine's book cells and adjustment items."""
+def reclass_cells(scope: str, entity: str, months, reclass: list | None):
+    """Active corrections in EXPENSE sign (positive cost): yields (month, head, delta). A moved line of profit effect a leaves its original (month, head) by -(-a) and enters the
+    corrected one by +(-a), so the deltas net to zero. Only moves inside this scope's heads count; a correction never changes the location type."""
     ok_e, mset = ent_filter(entity), set(months)
-    out: dict = defaultdict(lambda: {"book": ZERO, "adj": ZERO})
+    for rc in reclass or []:
+        if not ok_e(rc["entity"]):
+            continue
+        a = rc["amount_cr"]
+        hf, ht = head_of(scope, rc["location_type"], rc["key_from"]), head_of(scope, rc["location_type"], rc["key_to"])
+        if hf is not None and rc["month_from"] in mset:
+            yield rc["month_from"], hf, a
+        if ht is not None and rc["month_to"] in mset:
+            yield rc["month_to"], ht, -a
+
+
+def engine_cells(book: eng.Book, items: list, scope: str, entity: str, months, reclass: list | None = None) -> dict:
+    """{(month, head): {'book': D, 'adj': D, 'adj0': D, 'rc': D}} as positive expenses, from the management engine's book cells, adjustment items and active corrections.
+    `adj` is the management movement shown on these pages (adjustments + corrections' reclass, collapsed); `adj0` is the adjustments alone (only they are spread to stores
+    pro rata to net sales; a correction belongs to its own site) and `rc` the reclass alone. The Management P&L page shows them in separate columns."""
+    ok_e, mset = ent_filter(entity), set(months)
+    out: dict = defaultdict(lambda: {"book": ZERO, "adj": ZERO, "adj0": ZERO, "rc": ZERO})
     for (m, e, loc, key), v in book.cells.items():
         if m in mset and ok_e(e):
             h = head_of(scope, loc, key)
@@ -142,6 +159,10 @@ def engine_cells(book: eng.Book, items: list, scope: str, entity: str, months) -
             h = head_of(scope, it["location_type"], it["mis_line"])
             if h:
                 out[(it["month"], h)]["adj"] -= it["amount_cr"]
+                out[(it["month"], h)]["adj0"] -= it["amount_cr"]
+    for m, h, d in reclass_cells(scope, entity, months, reclass):
+        out[(m, h)]["adj"] += d
+        out[(m, h)]["rc"] += d
     return out
 
 
@@ -249,7 +270,7 @@ def load(conn, scope: str, lo: str | None, hi: str | None, entity: str, include_
     x.prev = add_months(lo, -1) if add_months(lo, -1) >= ms[0] else lo
     x.ext = eng.month_list(x.prev, hi)
     x.ctx = svc.run(conn, x.prev, hi, include_proposed, entity)
-    x.cells = engine_cells(x.ctx["book"], x.ctx["items"], scope, entity, x.ext)
+    x.cells = engine_cells(x.ctx["book"], x.ctx["items"], scope, entity, x.ext, x.ctx.get("reclass"))
     x.ns = net_sales(x.ctx["book"], entity, x.ext)
     x.heads = heads_of(scope)
     x.ly = None
@@ -258,7 +279,7 @@ def load(conn, scope: str, lo: str | None, hi: str | None, entity: str, include_
         if ly_months[0] >= ms[0]:
             x.ly = svc.run(conn, ly_months[0], ly_months[-1], include_proposed, entity)
             x.ly_months = ly_months
-            x.ly_cells = engine_cells(x.ly["book"], x.ly["items"], scope, entity, ly_months)
+            x.ly_cells = engine_cells(x.ly["book"], x.ly["items"], scope, entity, ly_months, x.ly.get("reclass"))
             x.ly_ns = net_sales(x.ly["book"], entity, ly_months)
     return x
 
@@ -288,10 +309,10 @@ def controls_engine(x: X) -> dict:
     for layer in ("book", "adjustment", "total"):
         parts = {}
         for sc in ("store", "dc", "ho"):
-            cells = x.cells if sc == x.scope else engine_cells(x.ctx["book"], x.ctx["items"], sc, x.entity, x.months)
+            cells = x.cells if sc == x.scope else engine_cells(x.ctx["book"], x.ctx["items"], sc, x.entity, x.months, x.ctx.get("reclass"))
             t = tot_of(cells, x.months, heads_of(sc))
             parts[sc] = t["book"] if layer == "book" else t["adj"] if layer == "adjustment" else t["book"] + t["adj"]
-        pnl = sum((-sum((lines[k]["values"][m][layer] for m in x.months), ZERO) for k in ("total_store_expenses", "dc_cost", "ho_cost")), ZERO)
+        pnl = sum((-sum((lines[k]["values"][m][layer] + (lines[k]["values"][m].get("reclass", ZERO) if layer == "adjustment" else ZERO) for m in x.months), ZERO) for k in ("total_store_expenses", "dc_cost", "ho_cost")), ZERO)
         s = parts["store"] + parts["dc"] + parts["ho"]
         rows.append({"layer": layer, "store": q4(parts["store"]), "dc": q4(parts["dc"]), "ho": q4(parts["ho"]), "sum_of_scopes": q4(s), "mgmt_pnl": q4(pnl), "variance": q4(s - pnl), "ok": abs(s - pnl) <= TOL})
     return {"tolerance_cr": q4(TOL), "basis": "Store + DC + HO expense (this module) against total store expenses + DC cost + HO cost of /api/v1/mgmt/pnl, same months and entity",
@@ -333,7 +354,7 @@ def site_table(conn, x: X) -> dict:
     # adjustments: allocate (stores) pro rata to each store's share of the month's net sales; DC / HO adjustments stay unallocated
     adj_m: dict = defaultdict(D)     # (month, head) -> adjustment
     for (m, h), c in x.cells.items():
-        adj_m[(m, h)] = c["adj"]
+        adj_m[(m, h)] = c["adj0"]
     tot_ns = {m: sum((sales.get(sc, {}).get(m, ZERO) for sc in sales), ZERO) for m in x.ext} if x.scope == "store" else {}
     for (ent, sc), s in per.items():
         s["alloc"] = defaultdict(lambda: defaultdict(D))
@@ -345,6 +366,19 @@ def site_table(conn, x: X) -> dict:
                         a = adj_m.get((m, h), ZERO)
                         if a:
                             s["alloc"][h][m] += a * n / tot_ns[m]
+    # active corrections belong to their own site and month (not spread pro rata): add them to that site's management movement
+    for rc in x.ctx.get("reclass") or []:
+        sc_ = rc.get("site_code")
+        if sc_ is None or not ok_e(rc["entity"]):
+            continue
+        hf, ht = head_of(x.scope, rc["location_type"], rc["key_from"]), head_of(x.scope, rc["location_type"], rc["key_to"])
+        s_ = per.setdefault((rc["entity"], sc_), {"heads": defaultdict(lambda: defaultdict(D))})
+        s_.setdefault("alloc", defaultdict(lambda: defaultdict(D)))
+        a = rc["amount_cr"]
+        if hf is not None and rc["month_from"] in x.ext:
+            s_["alloc"][hf][rc["month_from"]] += a
+        if ht is not None and rc["month_to"] in x.ext:
+            s_["alloc"][ht][rc["month_to"]] -= a
     # sites with a sales row but no expense row still belong to the peer set
     if x.scope == "store" and ok_e("SUBCO"):
         for sc in sales:
@@ -505,6 +539,8 @@ def summary(request: Request, scope: str = SCOPE, from_month: str | None = None,
             notes.append("Last-year months before 2026-04 carry books only (the management adjustment layer starts in 2026-04); the book-only change is shown beside the total change.")
         if adj_months:
             notes.append("Management adjustments in the period: " + ", ".join(adj_months) + ".")
+        if x.ctx.get("reclass"):
+            notes.append(f"{len(x.ctx['reclass'])} approved line corrections move cost between heads and months; their effect is inside the Adjustment column here (the Management P&L shows Reclass separately). The ledger and voucher drills still show the source postings.")
         pnl_w = [w for w in svc.warnings(conn, x.ctx) if "partial month" in w or "Citykart Ventures cost is missing" in w]
         return ok({**header(conn, x), "entity_label": {"consolidated": "Consolidated", "subco": "SubCo (Citykart Stores)", "holdco": "HoldCo (Citykart Ventures)"}[entity],
                    "net_sales": q4(ns_w) if ns_w is not None else None, "site_count": n_sites, "heads": rows, "total": total,
@@ -539,7 +575,7 @@ def trend(request: Request, scope: str = SCOPE, from_month: str | None = None, t
         have = [m for m in months if add_months(m, -12) >= x.available[0]]
         if have:
             lyx = svc.run(conn, add_months(have[0], -12), add_months(have[-1], -12), include_proposed, entity)
-            lyc = engine_cells(lyx["book"], lyx["items"], scope, entity, [add_months(m, -12) for m in have])
+            lyc = engine_cells(lyx["book"], lyx["items"], scope, entity, [add_months(m, -12) for m in have], lyx.get("reclass"))
             for m in have:
                 t = tot_of(lyc, [add_months(m, -12)], x.heads)
                 ly_vals[m] = q4(t["book"] + t["adj"])
