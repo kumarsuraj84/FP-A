@@ -202,7 +202,19 @@ export function EntryPage() {
         eyebrow="Voucher · accounting entry"
         title={title}
         subtitle={q.data ? `${q.data.entry.entry_type_long} · ${fmtDate(q.data.entry.entry_date)} · ${q.data.named ? "Finance view" : "Masked view"}` : undefined}
-        right={<EntryRunBadge />}
+        right={<>
+          {q.data && (
+            <a
+              data-testid="create-correction"
+              title="Move a line of this voucher to another management group or expense month. Opens the Corrections workbench (sign-in required); nothing is changed here."
+              href={`/control/corrections?entity=${p.entity === "VENTURES" ? "VENTURES" : "RETAIL"}&voucher=${encodeURIComponent(q.data.entry.entry_ref)}`}
+              className="press rounded border px-2.5 py-1 text-[12px] font-semibold text-primary hover:bg-muted"
+            >
+              Create correction
+            </a>
+          )}
+          <EntryRunBadge />
+        </>}
       />
       {!p.ref ? (
         <NotAvailable testId="entry-no-ref" title="No voucher selected" reason="Open a voucher from a creditor bill, a P&L ledger or a store till day. A voucher link carries its key in the address." />

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Banknote, ChevronRight, CircleDot, FileSpreadsheet, Handshake, Landmark, LayoutDashboard, LayoutGrid, Lock, PiggyBank, Receipt, RefreshCw, Scale, Store, Truck, Wallet, Warehouse } from "lucide-react";
+import { Banknote, ClipboardCheck, Inbox, Shuffle, ChevronRight, CircleDot, FileSpreadsheet, Handshake, Landmark, LayoutDashboard, LayoutGrid, Lock, PiggyBank, Receipt, RefreshCw, Scale, Store, Truck, Wallet, Warehouse } from "lucide-react";
 import { useCfo } from "@/context/CfoContext";
 import { searchFromState } from "@/context/drillUrl";
 import { CREDITORS_ORIGIN } from "@/lib/creditorNodes";
@@ -251,9 +251,9 @@ const FUTURE = [
   { label: "Balance Sheet", icon: Landmark },
 ];
 
-type NavId = "command" | "profitability" | "mgmt" | "storeExp" | "dcExp" | "cash" | "creditors" | "related";
+type NavId = "command" | "profitability" | "mgmt" | "storeExp" | "dcExp" | "cash" | "creditors" | "related" | "adjust" | "corrections" | "inbox";
 
-const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: "/" | "/profitability" | "/mgmt" | "/mgmt/store-expenses" | "/mgmt/dc-expenses" | "/cash" | "/creditors" | "/related-party"; testId: string; icon: typeof Truck }[] }[] = [
+const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: string; to: "/" | "/profitability" | "/mgmt" | "/mgmt/store-expenses" | "/mgmt/dc-expenses" | "/cash" | "/creditors" | "/related-party" | "/control/adjustments" | "/control/corrections" | "/control/inbox"; testId: string; icon: typeof Truck }[] }[] = [
   { group: "Command", items: [{ id: "command", label: "CFO Command Center", title: "CFO Command Center", to: "/", testId: "nav-command-center", icon: LayoutDashboard }] },
   { group: "Performance", items: [
     { id: "profitability", label: "Profitability", title: "Store Profitability (verified data)", to: "/profitability", testId: "nav-profitability", icon: Store },
@@ -266,9 +266,14 @@ const NAV_GROUPS: { group: string; items: { id: NavId; label: string; title: str
     { id: "creditors", label: "Creditors", title: "Creditors Control", to: "/creditors", testId: "nav-creditors", icon: Truck },
     { id: "related", label: "Related Party", title: "Related Party Transactions: intercompany balances, kept out of Creditors, Cash and the Command Center", to: "/related-party", testId: "nav-related", icon: Handshake },
   ] },
+  { group: "Control", items: [
+    { id: "adjust", label: "Adjustments", title: "Adjustments and Provisions: governed management amounts (sign-in required)", to: "/control/adjustments", testId: "nav-adjustments", icon: ClipboardCheck },
+    { id: "corrections", label: "Corrections", title: "Corrections: reclassify a booked line to another group or month (sign-in required)", to: "/control/corrections", testId: "nav-corrections", icon: Shuffle },
+    { id: "inbox", label: "Exception Inbox", title: "Exception Inbox: what needs attention now, with owner and due date (sign-in required)", to: "/control/inbox", testId: "nav-inbox", icon: Inbox },
+  ] },
 ];
 
-const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, mgmt: null, storeExp: null, dcExp: null, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN, related: null };
+const ORIGIN_FOR: Record<NavId, DrillOrigin | null> = { command: null, profitability: PROFIT_ORIGIN, mgmt: null, storeExp: null, dcExp: null, cash: CASH_ORIGIN, creditors: CREDITORS_ORIGIN, related: null, adjust: null, corrections: null, inbox: null };
 
 /** The destination the current investigation belongs to, so a ledger or voucher still highlights its own area. */
 function activeNav(scope: string | undefined, path: string, trail?: unknown): NavId {
@@ -276,6 +281,9 @@ function activeNav(scope: string | undefined, path: string, trail?: unknown): Na
   if (path.startsWith("/mgmt/dc-expenses")) return "dcExp";
   if (path.startsWith("/mgmt")) return "mgmt";
   if (path.startsWith("/related-party")) return "related";
+  if (path.startsWith("/control/adjustments")) return "adjust";
+  if (path.startsWith("/control/corrections")) return "corrections";
+  if (path.startsWith("/control/")) return "inbox";
   if (path.startsWith("/entry")) {
     // the voucher drill highlights the area it was reached from: the first step of its trail
     const first = Array.isArray(trail) ? (trail[0] as { h?: unknown } | undefined)?.h : undefined;
@@ -302,6 +310,9 @@ export function SideNav() {
     cash: () => enterRoom("cashroom"),
     creditors: () => enterCreditors(),
     related: () => undefined, // its own page, outside the drill workflow
+    adjust: () => undefined,
+    corrections: () => undefined,
+    inbox: () => undefined,
   };
   return (
     <nav aria-label="Primary" className="hidden w-14 shrink-0 flex-col border-r bg-card py-3 md:flex min-[1700px]:w-[204px]">

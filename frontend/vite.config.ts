@@ -72,6 +72,21 @@ export default defineConfig({
           changeOrigin: false,
           rewrite: (path) => path.replace(/^\/auth-api/, "/api/v1/auth"), // identity: the session cookie and the X-FPA-Request header pass through untouched
         },
+        "/adjustments-api": {
+          target,
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/adjustments-api/, "/api/v1/adjustments"), // governed writes: the session cookie and the X-FPA-Request header pass through; no finance token is ever added
+        },
+        "/corrections-api": {
+          target,
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/corrections-api/, "/api/v1/corrections"), // governed writes: the session cookie and the X-FPA-Request header pass through; no finance token is ever added
+        },
+        "/inbox-api": {
+          target,
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/inbox-api/, "/api/v1/exceptions"), // governed writes: the session cookie and the X-FPA-Request header pass through; no finance token is ever added
+        },
         "/related-api": {
           target,
           changeOrigin: false,

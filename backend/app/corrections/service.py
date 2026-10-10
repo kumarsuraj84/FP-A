@@ -134,8 +134,8 @@ def source_lines(conn, gold, entity: str, voucher: str) -> dict:
 
 # --------------------------------------------------------------------------- create
 
-def create(conn, gold, actor: Actor, p: dict) -> dict:
-    need(actor, MAKERS, "create corrections")
+def plan(gold, p: dict) -> dict:
+    """Validate a request body and resolve its lines from the finance data. Nothing is written."""
     entity = str(p.get("source_entity", "")).upper()
     if entity not in ENTITIES:
         raise Problem("Choose the books: RETAIL (SubCo) or VENTURES (HoldCo).")
@@ -194,6 +194,13 @@ def create(conn, gold, actor: Actor, p: dict) -> dict:
         pass                                    # a voucher expands into its P&L lines; non-P&L lines are simply not part of the correction
     elif skipped:
         raise Problem("These lines cannot be corrected (not a P&L line, or already in that group and month): " + ", ".join(str(k) for k in skipped))
+    return {"scope": scope, "ctype": ctype, "entity": entity, "reason": reason, "text": text, "evidence": evidence, "lines": lines}
+
+
+def create(conn, gold, actor: Actor, p: dict) -> dict:
+    need(actor, MAKERS, "create corrections")
+    pl = plan(gold, p)
+    scope, ctype, entity, reason, text, evidence, lines = pl["scope"], pl["ctype"], pl["entity"], pl["reason"], pl["text"], pl["evidence"], pl["lines"]
     try:
         rid = str(conn.execute("""INSERT INTO correction_request (scope_type, correction_type, source_entity, reason_code, reason_text, evidence_reference, requested_by, created_by)
                                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING request_id""", (scope, ctype, entity, reason, text, evidence, actor.user_id, actor.user_id)).fetchone()["request_id"])
@@ -318,6 +325,27 @@ def preview(conn, gold, request_id: str) -> dict:
             stores.add(ln["site_code"])
     q = lambda x: x.quantize(Decimal("0.0001"))  # noqa: E731
     return {"lines": len(lines), "stores": len(stores), "source_total_cr": q(sum((Decimal(src[int(x["source_line_key"])]["profit_effect"]) for x in lines), Decimal(0)) / CR),
+            "by_group": {k: q(v) for k, v in sorted(by_group.items())}, "by_month": {k: q(v) for k, v in sorted(by_month.items())},
+            "net_by_group_cr": q(sum(by_group.values(), Decimal(0))), "net_by_month_cr": q(sum(by_month.values(), Decimal(0))),
+            "note": "Movement in crore in the profit-effect sign (a cost moved INTO a group makes that group more negative). Both nets are zero: a correction never changes the total."}
+
+
+def preview_payload(gold, p: dict) -> dict:
+    """The same before / reclass / after as preview(), for a request that has not been saved: nothing is written, so a preview leaves no trace."""
+    pl = plan(gold, p)
+    by_group, by_month, stores = defaultdict(Decimal), defaultdict(Decimal), set()
+    for g, d, new_g, new_m in pl["lines"]:
+        a = Decimal(g["profit_effect"]) / CR
+        og, om = d["group"], d["month"].strftime("%Y-%m")
+        ng, nm = new_g or og, new_m.strftime("%Y-%m") if new_m else om
+        by_group[og] -= a
+        by_group[ng] += a
+        by_month[om] -= a
+        by_month[nm] += a
+        if g["tag_site_code"] is not None:
+            stores.add(g["tag_site_code"])
+    q = lambda x: x.quantize(Decimal("0.0001"))  # noqa: E731
+    return {"lines": len(pl["lines"]), "stores": len(stores), "source_total_cr": q(sum((Decimal(g["profit_effect"]) for g, *_ in pl["lines"]), Decimal(0)) / CR),
             "by_group": {k: q(v) for k, v in sorted(by_group.items())}, "by_month": {k: q(v) for k, v in sorted(by_month.items())},
             "net_by_group_cr": q(sum(by_group.values(), Decimal(0))), "net_by_month_cr": q(sum(by_month.values(), Decimal(0))),
             "note": "Movement in crore in the profit-effect sign (a cost moved INTO a group makes that group more negative). Both nets are zero: a correction never changes the total."}

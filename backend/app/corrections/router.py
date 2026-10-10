@@ -60,6 +60,12 @@ def source_lines(request: Request, entity: str, voucher: str, actor: Actor = Dep
         return ok(guard(lambda: svc.source_lines(conn, gold, entity, voucher)))
 
 
+@router.post("/preview")
+def preview_new(body: Body, request: Request, actor: Actor = Depends(writer)):
+    gold = database(request)
+    return ok(guard(lambda: svc.preview_payload(gold, body.model_dump())))
+
+
 @router.post("/source-check")
 def source_check(request: Request, actor: Actor = Depends(writer)):
     gold = database(request)

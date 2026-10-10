@@ -232,3 +232,15 @@ def test_source_lines_lists_a_voucher_with_group_month_and_correctability(env):
     assert row["correctable"] is True and row["management_group"] == "02-Employee Cost" and row["month"] == "2026-08" and row["active_correction"] is None
     assert "02-Employee Cost" in d["groups"]
     assert m.get("/api/v1/corrections/source-lines", params={"entity": "RETAIL", "voucher": "NO-SUCH-VOUCHER"}).status_code == 404
+
+
+def test_preview_of_an_unsaved_request_writes_nothing_and_nets_to_zero(env):
+    line = a_line("02-Employee Cost")
+    m = env["person"]("mgr9@example.test", "fpa_manager")
+    before = env["db"].execute("SELECT count(*) AS n FROM correction_request").fetchone()["n"]
+    r = m.post("/api/v1/corrections/preview", json={"source_entity": "RETAIL", "scope": "LINE", "line_keys": [line["cost_tag_key"]], "corrected_group": "16-Miscellaneous Expenses", "reason_code": "WRONG_CLASSIFICATION",
+                                                    "reason_text": "booked to the wrong management group", "evidence_reference": "ticket"}, headers=H)
+    assert r.status_code == 200, r.text
+    p = r.json()["data"]
+    assert D(p["net_by_group_cr"]) == 0 and D(p["net_by_month_cr"]) == 0 and p["lines"] == 1
+    assert env["db"].execute("SELECT count(*) AS n FROM correction_request").fetchone()["n"] == before

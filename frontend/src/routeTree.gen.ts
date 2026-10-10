@@ -30,6 +30,10 @@ import { Route as MgmtDcExpensesRouteImport } from './routes/mgmt_.dc-expenses'
 import { Route as EntryTillRouteImport } from './routes/entry_.till'
 import { Route as EntryListRouteImport } from './routes/entry_.list'
 import { Route as CreditorsVendorRouteImport } from './routes/creditors_.vendor'
+import { Route as ControlUsersRouteImport } from './routes/control.users'
+import { Route as ControlInboxRouteImport } from './routes/control.inbox'
+import { Route as ControlCorrectionsRouteImport } from './routes/control.corrections'
+import { Route as ControlAdjustmentsRouteImport } from './routes/control.adjustments'
 
 const VoucherRoute = VoucherRouteImport.update({
   id: '/voucher',
@@ -136,6 +140,26 @@ const CreditorsVendorRoute = CreditorsVendorRouteImport.update({
   path: '/creditors/vendor',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ControlUsersRoute = ControlUsersRouteImport.update({
+  id: '/control/users',
+  path: '/control/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ControlInboxRoute = ControlInboxRouteImport.update({
+  id: '/control/inbox',
+  path: '/control/inbox',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ControlCorrectionsRoute = ControlCorrectionsRouteImport.update({
+  id: '/control/corrections',
+  path: '/control/corrections',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ControlAdjustmentsRoute = ControlAdjustmentsRouteImport.update({
+  id: '/control/adjustments',
+  path: '/control/adjustments',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -149,6 +173,10 @@ export interface FileRoutesByFullPath {
   '/profitability': typeof ProfitabilityRoute
   '/related-party': typeof RelatedPartyRoute
   '/voucher': typeof VoucherRoute
+  '/control/adjustments': typeof ControlAdjustmentsRoute
+  '/control/corrections': typeof ControlCorrectionsRoute
+  '/control/inbox': typeof ControlInboxRoute
+  '/control/users': typeof ControlUsersRoute
   '/creditors/vendor': typeof CreditorsVendorRoute
   '/entry/list': typeof EntryListRoute
   '/entry/till': typeof EntryTillRoute
@@ -172,6 +200,10 @@ export interface FileRoutesByTo {
   '/profitability': typeof ProfitabilityRoute
   '/related-party': typeof RelatedPartyRoute
   '/voucher': typeof VoucherRoute
+  '/control/adjustments': typeof ControlAdjustmentsRoute
+  '/control/corrections': typeof ControlCorrectionsRoute
+  '/control/inbox': typeof ControlInboxRoute
+  '/control/users': typeof ControlUsersRoute
   '/creditors/vendor': typeof CreditorsVendorRoute
   '/entry/list': typeof EntryListRoute
   '/entry/till': typeof EntryTillRoute
@@ -196,6 +228,10 @@ export interface FileRoutesById {
   '/profitability': typeof ProfitabilityRoute
   '/related-party': typeof RelatedPartyRoute
   '/voucher': typeof VoucherRoute
+  '/control/adjustments': typeof ControlAdjustmentsRoute
+  '/control/corrections': typeof ControlCorrectionsRoute
+  '/control/inbox': typeof ControlInboxRoute
+  '/control/users': typeof ControlUsersRoute
   '/creditors_/vendor': typeof CreditorsVendorRoute
   '/entry_/list': typeof EntryListRoute
   '/entry_/till': typeof EntryTillRoute
@@ -221,6 +257,10 @@ export interface FileRouteTypes {
     | '/profitability'
     | '/related-party'
     | '/voucher'
+    | '/control/adjustments'
+    | '/control/corrections'
+    | '/control/inbox'
+    | '/control/users'
     | '/creditors/vendor'
     | '/entry/list'
     | '/entry/till'
@@ -244,6 +284,10 @@ export interface FileRouteTypes {
     | '/profitability'
     | '/related-party'
     | '/voucher'
+    | '/control/adjustments'
+    | '/control/corrections'
+    | '/control/inbox'
+    | '/control/users'
     | '/creditors/vendor'
     | '/entry/list'
     | '/entry/till'
@@ -267,6 +311,10 @@ export interface FileRouteTypes {
     | '/profitability'
     | '/related-party'
     | '/voucher'
+    | '/control/adjustments'
+    | '/control/corrections'
+    | '/control/inbox'
+    | '/control/users'
     | '/creditors_/vendor'
     | '/entry_/list'
     | '/entry_/till'
@@ -291,6 +339,10 @@ export interface RootRouteChildren {
   ProfitabilityRoute: typeof ProfitabilityRoute
   RelatedPartyRoute: typeof RelatedPartyRoute
   VoucherRoute: typeof VoucherRoute
+  ControlAdjustmentsRoute: typeof ControlAdjustmentsRoute
+  ControlCorrectionsRoute: typeof ControlCorrectionsRoute
+  ControlInboxRoute: typeof ControlInboxRoute
+  ControlUsersRoute: typeof ControlUsersRoute
   CreditorsVendorRoute: typeof CreditorsVendorRoute
   EntryListRoute: typeof EntryListRoute
   EntryTillRoute: typeof EntryTillRoute
@@ -452,6 +504,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CreditorsVendorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/control/users': {
+      id: '/control/users'
+      path: '/control/users'
+      fullPath: '/control/users'
+      preLoaderRoute: typeof ControlUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/control/inbox': {
+      id: '/control/inbox'
+      path: '/control/inbox'
+      fullPath: '/control/inbox'
+      preLoaderRoute: typeof ControlInboxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/control/corrections': {
+      id: '/control/corrections'
+      path: '/control/corrections'
+      fullPath: '/control/corrections'
+      preLoaderRoute: typeof ControlCorrectionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/control/adjustments': {
+      id: '/control/adjustments'
+      path: '/control/adjustments'
+      fullPath: '/control/adjustments'
+      preLoaderRoute: typeof ControlAdjustmentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -467,6 +547,10 @@ const rootRouteChildren: RootRouteChildren = {
   ProfitabilityRoute: ProfitabilityRoute,
   RelatedPartyRoute: RelatedPartyRoute,
   VoucherRoute: VoucherRoute,
+  ControlAdjustmentsRoute: ControlAdjustmentsRoute,
+  ControlCorrectionsRoute: ControlCorrectionsRoute,
+  ControlInboxRoute: ControlInboxRoute,
+  ControlUsersRoute: ControlUsersRoute,
   CreditorsVendorRoute: CreditorsVendorRoute,
   EntryListRoute: EntryListRoute,
   EntryTillRoute: EntryTillRoute,
