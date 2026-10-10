@@ -175,3 +175,54 @@ def test_detection_runs_the_detectors_on_real_data_and_is_idempotent(env):
     again = m.post("/api/v1/exceptions/detect", headers=H).json()["data"]
     assert again["created"] == 0
     assert m.get("/api/v1/exceptions", params={"limit": 500, "status": "OPEN"}).json()["data"]["total"] == first
+
+
+class FakeG:
+    """A stand-in for the gold connection: returns canned rows in the order the detector asks for them."""
+
+    def __init__(self, *results):
+        self.results = list(results)
+
+    def execute(self, *a, **k):
+        rows = self.results.pop(0)
+        return type("R", (), {"fetchall": lambda s: rows, "fetchone": lambda s: rows[0] if rows else None})()
+
+
+def test_creditors_detectors_apply_the_versioned_thresholds_and_never_carry_a_vendor_name():
+    from app.inbox import detectors_cc as cc
+    from app.inbox.detectors import THRESHOLDS
+    D_ = D
+    today = date.today()
+    rows = [{"vendor_ref": "Vaaa", "cr_open": D_(600_000_000), "dr_open": D_(0), "overdue": D_(500_000_000), "old_cr": D_(0), "as_of": today},
+            {"vendor_ref": "Vbbb", "cr_open": D_(400_000_000), "dr_open": D_(0), "overdue": D_(150_000_000), "old_cr": D_(200_000_000), "as_of": today},
+            {"vendor_ref": "Vccc", "cr_open": D_(0), "dr_open": D_(30_000_000), "overdue": D_(0), "old_cr": D_(0), "as_of": today}]
+    out = cc.creditors(FakeG(rows), THRESHOLDS)
+    types = {c["exception_type"] for c in out}
+    assert {"CREDITORS_OVERDUE_SHARE", "CREDITORS_OLD_PAYABLE", "CREDITORS_VENDOR_CONCENTRATION", "CREDITORS_DEBIT_BALANCE"} <= types
+    conc = [c for c in out if c["exception_type"] == "CREDITORS_VENDOR_CONCENTRATION"]
+    assert [c["subject_key"] for c in conc] == ["Vaaa", "Vbbb"]                          # 500 and 150 of 650 overdue pass 15 percent, ranked by size
+    assert next(c for c in out if c["exception_type"] == "CREDITORS_DEBIT_BALANCE")["subject_key"] == "Vccc"
+    assert all("vendor_name" not in c["evidence"] for c in out)
+    quiet = [{"vendor_ref": "Vaaa", "cr_open": D_(600_000_000), "dr_open": D_(0), "overdue": D_(10_000_000), "old_cr": D_(0), "as_of": today}]
+    assert cc.creditors(FakeG(quiet), THRESHOLDS) == []
+
+
+def test_cash_detectors_flag_stale_data_negative_and_high_till_balances_and_untied_bank_openings():
+    from app.inbox import detectors_cc as cc
+    from app.inbox.detectors import THRESHOLDS
+    old = date.today() - timedelta(days=5)
+    till = [{"site_code": 11, "cumulative_balance": D(-500_000), "unposted_net": D(0), "as_of_date": old}, {"site_code": 12, "cumulative_balance": D(5_000_000), "unposted_net": D(0), "as_of_date": old},
+            {"site_code": 13, "cumulative_balance": D(100_000), "unposted_net": D(0), "as_of_date": old}]
+    bank = [{"prior_year_closing": None}, {"prior_year_closing": D(5)}]
+    out = cc.cash(FakeG(till, bank), THRESHOLDS)
+    by = {(c["exception_type"], c.get("site_code")): c for c in out}
+    assert ("CASH_DATA_STALE", None) in by and by[("CASH_DATA_STALE", None)]["evidence"]["age_days"] == 5
+    assert by[("CASH_STORE_BALANCE", "11")]["title"] == "A store till balance is negative" and ("CASH_STORE_BALANCE", "12") in by and ("CASH_STORE_BALANCE", "13") not in by
+    assert by[("BANK_UNTIED_OPENING", None)]["evidence"]["ledgers_without_tied_opening"] == 1
+    assert cc.cash(FakeG([], []), THRESHOLDS) == []
+
+
+def test_every_case_is_stamped_with_the_threshold_version():
+    from app.inbox import detectors
+    stamped = detectors.stamp([{"exception_type": "X", "evidence": {}}])
+    assert stamped[0]["evidence"] == {"threshold_version": detectors.THRESHOLD_VERSION, "calibration_status": "UNCALIBRATED"} and detectors.THRESHOLD_VERSION.endswith("-2")

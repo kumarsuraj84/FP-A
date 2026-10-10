@@ -13,7 +13,7 @@ from ..mgmt import service as msvc
 
 D = Decimal
 # ONE visible, versioned set of thresholds. Every case records the version and the calibration status in its evidence. A change needs a new version string and a dated note here.
-THRESHOLD_VERSION = "2026-10-uncalibrated-1"
+THRESHOLD_VERSION = "2026-10-uncalibrated-2"
 CALIBRATION_STATUS = "UNCALIBRATED"
 THRESHOLDS = {
     "revenue_move": {"pct": D("10"), "min_cr": D("0.50")},          # revenue falls or rises by at least this, month on month
@@ -22,6 +22,13 @@ THRESHOLDS = {
     "stale_approval": {"days": 3},
     "provision_missing": {},                                        # any missing provision is a close blocker in the current month
     "control_failure": {},                                          # severity override: a failed control always ranks high regardless of rupees
+    "creditors_overdue_share": {"pct": D("60")},                    # overdue credit as a share of all credit payable (related parties excluded)
+    "creditors_vendor_concentration": {"pct": D("15"), "min_cr": D("5"), "max_cases": 5},   # one vendor's share of all overdue credit
+    "creditors_debit_balance": {"min_cr": D("0.25"), "max_cases": 5},     # a vendor whose debits exceed its credits (advance or overpayment)
+    "creditors_old_payable": {"pct": D("15")},                      # credit payable older than 180 days, as a share of all credit payable
+    "cash_store_balance": {"high_cr": D("0.10"), "max_cases": 10},        # till cash above this (or negative) at a store
+    "cash_stale_days": {"days": 2},                                 # the till cash data is older than this many days
+    "bank_untied_opening": {},                                      # a bank ledger with movement but no tied prior-year closing
 }
 LINE_VARIANCE_PCT = THRESHOLDS["expense_move"]["pct"]
 LINE_VARIANCE_MIN_CR = THRESHOLDS["expense_move"]["min_cr"]
@@ -144,10 +151,20 @@ def stamp(cands: list[dict]) -> list[dict]:
     return cands
 
 
+def creditors(g) -> list[dict]:
+    from . import detectors_cc
+    return detectors_cc.creditors(g, THRESHOLDS)
+
+
+def cash(g) -> list[dict]:
+    from . import detectors_cc
+    return detectors_cc.cash(g, THRESHOLDS)
+
+
 def run_all(app, g) -> list[dict]:
     out, errors = [], []
     for name, fn, arg in (("line_variance", line_variance, g), ("unmapped", unmapped, g), ("control_failures", control_failures, g), ("provision_gaps", provision_gaps, app),
-                          ("stale_approvals", stale_approvals, app), ("intercompany", intercompany, g)):
+                          ("stale_approvals", stale_approvals, app), ("intercompany", intercompany, g), ("creditors", creditors, g), ("cash", cash, g)):
         try:
             out += fn(arg)
         except Exception as e:  # noqa: BLE001  one detector failing must not hide the others
