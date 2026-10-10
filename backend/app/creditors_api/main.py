@@ -17,6 +17,7 @@ from ..mgmt.router import router as mgmt_router
 from ..gold.related_party import router as related_party_router
 from ..auth.router import router as auth_router
 from ..adjustments.router import router as adjustments_router
+from ..corrections.router import router as corrections_router
 
 
 def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> FastAPI:
@@ -40,6 +41,7 @@ def create_app(settings: ApiSettings | None = None, db: Db | None = None) -> Fas
     app.include_router(related_party_router)
     app.include_router(auth_router)
     app.include_router(adjustments_router)
+    app.include_router(corrections_router)
     return app
 
 

@@ -220,10 +220,11 @@ def evaluate_adjustments(book: Book, months: list[str], register: list[dict], ru
 
 # --------------------------------------------------------------------------- P&L
 
-def compute_pnl(book: Book, items: list[dict], months: list[str], entity: str = "consolidated") -> dict:
-    """-> {lines: [...], atoms: {(month, line): {book, adj}}, detail}"""
+def compute_pnl(book: Book, items: list[dict], months: list[str], entity: str = "consolidated", reclass: list[dict] | None = None) -> dict:
+    """-> {lines: [...], atoms: {(month, line): {book, reclass, adj}}, detail}.  `reclass` = active line corrections (corrections/overlay.py): each moves an existing book
+    amount between management groups and/or months, so every item posts +x and -x and the reclass layer nets to zero over all lines and months."""
     ent_ok = (lambda e: True) if entity == "consolidated" else (lambda e: e == entity.upper())
-    atoms: dict[tuple, dict] = defaultdict(lambda: {"book": ZERO, "adj": ZERO})
+    atoms: dict[tuple, dict] = defaultdict(lambda: {"book": ZERO, "adj": ZERO, "reclass": ZERO})
     detail: dict[tuple, dict] = defaultdict(lambda: {"book": ZERO, "adj": ZERO})
     mset = set(months)
     for (m, e, loc, key), v in book.cells.items():
@@ -233,6 +234,13 @@ def compute_pnl(book: Book, items: list[dict], months: list[str], entity: str = 
                 atoms[(m, ln)]["book"] += v
                 if ln in ("dc_cost", "ho_cost"):
                     detail[(m, ln, key)]["book"] += v
+    for rc in reclass or []:
+        if not ent_ok(rc["entity"]):
+            continue
+        for m, key, sign in ((rc["month_from"], rc["key_from"], -1), (rc["month_to"], rc["key_to"], 1)):
+            ln = line_targets(rc["location_type"], key)
+            if ln and m in mset:
+                atoms[(m, ln)]["reclass"] += sign * rc["amount_cr"]
     for it in items:
         if it["month"] in mset and ent_ok(it["entity"]):
             if it["kind"] == "elimination" and entity != "consolidated":
@@ -257,22 +265,24 @@ def _layer_values(atoms, month: str, layer: str) -> dict[str, D]:
 
 def shape_lines(calc: dict, months: list[str]) -> list[dict]:
     atoms = calc["atoms"]
-    per = {m: {"book": _layer_values(atoms, m, "book"), "adj": _layer_values(atoms, m, "adj")} for m in months}
+    per = {m: {"book": _layer_values(atoms, m, "book"), "adj": _layer_values(atoms, m, "adj"), "rc": _layer_values(atoms, m, "reclass")} for m in months}
     # total over the window: sum the atoms, then derive (so subtotals and percentages are exact)
-    tot_atoms = defaultdict(lambda: {"book": ZERO, "adj": ZERO})
+    tot_atoms = defaultdict(lambda: {"book": ZERO, "adj": ZERO, "reclass": ZERO})
     for (m, ln), c in atoms.items():
         if m in per:
             tot_atoms[("*", ln)]["book"] += c["book"]
             tot_atoms[("*", ln)]["adj"] += c["adj"]
-    tot = {"book": _layer_values(tot_atoms, "*", "book"), "adj": _layer_values(tot_atoms, "*", "adj")}
+            tot_atoms[("*", ln)]["reclass"] += c["reclass"]
+    tot = {"book": _layer_values(tot_atoms, "*", "book"), "adj": _layer_values(tot_atoms, "*", "adj"), "rc": _layer_values(tot_atoms, "*", "reclass")}
 
     def cell(pair, key):
-        return {"book": q4(pair["book"][key]), "adjustment": q4(pair["adj"][key]), "total": q4(pair["book"][key] + pair["adj"][key])}
+        """Management Total = Book + Reclass + Adjustment, on every line. `reclass` is the net-zero movement of active corrections."""
+        return {"book": q4(pair["book"][key]), "reclass": q4(pair["rc"][key]), "adjustment": q4(pair["adj"][key]), "total": q4(pair["book"][key] + pair["rc"][key] + pair["adj"][key])}
 
     def pcell(pair, key):    # percentage points of total income; adjustment = total less book
-        bi, ti = pair["book"]["total_income"], pair["book"]["total_income"] + pair["adj"]["total_income"]
+        bi, ti = pair["book"]["total_income"], pair["book"]["total_income"] + pair["rc"]["total_income"] + pair["adj"]["total_income"]
         b = pair["book"][key] / bi * 100 if bi else ZERO
-        t = (pair["book"][key] + pair["adj"][key]) / ti * 100 if ti else ZERO
+        t = (pair["book"][key] + pair["rc"][key] + pair["adj"][key]) / ti * 100 if ti else ZERO
         return {"book": q4(b), "adjustment": q4(t - b), "total": q4(t)}
     out = [{"key": key, "label": label, "kind": kind, "section": SECTION[key], "values": {m: cell(per[m], key) for m in months}, "total": cell(tot, key)} for key, label, kind, _ in LINES]
     for key in PCT_KEYS:
