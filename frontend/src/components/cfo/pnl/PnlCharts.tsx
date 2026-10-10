@@ -22,6 +22,12 @@ interface Step {
 
 /** The MIS chain on the books basis: Revenue from operations -> Material Cost -> other items -> Material Margin -> Store Expenses -> Store EBITDA -> DC cost -> HO cost -> Corporate EBITDA.
  *  Other operating income is part of Material Margin. Every bar is an exact figure from the API (shown in Cr). A store has no DC or HO bars (they are company level). */
+/** Two short lines per step when the bridge is too narrow for the full names; the full name stays in the tooltip. */
+const SHORT: Record<string, [string, string]> = {
+  revenue: ["Revenue", ""], cogs: ["Material", "cost"], cogs_books: ["Other mat.", "items"], ooi: ["Other", "income"], gross_margin: ["Material", "margin"],
+  opex: ["Store", "expenses"], contribution: ["Store", "EBITDA"], dc_cost: ["DC", "cost"], ho_cost: ["HO", "cost"], corporate_ebitda: ["Corp.", "EBITDA"],
+};
+
 export function PnlWaterfall({ t, height = 300, store = false }: { t: PnlMoney; height?: number; store?: boolean }) {
   const [ref, size] = useElementSize<HTMLDivElement>(560);
   const [hover, setHover] = useState<string | null>(null);
@@ -73,19 +79,23 @@ export function PnlWaterfall({ t, height = 300, store = false }: { t: PnlMoney; 
                 {fmtCr(b.value, { plain: iw / steps.length < 84 })}
               </text>
               {b.id === "gross_margin" && rev !== 0 && (
-                <text x={x(b.i)} y={y(b.hi) - 22} textAnchor="middle" fontSize={10.5} fill={INK}>{`${((b.value / rev) * 100).toFixed(1)}% of sales`}</text>
+                <text x={x(b.i)} y={y(b.hi) - 22} textAnchor="middle" fontSize={10.5} fill={INK}>{`${((b.value / rev) * 100).toFixed(1)}%${iw / steps.length < 84 ? "" : " of sales"}`}</text>
               )}
               {(b.id === "contribution" || b.id === "corporate_ebitda") && rev !== 0 && (
-                <text x={x(b.i)} y={y(b.hi) - 22} textAnchor="middle" fontSize={10.5} fill={INK}>{`${((b.value / rev) * 100).toFixed(1)}% of sales`}</text>
+                <text x={x(b.i)} y={y(b.hi) - 22} textAnchor="middle" fontSize={10.5} fill={INK}>{`${((b.value / rev) * 100).toFixed(1)}%${iw / steps.length < 84 ? "" : " of sales"}`}</text>
               )}
-              <text x={x(b.i)} y={height - 24} textAnchor="middle" fontSize={11} fill={INK}>
-                {b.label.length > 14 ? b.label.split(" ").slice(0, 2).join(" ") : b.label}
-              </text>
-              {b.label.length > 14 && (
-                <text x={x(b.i)} y={height - 11} textAnchor="middle" fontSize={11} fill={INK}>
-                  {b.label.split(" ").slice(2).join(" ")}
-                </text>
-              )}
+              {(() => {
+                const narrow = iw / steps.length < 84;
+                const [l1, l2] = narrow ? (SHORT[b.id] ?? [b.label.split(" ")[0], b.label.split(" ").slice(1).join(" ")]) : b.label.length > 14 ? [b.label.split(" ").slice(0, 2).join(" "), b.label.split(" ").slice(2).join(" ")] : [b.label, ""];
+                const fs = narrow ? 10 : 11;
+                return (
+                  <>
+                    <title>{b.label}</title>
+                    <text x={x(b.i)} y={height - 24} textAnchor="middle" fontSize={fs} fill={INK}>{l1}</text>
+                    {l2 && <text x={x(b.i)} y={height - 11} textAnchor="middle" fontSize={fs} fill={INK}>{l2}</text>}
+                  </>
+                );
+              })()}
             </g>
           );
         })}
