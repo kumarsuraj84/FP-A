@@ -7,6 +7,7 @@ import time
 from datetime import date
 from decimal import Decimal as D
 
+from . import app_register
 from . import config as cfg
 from . import engine as eng
 
@@ -100,13 +101,19 @@ def check_window(conn, lo: str | None, hi: str | None) -> tuple[str, str]:
     return lo, hi
 
 
-def run(conn, lo: str, hi: str, include_proposed: bool = True, entity: str = "consolidated") -> dict:
+def register_rows() -> list[dict]:
+    """The adjustment register the engine reads: the CSV rows, the fpa_app ACTIVE rows, or both, by FPA_ADJ_SOURCE (default csv)."""
+    src = app_register.source()
+    return (cfg.adjustments() if src in ("csv", "both") else []) + (app_register.active_rows() if src in ("app", "both") else [])
+
+
+def run(conn, lo: str, hi: str, include_proposed: bool = True, entity: str = "consolidated", extra_register: list[dict] | None = None) -> dict:
     if entity not in ("consolidated", "subco", "holdco"):
         raise ValueError("entity is consolidated, subco or holdco")
     months = eng.month_list(lo, hi)
     book = fetch_book(conn, lo, hi)
     rules = cfg.rules()
-    register = cfg.adjustments()
+    register = register_rows() + (extra_register or [])
     elim = gold_eliminations(conn, months)
     items = eng.evaluate_adjustments(book, months, register + elim, rules, include_proposed, last_month=available_months(conn)[-1])
     calc = eng.compute_pnl(book, items, months, entity)
