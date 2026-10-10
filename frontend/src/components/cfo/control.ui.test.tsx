@@ -33,7 +33,10 @@ const READY = (over: Record<string, unknown> = {}) => ({
     CK("intercompany", "Intercompany reconciliation signed off", "PENDING", "Review the intercompany tie, then sign it off.", { manual: true }), CK("pnl_certification", "Management P&L certified", "PENDING", "A controller certifies.", { manual: true })], ...over,
 });
 
-function install(opts: { readiness?: unknown; me: unknown | null; adjustments?: unknown[]; corrections?: unknown; cases?: unknown[]; calls?: Call[]; loginMe?: unknown }) {
+const MAP = (over: Record<string, unknown> = {}) => ({ mapping_id: "m1", domain: "LEDGER_GROUP", source_key: "Salary", mapped_value: "16-Miscellaneous Expenses", attrs: {}, effective_from: "2026-09", effective_to: null, version: 2, supersedes_id: "m0", status: "SUBMITTED",
+  source: "app", reason: "booked to the wrong group since September", evidence_ref: "ticket 9", requested_at: "2026-10-03T10:00:00Z", approved_at: null, in_force_now: false, ...over });
+
+function install(opts: { mappings?: unknown[]; validation?: unknown; readiness?: unknown; me: unknown | null; adjustments?: unknown[]; corrections?: unknown; cases?: unknown[]; calls?: Call[]; loginMe?: unknown }) {
   const calls = opts.calls ?? [];
   let me = opts.me;
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -57,6 +60,14 @@ function install(opts: { readiness?: unknown; me: unknown | null; adjustments?: 
     if (url.startsWith("/corrections-api/preview")) return json({ lines: 1, stores: 1, source_total_cr: "-0.0500", by_group: { "02-Employee Cost": "0.0500", "16-Miscellaneous Expenses": "-0.0500" }, by_month: { "2026-08": "0.0000" }, net_by_group_cr: "0.0000", net_by_month_cr: "0.0000", note: "Both nets are zero." });
     if (url.startsWith("/corrections-api") && method === "POST") return json({ request_id: "r1", scope_type: "LINE", correction_type: "GROUP", source_entity: "RETAIL", status: "DRAFT", reason_code: "WRONG_CLASSIFICATION", reason_text: "booked to the wrong group", evidence_reference: "ticket 1", requested_by: "u1", requested_at: "2026-10-03T10:00:00Z", approved_at: null, line_count: 1, source_total_cr: "-0.0500", counts_in_management_total: false });
     if (url.startsWith("/corrections-api")) return json(opts.corrections ?? { total: 0, counts: {}, items: [] });
+    if (url.startsWith("/mapping-api/validate")) return json(opts.validation ?? { window: ["2026-04", "2026-10"], csv_ledgers: 140, app_ledgers: 140, csv_sites: 1, app_sites: 1, active_rules: 141, key_difference_count: 0, key_differences: [], line_differences: [], identical: true, note: "" });
+    if (url.startsWith("/mapping-api/import")) return json({ imported: { LEDGER_GROUP: 140, SITE_LOCATION: 1 }, skipped_existing: 0, next: "" });
+    if (url.startsWith("/mapping-api/preview") || /\/mapping-api\/[^/?]+\/preview/.test(url)) return json({ from_month: "2026-09", to_month: "2026-10", note: "A move between store lines does not change the totals.", lines: [
+      { key: "employee_cost", label: "Employee cost", before: "-10.0000", after: "-9.0000", change: "1.0000", by_month: {} }, { key: "other_expenses", label: "Other expenses", before: "-2.0000", after: "-3.0000", change: "-1.0000", by_month: {} }] });
+    if (/\/mapping-api\/[^/?]+\/(submit|approve|activate|retire)/.test(url) && method === "POST") return json(MAP({ status: "APPROVED" }));
+    if (/\/mapping-api\/m1/.test(url) && method === "GET") return json({ ...MAP(), events: [{ seq: 1, event_type: "CREATED", from_status: null, to_status: "DRAFT", comment: null, at: "2026-10-03T10:00:00Z", actor_email: "mgr@example.test" }], versions: [MAP({ mapping_id: "m0", version: 1, status: "RETIRED", mapped_value: "02-Employee Cost", effective_from: "2000-01", effective_to: "2026-08" }), MAP()] });
+    if (url.startsWith("/mapping-api") && method === "POST") return json(MAP({ status: "DRAFT" }));
+    if (url.startsWith("/mapping-api")) return json({ total: (opts.mappings ?? []).length, counts: { SUBMITTED: 1, ACTIVE: 140 }, source_in_use: "csv", items: opts.mappings ?? [], groups: ["02-Employee Cost", "16-Miscellaneous Expenses"] });
     if (url.startsWith("/close-api/readiness")) return json(opts.readiness ?? READY());
     if (url.startsWith("/close-api/history")) return json([{ from_status: "OPEN", to_status: "SOFT_CLOSED", reason: "month complete and reviewed", at: "2026-10-03T10:00:00Z", actor: "mgr@example.test" }]);
     if (url.startsWith("/close-api/signoff") || url.startsWith("/close-api/period")) return json(READY({ period_status: "SOFT_CLOSED" }));
@@ -296,5 +307,57 @@ describe("Month-end close", () => {
     fireEvent.click(screen.getByTestId("period-reopen"));
     await waitFor(() => expect(calls.some((c) => c.url === "/close-api/period/reopen")).toBe(true));
     expect(calls.find((c) => c.url === "/close-api/period/reopen")!.body).toMatchObject({ entity: "SUBCO", reason: "reopening for a late invoice" });
+  });
+});
+
+
+describe("Mapping Governance", () => {
+  it("lists pending rules with counts and says which source the engine reads", async () => {
+    install({ me: ME("fpa_manager"), mappings: [MAP()] });
+    mount("/control/mapping");
+    expect(await screen.findByTestId("map-row-m1", {}, T)).toHaveTextContent("Salary");
+    expect(screen.getByTestId("source-in-use")).toHaveTextContent("legacy CSV files");
+    await waitFor(() => expect(screen.getByTestId("map-count-pending")).toHaveTextContent("1"));
+    expect(screen.getByTestId("map-count-active")).toHaveTextContent("140");
+  });
+
+  it("a proposal shows the impact on the P&L lines and is saved as a new version without any amount", async () => {
+    const calls = install({ me: ME("fpa_manager"), mappings: [] });
+    mount("/control/mapping");
+    fireEvent.click(await screen.findByTestId("map-tab-new", {}, T));
+    fireEvent.change(screen.getByLabelText("Source key"), { target: { value: "Salary" } });
+    await waitFor(() => expect(within(screen.getByLabelText("Mapped value")).getByRole("option", { name: "16-Miscellaneous Expenses" })).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Mapped value"), { target: { value: "16-Miscellaneous Expenses" } });
+    fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "booked to the wrong group since September" } });
+    fireEvent.click(screen.getByTestId("preview-mapping"));
+    const impact = await screen.findByTestId("mapping-impact", {}, T);
+    expect(within(impact).getByTestId("impact-employee_cost")).toHaveTextContent("1.00");
+    expect(within(impact).getByTestId("impact-other_expenses")).toHaveTextContent("-1.00");
+    fireEvent.click(screen.getByTestId("save-mapping-draft"));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url === "/mapping-api")).toBe(true));
+    const body = calls.find((c) => c.method === "POST" && c.url === "/mapping-api")!.body as Record<string, unknown>;
+    expect(body).toMatchObject({ domain: "LEDGER_GROUP", source_key: "Salary", mapped_value: "16-Miscellaneous Expenses" });
+    expect(Object.keys(body).some((k) => k.includes("amount"))).toBe(false);
+  });
+
+  it("the detail shows the version chain and offers approve to a reviewer, and retire needs a reason", async () => {
+    install({ me: ME("finance_reviewer"), mappings: [MAP()] });
+    mount("/control/mapping");
+    fireEvent.click(await screen.findByTestId("map-row-m1", {}, T));
+    await screen.findByTestId("mapping-detail", {}, T);
+    await waitFor(() => expect(screen.getByTestId("versions")).toHaveTextContent("v1 02-Employee Cost from 2000-01 to 2026-08 (retired)"));
+    expect(screen.getByTestId("act-approve")).toBeInTheDocument();
+    expect(screen.queryByTestId("act-retire")).toBeNull();                 // only an ACTIVE rule can be retired
+  });
+
+  it("the cut-over tab validates against the CSV and the import is for an administrator only", async () => {
+    install({ me: ME("fpa_manager"), mappings: [] });
+    mount("/control/mapping");
+    fireEvent.click(await screen.findByTestId("map-tab-cutover", {}, T));
+    expect(await screen.findByTestId("import-baseline", {}, T)).toBeDisabled();
+    fireEvent.click(screen.getByTestId("validate-mapping"));
+    const res = await screen.findByTestId("validation-result", {}, T);
+    expect(res.dataset.identical).toBe("true");
+    expect(res).toHaveTextContent("Identical");
   });
 });

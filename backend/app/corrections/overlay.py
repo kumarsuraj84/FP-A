@@ -24,14 +24,16 @@ def month_of(d) -> str:
     return d.strftime("%Y-%m")
 
 
-def line_group(row: dict, lmap: dict) -> str | None:
-    grp, _ = eng.resolve_group(row["glname"], row.get("fin_group"), bool(row.get("fin_group")) and row.get("fin_group") != "UNMAPPED", lmap)
+def line_group(row: dict, lmap) -> str | None:
+    """lmap is a dict (legacy CSV) or a function month -> dict (governed rules by effective date); the month is the line's own."""
+    grp, _ = eng.resolve_group(row["glname"], row.get("fin_group"), bool(row.get("fin_group")) and row.get("fin_group") != "UNMAPPED", cfg.resolve(lmap, month_of(row["entdt"])))
     return grp
 
 
-def location_of(row: dict, site_loc: dict) -> str | None:
+def location_of(row: dict, site_loc) -> str | None:
     sc = row.get("tag_site_code")
-    return site_loc[sc]["location_type"] if sc in site_loc else cfg.LOC_OF_KIND.get(row.get("site_kind"))
+    sl = cfg.resolve(site_loc, month_of(row["entdt"]))
+    return sl[sc]["location_type"] if sc in sl else cfg.LOC_OF_KIND.get(row.get("site_kind"))
 
 
 def build_items(overlay_rows: list[dict], gold_rows: dict[tuple, dict], lmap: dict, site_loc: dict, skipped: list | None = None) -> list[dict]:
@@ -75,4 +77,4 @@ def load(gconn, skipped: list | None = None) -> list[dict]:
     for ent, ks in keys.items():
         for g in gconn.execute(GOLD_LINE_SQL, (ent, ks)).fetchall():
             gold_rows[(g["entity"], g["cost_tag_key"])] = g
-    return build_items(rows, gold_rows, cfg.ledger_map(), cfg.site_loc(), skipped)
+    return build_items(rows, gold_rows, cfg.ledger_map_provider(), cfg.site_loc_provider(), skipped)

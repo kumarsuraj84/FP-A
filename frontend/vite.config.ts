@@ -92,6 +92,11 @@ export default defineConfig({
           changeOrigin: false,
           rewrite: (path) => path.replace(/^\/close-api/, "/api/v1/close"), // month-end close: session cookie and X-FPA-Request header pass through; no finance token
         },
+        "/mapping-api": {
+          target,
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/mapping-api/, "/api/v1/mapping"), // governed mapping rules: session cookie and X-FPA-Request header pass through; no finance token
+        },
         "/related-api": {
           target,
           changeOrigin: false,

@@ -192,8 +192,9 @@ def fetch_aggregates(conn, lo: str, hi: str, scope: str) -> dict:
     det = svc.detect(conn)
 
     def go():
-        sl = cfg.site_loc()
-        lmap = cfg.ledger_map()
+        sl_p = cfg.site_loc_provider()
+        lmap_p = cfg.ledger_map_provider()
+        sl_codes = cfg.site_codes_ever()
         ent_sql = "p.entity" if det["pnl_has_entity"] else svc.HOLDCO_SQL
         join = "" if det["pnl_has_entity"] else " LEFT JOIN gold_fpa.dim_site d ON d.site_code = p.site_code AND d.entity = 'RETAIL'"
         kinds = list(SCOPE_KINDS[scope]) + (["VIRTUAL"] if scope == "ho" else [])
@@ -201,18 +202,19 @@ def fetch_aggregates(conn, lo: str, hi: str, scope: str) -> dict:
             f"SELECT to_char(p.month, 'YYYY-MM') AS month, {ent_sql} AS entity, p.site_code, p.site_kind, p.glcode, p.glname, p.fin_group, p.is_mapped, max(p.store_name) AS store_name, "
             f"sum(p.profit_effect) AS pe, sum(p.lines_n) AS n FROM gold_fpa.pnl_store_month p{join} WHERE p.month >= %s AND p.month <= %s "
             "AND (p.site_kind = ANY(%s) OR p.site_code = ANY(%s::int[])) GROUP BY 1, 2, 3, 4, 5, 6, 7, 8",
-            (svc.mdate(lo), svc.mdate(hi), kinds, list(sl))).fetchall()
+            (svc.mdate(lo), svc.mdate(hi), kinds, sl_codes)).fetchall()
         led: dict = defaultdict(lambda: defaultdict(lambda: [ZERO, 0]))
         names: dict = {}
         unmapped: dict = defaultdict(lambda: defaultdict(D))
         for r in rows:
             ent = classify_entity(r["entity"])
             sc = r["site_code"]
+            sl = cfg.resolve(sl_p, r["month"])
             loc = sl[sc]["location_type"] if (ent == "SUBCO" and sc in sl) else cfg.LOC_OF_KIND.get(r["site_kind"])
             if loc != SCOPE_LOC[scope]:
                 continue
             amt = D(str(r["pe"])) / CR
-            grp, _ = eng.resolve_group(r["glname"], r.get("fin_group"), bool(r.get("is_mapped")), lmap)
+            grp, _ = eng.resolve_group(r["glname"], r.get("fin_group"), bool(r.get("is_mapped")), cfg.resolve(lmap_p, r["month"]))
             if grp == cfg.EXCLUDED:
                 continue
             key = cfg.KEY_OF_GROUP.get(grp) if grp else None
@@ -227,7 +229,7 @@ def fetch_aggregates(conn, lo: str, hi: str, scope: str) -> dict:
             cell[0] -= amt
             cell[1] += int(r["n"] or 0)
         return {"led": {k: {m: tuple(v) for m, v in mm.items()} for k, mm in led.items()}, "names": names, "unmapped": {k: dict(v) for k, v in unmapped.items()}}
-    return svc.cached(("exp_agg", lo, hi, scope, det["pnl_has_entity"]), go)
+    return svc.cached(("exp_agg", lo, hi, scope, det["pnl_has_entity"], cfg.cache_token()), go)
 
 
 def fetch_store_meta(conn) -> dict:

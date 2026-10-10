@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -68,7 +73,124 @@ def rules() -> dict:
     return out
 
 
-def ledger_map() -> dict[str, dict]:
+_force_source: ContextVar = ContextVar("mapping_force_source", default=None)
+_overlay: ContextVar = ContextVar("mapping_overlay", default=None)
+
+
+def mapping_source() -> str:
+    """FPA_MAPPING_SOURCE: csv (default, the legacy files) or app (the governed, versioned, effective-dated rules in fpa_app). A deliberate cut-over, never a silent mix.
+    A request-scoped override exists only for validation and impact previews."""
+    f = _force_source.get()
+    if f in ("csv", "app"):
+        return f
+    v = os.environ.get("FPA_MAPPING_SOURCE", "csv").lower()
+    return v if v in ("csv", "app") else "csv"
+
+
+@contextmanager
+def forced(source: str | None = None, overlay: dict | None = None):
+    """Run a block with another mapping source and/or one proposed rule laid over the mapping (validation and previews). Request-scoped (a ContextVar), never global."""
+    a, b = _force_source.set(source), _overlay.set(overlay)
+    try:
+        yield
+    finally:
+        _force_source.reset(a)
+        _overlay.reset(b)
+
+
+def cache_token() -> tuple:
+    """Part of every cache key that depends on the mapping, so a validation or preview never reads or writes the normal cache entry."""
+    o = _overlay.get()
+    return (mapping_source(), (o["domain"], o["source_key"], o["mapped_value"], str(o["effective_from"])) if o else None)
+
+
+def apply_overlay(domain: str, month: str | None, out: dict) -> dict:
+    o = _overlay.get()
+    if o and o["domain"] == domain and o["effective_from"] <= _first(month):
+        out = dict(out)
+        a = o.get("attrs") or {}
+        if domain == "LEDGER_GROUP":
+            out[o["source_key"]] = {"ledger": o["source_key"], "mgmt_group": o["mapped_value"], "major_group": a.get("major_group", ""), "category": a.get("category", ""),
+                                    "location_rule": a.get("location_rule", ""), "source": "proposed rule", "note": a.get("note", "")}
+        elif o["source_key"].isdigit():
+            out[int(o["source_key"])] = {"site_code": o["source_key"], "short_name": a.get("short_name", ""), "location_type": o["mapped_value"], "reason": "proposed rule"}
+    return out
+
+
+_rules_cache: dict = {"t": 0.0, "rows": []}
+RULES_TTL = 30
+
+
+def clear_mapping_cache() -> None:
+    _rules_cache["t"] = 0.0
+
+
+def app_rules() -> list[dict]:
+    """ACTIVE and RETIRED mapping rules of the app database (cached for RULES_TTL seconds). Raises when the app database cannot be read: an app-sourced mapping must never fall
+    back silently to something else."""
+    if time.time() - _rules_cache["t"] < RULES_TTL:
+        return _rules_cache["rows"]
+    from ..appdb.conn import app_connection
+    with app_connection() as c:
+        rows = c.execute("SELECT domain, source_key, mapped_value, attrs, effective_from, effective_to, version FROM mapping_rule WHERE status IN ('ACTIVE', 'RETIRED') ORDER BY version").fetchall()
+    _rules_cache.update(t=time.time(), rows=rows)
+    return rows
+
+
+def _first(month: str | None) -> date:
+    if month:
+        return date(int(month[:4]), int(month[5:7]), 1)
+    t = date.today()
+    return date(t.year, t.month, 1)
+
+
+def effective(rules: list[dict], domain: str, month: str | None) -> dict[str, dict]:
+    """{source_key: rule} in force in `month` (default: this month). The highest version wins when two overlap."""
+    m = _first(month)
+    out: dict[str, dict] = {}
+    for r in rules:
+        if r["domain"] == domain and r["effective_from"] <= m and (r["effective_to"] is None or r["effective_to"] >= m):
+            out[r["source_key"]] = r
+    return out
+
+
+def ledger_map(month: str | None = None) -> dict[str, dict]:
+    """ledger -> mapping row. From the legacy CSV, or (FPA_MAPPING_SOURCE=app) from the rules in force in `month`."""
+    if mapping_source() == "app":
+        m = {n: {"ledger": n, "mgmt_group": EXCLUDED, "major_group": "", "category": "inventory flow", "location_rule": "excluded", "source": "engine_default",
+                 "note": "Inventory flow ledger; COGS comes from cogs_store_month."} for n in DEFAULT_EXCLUDED_LEDGERS}
+        for k, r in effective(app_rules(), "LEDGER_GROUP", month).items():
+            a = r["attrs"] or {}
+            m[k] = {"ledger": k, "mgmt_group": r["mapped_value"], "major_group": a.get("major_group", ""), "category": a.get("category", ""), "location_rule": a.get("location_rule", ""),
+                    "source": f"mapping v{r['version']}", "note": a.get("note", "")}
+        return apply_overlay("LEDGER_GROUP", month, m)
+    return apply_overlay("LEDGER_GROUP", month, _ledger_map_csv())
+
+
+def site_codes_ever() -> list[int]:
+    """Every site code any mapping rule names, in any period (the SQL needs them all; the month decides the location type)."""
+    codes = {int(r["source_key"]) for r in app_rules() if r["domain"] == "SITE_LOCATION" and r["source_key"].isdigit()} if mapping_source() == "app" else set(site_loc())
+    o = _overlay.get()
+    if o and o["domain"] == "SITE_LOCATION" and o["source_key"].isdigit():
+        codes.add(int(o["source_key"]))
+    return sorted(codes)
+
+
+def ledger_map_provider():
+    """What the engine takes as `lmap`: the plain dict for the CSV, or a function month -> dict (rules by effective date) for the app source."""
+    return (lambda month: ledger_map(month)) if mapping_source() == "app" else ledger_map()
+
+
+def site_loc_provider():
+    return (lambda month: site_loc(month)) if mapping_source() == "app" else site_loc()
+
+
+def resolve(provider, month: str | None):
+    """A provider (dict or function) at a month."""
+    return provider(month) if callable(provider) else provider
+
+
+def _ledger_map_csv() -> dict[str, dict]:
     m = {n: {"ledger": n, "mgmt_group": EXCLUDED, "major_group": "", "category": "inventory flow", "location_rule": "excluded", "source": "engine_default",
              "note": "Inventory flow ledger; COGS comes from cogs_store_month."} for n in DEFAULT_EXCLUDED_LEDGERS}
     for r in _read_csv("mgmt_ledger_map.csv"):
@@ -80,8 +202,13 @@ def ledger_map_rows() -> list[dict]:
     return list(ledger_map().values())
 
 
-def site_loc() -> dict[int, dict]:
-    return {int(r["site_code"]): r for r in _read_csv("mgmt_site_loc.csv") if r.get("site_code", "").isdigit()}
+def site_loc(month: str | None = None) -> dict[int, dict]:
+    if mapping_source() == "app":
+        base = {int(k): {"site_code": k, "short_name": (r["attrs"] or {}).get("short_name", ""), "location_type": r["mapped_value"], "reason": (r["attrs"] or {}).get("note", "")}
+                for k, r in effective(app_rules(), "SITE_LOCATION", month).items() if k.isdigit()}
+    else:
+        base = {int(r["site_code"]): r for r in _read_csv("mgmt_site_loc.csv") if r.get("site_code", "").isdigit()}
+    return apply_overlay("SITE_LOCATION", month, base)
 
 
 def adjustments() -> list[dict]:

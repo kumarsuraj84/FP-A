@@ -120,7 +120,7 @@ def source_lines(conn, gold, entity: str, voucher: str) -> dict:
         raise Problem("No lines found for that voucher in the finance data.", 404)
     active = {r["source_line_key"]: r for r in conn.execute("""SELECT l.source_line_key, l.request_id, l.corrected_group, l.corrected_month, l.group_active, l.month_active FROM correction_line l
                                                               WHERE l.source_entity = %s AND (l.group_active OR l.month_active)""", (entity,)).fetchall()}
-    lmap, sloc = cfg.ledger_map(), cfg.site_loc()
+    lmap, sloc = cfg.ledger_map_provider(), cfg.site_loc_provider()
     out = []
     for g in src:
         d = describe(g, lmap, sloc)
@@ -176,7 +176,7 @@ def plan(gold, p: dict) -> dict:
         src = gold_lines(gold, entity, keys)
         if len(src) != len(keys):
             raise Problem("Some lines do not exist in the finance data: " + ", ".join(str(k) for k in set(keys) - {s["cost_tag_key"] for s in src}), 404)
-    lmap, sloc = cfg.ledger_map(), cfg.site_loc()
+    lmap, sloc = cfg.ledger_map_provider(), cfg.site_loc_provider()
     lines, skipped = [], []
     for g in src:
         d = describe(g, lmap, sloc)
@@ -228,7 +228,7 @@ def check_lines(conn, gold, request_id: str) -> dict:
         raise Problem("No such correction.", 404)
     lines = conn.execute("SELECT * FROM correction_line WHERE request_id = %s", (request_id,)).fetchall()
     src = {g["cost_tag_key"]: g for g in gold_lines(gold, req["source_entity"], [int(x["source_line_key"]) for x in lines])}
-    lmap, sloc = cfg.ledger_map(), cfg.site_loc()
+    lmap, sloc = cfg.ledger_map_provider(), cfg.site_loc_provider()
     states, detail = [], []
     for ln in lines:
         g = src.get(int(ln["source_line_key"]))

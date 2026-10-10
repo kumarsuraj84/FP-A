@@ -107,7 +107,7 @@ def build_book(rows: list[dict], cogs_rows: list[dict], lmap: dict, site_loc: di
     for r in rows:
         amt = D(str(r["pe"])) / CR
         m, ent, glname = r["month"], r.get("entity") or "SUBCO", r["glname"]
-        grp, src = resolve_group(glname, r.get("fin_group"), bool(r.get("is_mapped")), lmap)
+        grp, src = resolve_group(glname, r.get("fin_group"), bool(r.get("is_mapped")), cfg.resolve(lmap, m))
         if grp == cfg.EXCLUDED:
             b.excluded[glname] += amt
             continue
@@ -118,7 +118,8 @@ def build_book(rows: list[dict], cogs_rows: list[dict], lmap: dict, site_loc: di
             ex["months"].add(m)
             continue
         sc = r.get("site_code")
-        loc = site_loc[sc]["location_type"] if sc in site_loc else cfg.LOC_OF_KIND.get(r["site_kind"])
+        sl_m = cfg.resolve(site_loc, m)
+        loc = sl_m[sc]["location_type"] if sc in sl_m else cfg.LOC_OF_KIND.get(r["site_kind"])
         if loc is None:
             b.unclassified += amt
             continue
@@ -393,7 +394,7 @@ def build_stores(site_rows: list[dict], cogs_site: list[dict], names: dict, item
     for c in cogs_site:
         rgm_book[(c["month"], c["site_code"])] += (D(str(c["ns"])) - D(str(c["cogs"]))) / CR
     for r in site_rows:
-        grp, _ = resolve_group(r["glname"], r.get("fin_group"), bool(r.get("is_mapped")), lmap)
+        grp, _ = resolve_group(r["glname"], r.get("fin_group"), bool(r.get("is_mapped")), cfg.resolve(lmap, r["month"]))
         key = cfg.KEY_OF_GROUP.get(grp) if grp and grp != cfg.EXCLUDED else None
         if key is None or key in ("revenue", *BELOW):
             continue

@@ -60,16 +60,16 @@ def fetch_book(conn, lo: str, hi: str) -> eng.Book:
     det = detect(conn)
 
     def go():
-        sl = cfg.site_loc()
+        sl = cfg.site_codes_ever()
         ent = HOLDCO_COL_SQL if det["pnl_has_entity"] else HOLDCO_SQL
         rows = conn.execute(
             f"SELECT to_char(p.month, 'YYYY-MM') AS month, p.site_kind, CASE WHEN p.site_code = ANY(%s::int[]) THEN p.site_code END AS site_code, {ent} AS entity, "
             "p.glname, p.fin_group, p.is_mapped, sum(p.profit_effect) AS pe FROM gold_fpa.pnl_store_month p LEFT JOIN gold_fpa.dim_site d ON d.site_code = p.site_code AND d.entity = " + ("p.entity" if det["pnl_has_entity"] else "'RETAIL'") + " "
-            "WHERE p.month >= %s AND p.month <= %s GROUP BY 1, 2, 3, 4, 5, 6, 7", (list(sl), mdate(lo), mdate(hi))).fetchall()
+            "WHERE p.month >= %s AND p.month <= %s GROUP BY 1, 2, 3, 4, 5, 6, 7", (sl, mdate(lo), mdate(hi))).fetchall()
         cg = conn.execute("SELECT to_char(month, 'YYYY-MM') AS month, sum(net_sales_ex_gst) AS ns, sum(cogs_v) AS cogs FROM gold_fpa.cogs_store_month "
                           "WHERE site_kind = 'STORE' AND month >= %s AND month <= %s GROUP BY 1", (mdate(lo), mdate(hi))).fetchall()
-        return eng.build_book(rows, cg, cfg.ledger_map(), sl)
-    return cached(("book", lo, hi, det["pnl_has_entity"]), go)
+        return eng.build_book(rows, cg, cfg.ledger_map_provider(), cfg.site_loc_provider())
+    return cached(("book", lo, hi, det["pnl_has_entity"], cfg.cache_token()), go)
 
 
 def gold_eliminations(conn, months: list[str]) -> list[dict]:
@@ -204,4 +204,4 @@ def stores(conn, ctx: dict) -> dict:
         return sr, cs
     sr, cs = cached(("stores", lo, hi), go)
     names = cached("names", lambda: {r["site_code"]: r for r in conn.execute("SELECT site_code, short_name, store_name, store_type FROM gold_fpa.dim_site WHERE entity = 'RETAIL'").fetchall()})
-    return eng.build_stores(sr, cs, names, ctx["items"], ctx["months"], ctx["lines"], cfg.ledger_map(), ctx["entity"], ctx.get("reclass"))
+    return eng.build_stores(sr, cs, names, ctx["items"], ctx["months"], ctx["lines"], cfg.ledger_map_provider(), ctx["entity"], ctx.get("reclass"))

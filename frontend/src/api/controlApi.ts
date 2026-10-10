@@ -1,7 +1,7 @@
 /** Client for the governed write APIs (identity, adjustments, corrections, exceptions). Same-origin through the dev proxy; the session is an HttpOnly cookie the browser
  *  sends by itself, and every state-changing call carries X-FPA-Request: 1 (the server also checks the Origin). No token or password is ever kept in JavaScript. */
-export type Area = "auth" | "adjustments" | "corrections" | "inbox" | "close";
-const BASE: Record<Area, string> = { auth: "/auth-api", adjustments: "/adjustments-api", corrections: "/corrections-api", inbox: "/inbox-api", close: "/close-api" };
+export type Area = "auth" | "adjustments" | "corrections" | "inbox" | "close" | "mapping";
+const BASE: Record<Area, string> = { auth: "/auth-api", adjustments: "/adjustments-api", corrections: "/corrections-api", inbox: "/inbox-api", close: "/close-api", mapping: "/mapping-api" };
 
 export class ControlApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -149,4 +149,26 @@ export const close = {
   history: (entity: string, month: string) => call<PeriodEvent[]>("close", "GET", "/history", { params: { entity, month } }),
   signoff: (entity: string, month: string, check_key: string, decision: string, comment: string) => call<Readiness>("close", "POST", "/signoff", { body: { entity, month, check_key, decision, comment } }),
   period: (action: string, entity: string, month: string, reason: string) => call<Readiness>("close", "POST", `/period/${action}`, { body: { entity, month, reason } }),
+};
+
+/* ---------------- mapping governance ---------------- */
+export type MapStatus = "DRAFT" | "SUBMITTED" | "APPROVED" | "ACTIVE" | "REJECTED" | "WITHDRAWN" | "RETIRED";
+export interface MappingRule {
+  mapping_id: string; domain: "LEDGER_GROUP" | "SITE_LOCATION"; source_key: string; mapped_value: string; attrs: Record<string, string>; effective_from: string; effective_to: string | null; version: number;
+  supersedes_id: string | null; status: MapStatus; source: string; reason: string; evidence_ref: string | null; requested_at: string; approved_at: string | null; in_force_now: boolean;
+}
+export interface MappingList { total: number; counts: Record<string, number>; source_in_use: "csv" | "app"; items: MappingRule[]; groups: string[] }
+export interface MappingImpact { from_month: string; to_month: string; lines: { key: string; label: string; before: string; after: string; change: string; by_month: Record<string, string> }[]; note: string }
+export interface MappingValidation { window: string[]; csv_ledgers: number; app_ledgers: number; csv_sites: number; app_sites: number; active_rules: number; key_difference_count: number; key_differences: { domain: string; key: string; csv: string | null; app: string | null }[]; line_differences: { key: string; label: string; change: string }[]; identical: boolean; note: string }
+export interface MapInput { domain: string; source_key: string; mapped_value: string; effective_from: string; reason: string; evidence_ref?: string }
+
+export const mapping = {
+  list: (p: { domain?: string; status?: string; search?: string } = {}) => call<MappingList>("mapping", "GET", "", { params: p }),
+  one: (id: string) => call<MappingRule & { events: HistoryEvent[]; versions: MappingRule[] }>("mapping", "GET", `/${id}`),
+  create: (b: MapInput) => call<MappingRule>("mapping", "POST", "", { body: b }),
+  preview: (b: MapInput) => call<MappingImpact>("mapping", "POST", "/preview", { body: b }),
+  previewSaved: (id: string) => call<MappingImpact>("mapping", "GET", `/${id}/preview`),
+  act: (id: string, action: string, comment?: string) => call<MappingRule>("mapping", "POST", `/${id}/${action}`, { body: { comment } }),
+  validate: () => call<MappingValidation>("mapping", "GET", "/validate"),
+  importBaseline: () => call<{ imported: Record<string, number>; skipped_existing: number; next: string }>("mapping", "POST", "/import"),
 };
