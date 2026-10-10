@@ -53,6 +53,13 @@ def listing(status: str | None = None, domain: str | None = None, band: str | No
         return ok(guard(lambda: svc.listing(conn, status, domain, band, owner, actor.user_id if mine else None, search, top if not (status or search or domain or band or owner or mine) else None, limit, offset)))
 
 
+@router.get("/thresholds")
+def thresholds(actor: Actor = Depends(current_actor)):
+    return ok({"version": detectors.THRESHOLD_VERSION, "calibration_status": detectors.CALIBRATION_STATUS, "thresholds": detectors.THRESHOLDS,
+               "weights": {"severity": "0.35", "materiality": "0.30", "recency": "0.15", "actionability": "0.20"}, "persistence": {"1-2": "1.00", "3-5": "1.10", "6+": "1.25"},
+               "bands": {"CRITICAL": "80+ or escalated", "HIGH": "60-79", "MEDIUM": "40-59", "LOW": "below 40"}})
+
+
 @router.post("/detect")
 def detect(request: Request, actor: Actor = Depends(writer)):
     def go():
@@ -60,7 +67,7 @@ def detect(request: Request, actor: Actor = Depends(writer)):
         gold = database(request)
         with app_connection() as conn:
             if gold is None:
-                cands, errors = detectors.provision_gaps(conn) + detectors.stale_approvals(conn), ["management data unavailable: only the workflow detectors ran"]
+                cands, errors = detectors.stamp(detectors.provision_gaps(conn) + detectors.stale_approvals(conn)), ["management data unavailable: only the workflow detectors ran"]
             else:
                 with gold.session("pnl") as g:
                     cands, errors = detectors.run_all(conn, g)

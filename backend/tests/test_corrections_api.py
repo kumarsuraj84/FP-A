@@ -220,3 +220,15 @@ def test_voucher_scope_expands_into_lines_and_bulk_needs_one_target(env):
     d = r.json()["data"]
     assert d["scope_type"] == "VOUCHER" and d["line_count"] >= 1 and d["correction_type"] == "EXPENSE_MONTH"
     assert len({x["corrected_month"] for x in d["lines"]}) == 1
+
+
+def test_source_lines_lists_a_voucher_with_group_month_and_correctability(env):
+    line = a_line("02-Employee Cost")
+    m = env["person"]("mgr8@example.test", "fpa_manager")
+    r = m.get("/api/v1/corrections/source-lines", params={"entity": "RETAIL", "voucher": line["entcode"]})
+    assert r.status_code == 200, r.text
+    d = r.json()["data"]
+    row = next(x for x in d["lines"] if x["cost_tag_key"] == line["cost_tag_key"])
+    assert row["correctable"] is True and row["management_group"] == "02-Employee Cost" and row["month"] == "2026-08" and row["active_correction"] is None
+    assert "02-Employee Cost" in d["groups"]
+    assert m.get("/api/v1/corrections/source-lines", params={"entity": "RETAIL", "voucher": "NO-SUCH-VOUCHER"}).status_code == 404

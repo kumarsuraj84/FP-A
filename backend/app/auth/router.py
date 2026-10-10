@@ -117,6 +117,11 @@ def change_password(body: PasswordBody, request: Request, response: Response, ac
     return {"data": {"changed": True}}
 
 
+@router.get("/assignable")
+def assignable(actor: Actor = Depends(current_actor)):
+    return {"data": svc.assignable_users(actor)}
+
+
 @router.get("/admin/users")
 def users(actor: Actor = Depends(current_actor)):
     try:

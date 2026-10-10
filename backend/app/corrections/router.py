@@ -53,6 +53,13 @@ def groups(actor: Actor = Depends(current_actor)):
     return ok([{"group": g, "line": cfg.KEY_OF_GROUP[g]} for g in svc.P_L_GROUPS])
 
 
+@router.get("/source-lines")
+def source_lines(request: Request, entity: str, voucher: str, actor: Actor = Depends(current_actor)):
+    gold = database(request)
+    with app_connection() as conn:
+        return ok(guard(lambda: svc.source_lines(conn, gold, entity, voucher)))
+
+
 @router.post("/source-check")
 def source_check(request: Request, actor: Actor = Depends(writer)):
     gold = database(request)

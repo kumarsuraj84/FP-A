@@ -168,6 +168,13 @@ def list_users(actor: Actor) -> list[dict]:
     return [{**r, "user_id": str(r["user_id"])} for r in rows]
 
 
+def assignable_users(actor: Actor) -> list[dict]:
+    """Active users who can own an exception (anyone signed in may see this short list: name and email only)."""
+    with app_connection() as conn:
+        rows = conn.execute("SELECT user_id, email, display_name, role FROM app_user WHERE active AND role <> 'viewer' ORDER BY display_name").fetchall()
+    return [{**r, "user_id": str(r["user_id"])} for r in rows]
+
+
 def set_role(actor: Actor, user_id: str, role: str, ip: str | None = None) -> None:
     _need_admin(actor)
     if role not in ROLES:

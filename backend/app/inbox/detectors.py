@@ -12,11 +12,21 @@ from ..mgmt import engine as eng
 from ..mgmt import service as msvc
 
 D = Decimal
-# UNCALIBRATED thresholds
-LINE_VARIANCE_PCT = D("15")          # percent change month on month
-LINE_VARIANCE_MIN_CR = D("0.25")     # and at least this many crore
-UNMAPPED_MIN_CR = D("0.05")
-STALE_APPROVAL_DAYS = 3
+# ONE visible, versioned set of thresholds. Every case records the version and the calibration status in its evidence. A change needs a new version string and a dated note here.
+THRESHOLD_VERSION = "2026-10-uncalibrated-1"
+CALIBRATION_STATUS = "UNCALIBRATED"
+THRESHOLDS = {
+    "revenue_move": {"pct": D("10"), "min_cr": D("0.50")},          # revenue falls or rises by at least this, month on month
+    "expense_move": {"pct": D("15"), "min_cr": D("0.25")},          # any cost line, month on month
+    "unmapped_ledger": {"min_cr": D("0.05")},
+    "stale_approval": {"days": 3},
+    "provision_missing": {},                                        # any missing provision is a close blocker in the current month
+    "control_failure": {},                                          # severity override: a failed control always ranks high regardless of rupees
+}
+LINE_VARIANCE_PCT = THRESHOLDS["expense_move"]["pct"]
+LINE_VARIANCE_MIN_CR = THRESHOLDS["expense_move"]["min_cr"]
+UNMAPPED_MIN_CR = THRESHOLDS["unmapped_ledger"]["min_cr"]
+STALE_APPROVAL_DAYS = THRESHOLDS["stale_approval"]["days"]
 VARIANCE_LINES = ("revenue", "material_cost", "rent", "employee_cost", "power_fuel", "advertisement", "freight", "other_expenses", "dc_cost", "ho_cost")
 REVENUE_LINES = ("revenue",)
 
@@ -50,10 +60,11 @@ def line_variance(g) -> list[dict]:
     for k in VARIANCE_LINES:
         cur, old = L[k]["values"][month]["total"], L[k]["values"][prev]["total"]
         change = cur - old
-        if old == 0 or abs(change) < LINE_VARIANCE_MIN_CR:
+        th = THRESHOLDS["revenue_move" if k in REVENUE_LINES else "expense_move"]
+        if old == 0 or abs(change) < th["min_cr"]:
             continue
         pct = change / abs(old) * 100
-        if abs(pct) < LINE_VARIANCE_PCT:
+        if abs(pct) < th["pct"]:
             continue
         domain = "REVENUE" if k in REVENUE_LINES else "EXPENSE"
         out.append({"exception_type": "LINE_MONTH_MOVE", "domain": domain, "entity": "CONSOLIDATED", "metric_id": k, "period": date(int(month[:4]), int(month[5:7]), 1), "subject_key": k,
@@ -127,6 +138,12 @@ def intercompany(g) -> list[dict]:
     return out
 
 
+def stamp(cands: list[dict]) -> list[dict]:
+    for c in cands:
+        c.setdefault("evidence", {}).update({"threshold_version": THRESHOLD_VERSION, "calibration_status": CALIBRATION_STATUS})
+    return cands
+
+
 def run_all(app, g) -> list[dict]:
     out, errors = [], []
     for name, fn, arg in (("line_variance", line_variance, g), ("unmapped", unmapped, g), ("control_failures", control_failures, g), ("provision_gaps", provision_gaps, app),
@@ -135,4 +152,4 @@ def run_all(app, g) -> list[dict]:
             out += fn(arg)
         except Exception as e:  # noqa: BLE001  one detector failing must not hide the others
             errors.append(f"{name}: {type(e).__name__}")
-    return out, errors
+    return stamp(out), errors

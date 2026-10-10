@@ -106,6 +106,32 @@ def event(conn, actor: Actor, request_id: str, etype: str, to: str, comment: str
     audit(conn, actor.email, "correction_" + etype.lower(), "correction_request", str(request_id), {"to_status": to, "comment": comment}, actor.user_id)
 
 
+def source_lines(conn, gold, entity: str, voucher: str) -> dict:
+    """The lines of one voucher a user can pick from: current management group and month, site, amount, whether correctable, and any correction already active on the line."""
+    entity = entity.upper()
+    if entity not in ENTITIES:
+        raise Problem("Choose the books: RETAIL (SubCo) or VENTURES (HoldCo).")
+    voucher = voucher.strip()
+    if not voucher:
+        raise Problem("Enter the voucher number.")
+    src = gold_lines(gold, entity, voucher=voucher)
+    if not src:
+        raise Problem("No lines found for that voucher in the finance data.", 404)
+    active = {r["source_line_key"]: r for r in conn.execute("""SELECT l.source_line_key, l.request_id, l.corrected_group, l.corrected_month, l.group_active, l.month_active FROM correction_line l
+                                                              WHERE l.source_entity = %s AND (l.group_active OR l.month_active)""", (entity,)).fetchall()}
+    lmap, sloc = cfg.ledger_map(), cfg.site_loc()
+    out = []
+    for g in src:
+        d = describe(g, lmap, sloc)
+        a = active.get(str(g["cost_tag_key"]))
+        out.append({"cost_tag_key": g["cost_tag_key"], "ledger": g["glname"], "entry_date": g["entdt"], "site_code": g["tag_site_code"], "amount_cr": (Decimal(g["profit_effect"]) / CR).quantize(Decimal("0.0001")),
+                    "management_group": d["group"] if d else None, "month": d["month"].strftime("%Y-%m") if d else None, "correctable": d is not None,
+                    "not_correctable_reason": None if d else "Not a Management P&L line (inventory flow, unmapped ledger or unknown location).",
+                    "active_correction": {"request_id": str(a["request_id"]), "corrected_group": a["corrected_group"] if a["group_active"] else None,
+                                          "corrected_month": a["corrected_month"].strftime("%Y-%m") if a["month_active"] and a["corrected_month"] else None} if a else None})
+    return {"voucher": voucher, "entity": entity, "lines": out, "groups": P_L_GROUPS}
+
+
 # --------------------------------------------------------------------------- create
 
 def create(conn, gold, actor: Actor, p: dict) -> dict:

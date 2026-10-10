@@ -172,3 +172,13 @@ def test_foreign_origin_is_refused_on_writes(shared, client):
     assert r.status_code == 403
     r = client.post("/api/v1/auth/login", json={"email": "admin@example.test", "password": PW}, headers={**H, "Origin": "http://localhost:5180"})
     assert r.status_code == 200
+
+
+def test_assignable_users_are_visible_to_any_signed_in_user_and_exclude_viewers(shared, client):
+    make_admin(shared)
+    client.post("/api/v1/auth/login", json={"email": "admin@example.test", "password": PW}, headers=H)
+    client.post("/api/v1/auth/admin/users", json={"email": "v@example.test", "display_name": "V", "role": "viewer"}, headers=H)
+    client.post("/api/v1/auth/admin/users", json={"email": "m@example.test", "display_name": "M", "role": "fpa_manager"}, headers=H)
+    emails = {u["email"] for u in client.get("/api/v1/auth/assignable").json()["data"]}
+    assert {"m@example.test", "admin@example.test"} <= emails and "v@example.test" not in emails
+    assert TestClient(client.app).get("/api/v1/auth/assignable").status_code == 401
